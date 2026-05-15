@@ -18,6 +18,8 @@ import type {
   RequestListQuery,
   RequestPayload,
   Tenant,
+  TenantCreateRequest,
+  TenantUpdateRequest,
   User,
   UserCreateRequest,
   UserListQuery,
@@ -72,8 +74,30 @@ export async function authMe(): Promise<AuthMeResponse> {
 
 // ---------- Tenants ----------
 
-export async function tenantsList(): Promise<Tenant[]> {
-  const { data } = await api.get<Tenant[]>('/tenants');
+export async function tenantsList(withCounts = false): Promise<Tenant[]> {
+  const params: Record<string, string> = {};
+  if (withCounts) params.withCounts = 'true';
+  const { data } = await api.get<Tenant[]>('/tenants', { params });
+  return data;
+}
+
+export async function tenantGet(id: number): Promise<Tenant> {
+  const { data } = await api.get<Tenant>(`/tenants/${id}`);
+  return data;
+}
+
+export async function tenantCreate(body: TenantCreateRequest): Promise<Tenant> {
+  const { data } = await api.post<Tenant>('/tenants', body);
+  return data;
+}
+
+export async function tenantUpdate(id: number, patch: TenantUpdateRequest): Promise<Tenant> {
+  const { data } = await api.patch<Tenant>(`/tenants/${id}`, patch);
+  return data;
+}
+
+export async function tenantDelete(id: number): Promise<{ ok: true }> {
+  const { data } = await api.delete<{ ok: true }>(`/tenants/${id}`);
   return data;
 }
 
@@ -129,7 +153,9 @@ export async function requestGet(id: number): Promise<FinancingRequestDetail> {
   return data;
 }
 
-export async function requestCreate(body: RequestPayload = {}): Promise<FinancingRequest> {
+export async function requestCreate(
+  body: RequestPayload & { tenantId?: number } = {},
+): Promise<FinancingRequest> {
   const { data } = await api.post<FinancingRequest>('/requests', body);
   return data;
 }

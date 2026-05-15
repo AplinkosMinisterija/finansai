@@ -28,13 +28,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/lib/auth';
 import { dashboardGet } from '@/lib/api';
 import {
+  canCreate,
   fmtDateTime,
   fmtEur,
   STATUS_LABELS,
   STATUS_VARIANTS,
   totalRequested,
 } from '@/lib/requests';
-import { ROLE_LABELS } from '@/lib/roles';
+import { roleLabel } from '@/lib/roles';
 import { cn } from '@/lib/utils';
 
 export default function HomePage(): JSX.Element {
@@ -45,8 +46,9 @@ export default function HomePage(): JSX.Element {
     staleTime: 30_000,
   });
 
-  const isAmRole = user?.role === 'am_admin' || user?.role === 'am_user';
-  const isOrgRole = user?.role === 'org_admin' || user?.role === 'org_user';
+  const isApprover = user?.tenantIsApprover === true;
+  const isSubmitter = user?.tenantIsApprover === false;
+  const canCreateRequest = canCreate(user);
 
   if (q.isLoading) {
     return (
@@ -86,14 +88,14 @@ export default function HomePage(): JSX.Element {
           <p className="mt-1 text-sm text-muted-foreground">
             {user ? (
               <>
-                {ROLE_LABELS[user.role]} · {user.tenantName} · {d.year} m.
+                {roleLabel(user)} · {user.tenantName} · {d.year} m.
               </>
             ) : (
               'Finansavimo prašymų sistema'
             )}
           </p>
         </div>
-        {isOrgRole && (
+        {canCreateRequest && (
           <Button asChild>
             <Link to="/prasymai">
               <Plus className="h-4 w-4" />
@@ -105,7 +107,7 @@ export default function HomePage(): JSX.Element {
 
       {/* Stat cards — role-tailored */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {isAmRole ? (
+        {isApprover ? (
           <>
             <StatCard
               icon={<Inbox className="h-4 w-4" />}
@@ -136,7 +138,7 @@ export default function HomePage(): JSX.Element {
               to="/vartotojai"
             />
           </>
-        ) : user?.role === 'org_admin' ? (
+        ) : user?.role === 'admin' ? (
           <>
             <StatCard
               icon={<FileEdit className="h-4 w-4" />}
@@ -170,7 +172,7 @@ export default function HomePage(): JSX.Element {
             />
           </>
         ) : (
-          // org_user
+          // org. specialistas
           <>
             <StatCard
               icon={<FileEdit className="h-4 w-4" />}
@@ -210,7 +212,7 @@ export default function HomePage(): JSX.Element {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Left primary action zone — 2 cols */}
         <div className="space-y-4 lg:col-span-2">
-          {isAmRole && (
+          {isApprover && (
             <ActionableSection
               title="Laukia mano tvirtinimo"
               icon={<Inbox className="h-4 w-4" />}
@@ -219,7 +221,7 @@ export default function HomePage(): JSX.Element {
               urgent
             />
           )}
-          {isOrgRole && d.actionable.length > 0 && (
+          {isSubmitter && d.actionable.length > 0 && (
             <ActionableSection
               title="Reikalauja mano veiksmų"
               icon={<AlertTriangle className="h-4 w-4" />}
@@ -228,7 +230,7 @@ export default function HomePage(): JSX.Element {
               urgent
             />
           )}
-          {isOrgRole && d.actionable.length === 0 && (
+          {isSubmitter && d.actionable.length === 0 && (
             <Card>
               <CardContent className="flex flex-col items-center gap-3 p-12 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
@@ -251,7 +253,7 @@ export default function HomePage(): JSX.Element {
           )}
 
           {/* Per-tenant breakdown (AM) */}
-          {isAmRole && d.perTenantBreakdown && d.perTenantBreakdown.length > 0 && (
+          {isApprover && d.perTenantBreakdown && d.perTenantBreakdown.length > 0 && (
             <Card>
               <CardContent className="p-4">
                 <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
@@ -334,8 +336,8 @@ export default function HomePage(): JSX.Element {
                 <QuickLink to="/prasymai" label="Visi prašymai" />
                 <QuickLink to="/prasymai?status=DRAFT" label="Juodraščiai" />
                 <QuickLink to="/prasymai?status=SUBMITTED" label="Pateikti" />
-                {isAmRole && <QuickLink to="/prasymai?status=APPROVED" label="Patvirtinti" />}
-                {isAmRole && <QuickLink to="/prasymai?status=REJECTED" label="Atmesti" />}
+                {isApprover && <QuickLink to="/prasymai?status=APPROVED" label="Patvirtinti" />}
+                {isApprover && <QuickLink to="/prasymai?status=REJECTED" label="Atmesti" />}
                 <QuickLink to="/vartotojai" label="Vartotojai" />
                 <QuickLink to="/docs/" label="Dokumentacija" external />
               </div>

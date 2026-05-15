@@ -1,7 +1,9 @@
 import * as React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
+  Building2,
   ChevronUp,
+  ExternalLink,
   FileText,
   LayoutDashboard,
   LogOut,
@@ -18,19 +20,21 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
-import { ROLE_LABELS } from '@/lib/roles';
+import { canManageTenants, roleLabel } from '@/lib/roles';
 
 interface NavItem {
   to: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   disabled?: boolean;
+  adminOnly?: boolean;
 }
 
 const PRIMARY_NAV: NavItem[] = [
   { to: '/', label: 'Pradžia', icon: LayoutDashboard },
-  { to: '/vartotojai', label: 'Vartotojai', icon: Users },
   { to: '/prasymai', label: 'Prašymai', icon: FileText },
+  { to: '/vartotojai', label: 'Vartotojai', icon: Users },
+  { to: '/organizacijos', label: 'Organizacijos', icon: Building2, adminOnly: true },
 ];
 
 export interface SidebarProps {
@@ -42,7 +46,9 @@ export function Sidebar({ onNavigate }: SidebarProps): JSX.Element {
 
   const fullName = user?.fullName ?? 'Naudotojas';
   const initials = user ? initialsFrom(fullName) : '??';
-  const roleLabel = user ? ROLE_LABELS[user.role] : '';
+  const role = user ? roleLabel(user) : '';
+  const showTenants = canManageTenants(user);
+  const navItems = PRIMARY_NAV.filter((i) => !i.adminOnly || showTenants);
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-card">
@@ -59,7 +65,7 @@ export function Sidebar({ onNavigate }: SidebarProps): JSX.Element {
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2 text-sm">
-        {PRIMARY_NAV.map((item) => {
+        {navItems.map((item) => {
           if (item.disabled) {
             return (
               <div
@@ -94,6 +100,18 @@ export function Sidebar({ onNavigate }: SidebarProps): JSX.Element {
             </NavLink>
           );
         })}
+
+        <div className="mt-3 border-t border-border pt-2">
+          <a
+            href="/docs/"
+            className="flex items-center gap-2.5 rounded-md px-3 py-2 text-foreground transition-colors hover:bg-muted min-h-[44px] md:min-h-0 md:py-2"
+            onClick={onNavigate}
+          >
+            <FileText className="h-4 w-4" />
+            <span className="flex-1">Dokumentacija</span>
+            <ExternalLink className="h-3 w-3 text-muted-foreground" />
+          </a>
+        </div>
       </nav>
 
       <div className="border-t border-border p-2">
@@ -109,7 +127,7 @@ export function Sidebar({ onNavigate }: SidebarProps): JSX.Element {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{fullName}</div>
                 <div className="truncate text-[11px] text-muted-foreground">
-                  {roleLabel}
+                  {role}
                 </div>
               </div>
               <ChevronUp className="h-4 w-4 text-muted-foreground" />

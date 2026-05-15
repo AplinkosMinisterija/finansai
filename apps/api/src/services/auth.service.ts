@@ -59,6 +59,7 @@ function toAuthUser(user: UserWithTenant): AuthUser {
     tenantId: user.tenantId,
     tenantCode: tenant.code,
     tenantName: tenant.name,
+    tenantIsApprover: tenant.isApprover,
     amScopeOrgIds: user.amScopeOrgIds,
   };
 }

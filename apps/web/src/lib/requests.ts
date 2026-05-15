@@ -75,45 +75,50 @@ export function totalQuarterly(r: FinancingRequest): number {
   );
 }
 
-/** Submitter (org_admin/org_user) gali kurti naują prašymą. */
+/**
+ * Kas gali kurti naują prašymą:
+ *  - Visi pavaldžių institucijų vartotojai (admin/user) — savo organizacijai
+ *  - AM administratoriai — kitos organizacijos vardu (su tenant picker)
+ */
 export function canCreate(user: AuthUser | null): boolean {
   if (!user) return false;
-  return user.role === 'org_admin' || user.role === 'org_user';
+  if (!user.tenantIsApprover) return true;
+  return user.role === 'admin';
 }
 
-/** Submitter gali redaguoti DRAFT/RETURNED, jei jis savininkas (org_user) ar org_admin. */
+/** Ar AM admin'as kuria prašymą kitos organizacijos vardu. */
+export function isCreateOnBehalf(user: AuthUser | null): boolean {
+  return user !== null && user.tenantIsApprover && user.role === 'admin';
+}
+
+/** Edit'inti gali tik teikėjas (DRAFT/RETURNED). AM admin'as — savo „on behalf" prašymus. */
 export function canEdit(user: AuthUser | null, r: FinancingRequest): boolean {
   if (!user) return false;
   if (r.status !== 'DRAFT' && r.status !== 'RETURNED') return false;
+  if (user.tenantIsApprover) {
+    return user.role === 'admin' && r.createdByUserId === user.id;
+  }
   if (r.tenantId !== user.tenantId) return false;
-  if (user.role === 'org_admin') return true;
-  if (user.role === 'org_user') return r.createdByUserId === user.id;
-  return false;
+  if (user.role === 'admin') return true;
+  return r.createdByUserId === user.id;
 }
 
-/** Org_user/org_admin gali submitinti savo prašymą jei DRAFT/RETURNED. */
 export function canSubmit(user: AuthUser | null, r: FinancingRequest): boolean {
   return canEdit(user, r);
 }
 
-/** AM rolės gali decide jei SUBMITTED ir tenant scope leidžia. */
+/** Tvirtinti gali tik aprover'iai (AM) SUBMITTED prašymus, pagal scope. */
 export function canDecide(user: AuthUser | null, r: FinancingRequest): boolean {
   if (!user) return false;
+  if (!user.tenantIsApprover) return false;
   if (r.status !== 'SUBMITTED') return false;
-  if (user.role === 'am_admin') return true;
-  if (user.role === 'am_user') {
-    if (user.amScopeOrgIds === null) return true;
-    return user.amScopeOrgIds.includes(r.tenantId);
-  }
-  return false;
+  if (user.role === 'admin') return true;
+  if (user.amScopeOrgIds === null) return true;
+  return user.amScopeOrgIds.includes(r.tenantId);
 }
 
-/** Submitter gali ištrinti DRAFT. */
 export function canDelete(user: AuthUser | null, r: FinancingRequest): boolean {
   if (!user) return false;
   if (r.status !== 'DRAFT') return false;
-  if (r.tenantId !== user.tenantId) return false;
-  if (user.role === 'org_admin') return true;
-  if (user.role === 'org_user') return r.createdByUserId === user.id;
-  return false;
+  return canEdit(user, r);
 }

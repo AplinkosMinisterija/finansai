@@ -111,15 +111,20 @@ function totalRequestedFromRow(r: Request): number {
  */
 function scopedRequestQuery(me: NonNullable<AuthMeta['user']>) {
   const q = Request.query();
-  if (me.role === 'org_admin') {
-    q.where('requests.tenant_id', me.tenantId);
-  } else if (me.role === 'org_user') {
-    q.where('requests.tenant_id', me.tenantId).andWhere('requests.created_by_user_id', me.id);
-  } else if (me.role === 'am_user' && me.amScopeOrgIds !== null) {
-    if (me.amScopeOrgIds.length === 0) {
-      q.whereRaw('FALSE');
+  if (me.tenantIsApprover) {
+    if (me.role === 'user' && me.amScopeOrgIds !== null) {
+      if (me.amScopeOrgIds.length === 0) {
+        q.whereRaw('FALSE');
+      } else {
+        q.whereIn('requests.tenant_id', me.amScopeOrgIds);
+      }
+    }
+    // admin — visi
+  } else {
+    if (me.role === 'admin') {
+      q.where('requests.tenant_id', me.tenantId);
     } else {
-      q.whereIn('requests.tenant_id', me.amScopeOrgIds);
+      q.where('requests.tenant_id', me.tenantId).andWhere('requests.created_by_user_id', me.id);
     }
   }
   return q;
@@ -132,7 +137,7 @@ const DashboardService: ServiceSchema = {
     get: {
       async handler(ctx: Context<unknown, AuthMeta>): Promise<DashboardData> {
         const me = requireMe(ctx);
-        const isAmRole = me.role === 'am_admin' || me.role === 'am_user';
+        const isApprover = me.tenantIsApprover;
         const year = new Date().getFullYear();
 
         // ===== Stats =====
@@ -175,11 +180,12 @@ const DashboardService: ServiceSchema = {
 
         // Users count — tik admin'ams
         let usersCount = 0;
-        if (me.role === 'am_admin') {
-          const result = await User.query().resultSize();
-          usersCount = result;
-        } else if (me.role === 'org_admin') {
-          usersCount = await User.query().where('tenant_id', me.tenantId).resultSize();
+        if (me.role === 'admin') {
+          if (me.tenantIsApprover) {
+            usersCount = await User.query().resultSize();
+          } else {
+            usersCount = await User.query().where('tenant_id', me.tenantId).resultSize();
+          }
         }
 
         const stats: DashboardStats = {
@@ -193,7 +199,7 @@ const DashboardService: ServiceSchema = {
         // ===== Actionable (submitter perspektyva) =====
         // RETURNED + DRAFT — top 5 naujausi
         let actionable: RequestDTO[] = [];
-        if (!isAmRole) {
+        if (!isApprover) {
           const rows = (await scopedRequestQuery(me)
             .withGraphFetched('[tenant, createdByUser, decidedByUser]')
             .whereIn('requests.status', ['RETURNED', 'DRAFT'])
@@ -205,7 +211,7 @@ const DashboardService: ServiceSchema = {
 
         // ===== Pending review (AM perspektyva) =====
         let pendingReview: RequestDTO[] = [];
-        if (isAmRole) {
+        if (isApprover) {
           const rows = (await scopedRequestQuery(me)
             .withGraphFetched('[tenant, createdByUser, decidedByUser]')
             .where('requests.status', 'SUBMITTED')
@@ -240,12 +246,12 @@ const DashboardService: ServiceSchema = {
           }
         }
 
-        // ===== Per-tenant breakdown (AM rolėms) =====
+        // ===== Per-tenant breakdown (approver rolėms) =====
         let perTenantBreakdown: DashboardPerTenantStats[] | undefined;
-        if (isAmRole) {
-          const tenants = await Tenant.query().where('code', '!=', 'AM').orderBy('code');
+        if (isApprover) {
+          const tenants = await Tenant.query().where('isApprover', false).orderBy('code');
           const visibleTenants =
-            me.role === 'am_user' && me.amScopeOrgIds !== null
+            me.role === 'user' && me.amScopeOrgIds !== null
               ? tenants.filter((t) => me.amScopeOrgIds!.includes(t.id))
               : tenants;
 
@@ -282,14 +288,56 @@ const DashboardService: ServiceSchema = {
           });
         }
 
+        // ===== Monthly trend (12 mėn) =====
+        // Skaičiuojam pateikimus (submitted_at) ir patvirtinimus (decided_at)
+        const trendStart = new Date();
+        trendStart.setMonth(trendStart.getMonth() - 11);
+        trendStart.setDate(1);
+        trendStart.setHours(0, 0, 0, 0);
+
+        const months: string[] = [];
+        for (let i = 0; i < 12; i++) {
+          const d = new Date(trendStart);
+          d.setMonth(d.getMonth() + i);
+          months.push(d.toISOString().slice(0, 7)); // YYYY-MM
+        }
+        const submittedByMonth: Record<string, number> = Object.fromEntries(months.map((m) => [m, 0]));
+        const approvedByMonth: Record<string, number> = Object.fromEntries(months.map((m) => [m, 0]));
+
+        // Fetch detalė trendui
+        if (allRequests.length > 0) {
+          const ids = allRequests.map((r) => r.id);
+          const fullRequests = (await scopedRequestQuery(me)
+            .whereIn('requests.id', ids)
+            .select('requests.submitted_at', 'requests.decided_at', 'requests.status')) as Request[];
+          for (const r of fullRequests) {
+            if (r.submittedAt) {
+              const m = String(r.submittedAt).slice(0, 7);
+              if (m in submittedByMonth) submittedByMonth[m]!++;
+            }
+            if (r.decidedAt && r.status === 'APPROVED') {
+              const m = String(r.decidedAt).slice(0, 7);
+              if (m in approvedByMonth) approvedByMonth[m]!++;
+            }
+          }
+        }
+
+        const monthlyTrend = months.map((m) => ({
+          month: m,
+          submitted: submittedByMonth[m] ?? 0,
+          approved: approvedByMonth[m] ?? 0,
+        }));
+
         return {
           role: me.role,
+          tenantIsApprover: me.tenantIsApprover,
           year,
           stats,
           actionable,
           pendingReview,
           recentActivity,
           perTenantBreakdown,
+          monthlyTrend,
         };
       },
     },

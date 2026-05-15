@@ -10,6 +10,7 @@ import type {
   UserUpdateRequest,
 } from '@biip-finansai/shared';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -20,9 +21,17 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { MultiSelect, type MultiSelectOption } from '@/components/ui/multi-select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { userCreate, userUpdate } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { isAmRole, ROLE_LABELS } from '@/lib/roles';
+import { ROLE_LABELS } from '@/lib/roles';
 
 interface FormState {
   username: string;
@@ -31,7 +40,7 @@ interface FormState {
   email: string;
   role: UserRole;
   tenantId: number | '';
-  amScopeOrgIds: string; // CSV
+  amScopeOrgIds: string[]; // string IDs
   active: boolean;
 }
 
@@ -41,9 +50,9 @@ function emptyForm(): FormState {
     password: '',
     fullName: '',
     email: '',
-    role: 'org_user',
+    role: 'user',
     tenantId: '',
-    amScopeOrgIds: '',
+    amScopeOrgIds: [],
     active: true,
   };
 }
@@ -56,7 +65,7 @@ function fromUser(u: User): FormState {
     email: u.email ?? '',
     role: u.role,
     tenantId: u.tenantId,
-    amScopeOrgIds: u.amScopeOrgIds ? u.amScopeOrgIds.join(',') : '',
+    amScopeOrgIds: u.amScopeOrgIds ? u.amScopeOrgIds.map(String) : [],
     active: u.active,
   };
 }
@@ -90,20 +99,27 @@ export function UserDialog({
     setState(user ? fromUser(user) : emptyForm());
   }, [user, open]);
 
+  // Pasirinkto tenant'o info — žinome ar tai aprover (AM) ar teikėjas.
+  const selectedTenant = React.useMemo(
+    () => (state.tenantId === '' ? null : tenants.find((t) => t.id === state.tenantId) ?? null),
+    [tenants, state.tenantId],
+  );
+  // AM scope laukas aktualus tik AM specialistui (aprover tenant + user rolė).
+  const showAmScope =
+    selectedTenant?.isApprover === true && state.role === 'user';
+
   const mutation = useMutation({
     mutationFn: async (): Promise<User> => {
       if (state.tenantId === '') {
         throw new Error('Pasirinkite organizaciją');
       }
-      const amScope =
-        isAmRole(state.role) && state.amScopeOrgIds.trim() !== ''
-          ? state.amScopeOrgIds
-              .split(',')
-              .map((s) => Number(s.trim()))
-              .filter((n) => Number.isFinite(n))
-          : isAmRole(state.role)
-            ? null
-            : null;
+      const amScope = showAmScope
+        ? state.amScopeOrgIds
+            .map((s) => Number(s))
+            .filter((n) => Number.isFinite(n))
+        : null;
+      const amScopeFinal: number[] | null =
+        showAmScope && amScope && amScope.length > 0 ? amScope : null;
 
       if (mode === 'create') {
         const body: UserCreateRequest = {
@@ -113,7 +129,7 @@ export function UserDialog({
           email: state.email || null,
           role: state.role,
           tenantId: Number(state.tenantId),
-          amScopeOrgIds: amScope,
+          amScopeOrgIds: amScopeFinal,
           active: state.active,
         };
         return userCreate(body);
@@ -125,7 +141,7 @@ export function UserDialog({
         email: state.email || null,
         role: state.role,
         tenantId: Number(state.tenantId),
-        amScopeOrgIds: amScope,
+        amScopeOrgIds: amScopeFinal,
         active: state.active,
       };
       if (state.password) patch.password = state.password;
@@ -146,13 +162,31 @@ export function UserDialog({
     },
   });
 
-  // Tenant pasirinkimas — org_admin tik savo
+  // Kokias org'as gali pasirinkti šis vartotojas.
+  // Aprover admin'as — visas. Submitter admin'as — tik savo.
   const allowedTenants = React.useMemo(() => {
     if (!me) return tenants;
-    if (me.role === 'am_admin') return tenants;
-    if (me.role === 'org_admin') return tenants.filter((t) => t.id === me.tenantId);
+    if (me.tenantIsApprover && me.role === 'admin') return tenants;
+    if (!me.tenantIsApprover && me.role === 'admin') {
+      return tenants.filter((t) => t.id === me.tenantId);
+    }
     return tenants;
   }, [me, tenants]);
+
+  // Kitos pavaldžios organizacijos — kandidatai į AM scope.
+  const scopeOptions: MultiSelectOption[] = React.useMemo(
+    () =>
+      tenants
+        .filter((t) => !t.isApprover && t.active)
+        .map((t) => ({
+          value: String(t.id),
+          label: t.name,
+          sublabel: t.code,
+        })),
+    [tenants],
+  );
+
+  const tenantPickerDisabled = me?.tenantIsApprover === false && me.role === 'admin';
 
   function onSubmit(e: React.FormEvent): void {
     e.preventDefault();
@@ -234,73 +268,89 @@ export function UserDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="ud-tenant">Organizacija</Label>
-                <select
-                  id="ud-tenant"
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  required
-                  value={state.tenantId}
-                  onChange={(e) =>
+                <Select
+                  value={state.tenantId === '' ? '' : String(state.tenantId)}
+                  onValueChange={(v) =>
                     setState((s) => ({
                       ...s,
-                      tenantId: e.target.value ? Number(e.target.value) : '',
+                      tenantId: v ? Number(v) : '',
+                      // Numatytuoju įsijungus AM tenant'ui apvalome scope (gali būti aktualu vėliau).
+                      amScopeOrgIds: [],
                     }))
                   }
-                  disabled={me?.role === 'org_admin'}
+                  disabled={tenantPickerDisabled}
                 >
-                  <option value="">Pasirinkite…</option>
-                  {allowedTenants.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.code} — {t.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger id="ud-tenant">
+                    <SelectValue placeholder="Pasirinkite…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allowedTenants.map((t) => (
+                      <SelectItem key={t.id} value={String(t.id)}>
+                        <span className="mr-1.5 font-mono text-[11px] text-muted-foreground">
+                          {t.code}
+                        </span>
+                        {t.name}
+                        {t.isApprover && (
+                          <span className="ml-1 text-[10px] uppercase text-primary">
+                            tvirtintojas
+                          </span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ud-role">Rolė</Label>
-                <select
-                  id="ud-role"
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  required
+                <Select
                   value={state.role}
-                  onChange={(e) =>
-                    setState((s) => ({ ...s, role: e.target.value as UserRole }))
+                  onValueChange={(v) =>
+                    setState((s) => ({ ...s, role: v as UserRole }))
                   }
                 >
-                  {(['am_admin', 'am_user', 'org_admin', 'org_user'] as UserRole[]).map((r) => (
-                    <option key={r} value={r}>
-                      {ROLE_LABELS[r]}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger id="ud-role">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['admin', 'user'] as UserRole[]).map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {ROLE_LABELS[r]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
-            {isAmRole(state.role) && (
+            {showAmScope && (
               <div className="space-y-2">
-                <Label htmlFor="ud-scope">
-                  AM scope — organizacijų ID (CSV, palikt tuščią = visos)
-                </Label>
-                <Input
+                <Label htmlFor="ud-scope">AM scope — organizacijos</Label>
+                <MultiSelect
                   id="ud-scope"
-                  placeholder="pvz., 2,3"
+                  options={scopeOptions}
                   value={state.amScopeOrgIds}
-                  onChange={(e) =>
-                    setState((s) => ({ ...s, amScopeOrgIds: e.target.value }))
+                  onChange={(next) =>
+                    setState((s) => ({ ...s, amScopeOrgIds: next }))
                   }
+                  emptyLabel="Visos organizacijos"
+                  placeholder="Pasirinkite organizacijas…"
+                  aria-label="AM scope organizacijos"
                 />
+                <p className="text-[11px] text-muted-foreground">
+                  Palikus tuščią — specialistas matys visus pavaldžių institucijų prašymus.
+                </p>
               </div>
             )}
 
             <div className="flex items-center gap-2">
-              <input
+              <Checkbox
                 id="ud-active"
-                type="checkbox"
                 checked={state.active}
-                onChange={(e) =>
-                  setState((s) => ({ ...s, active: e.target.checked }))
+                onCheckedChange={(checked) =>
+                  setState((s) => ({ ...s, active: checked === true }))
                 }
               />
-              <Label htmlFor="ud-active" className="text-sm">
+              <Label htmlFor="ud-active" className="cursor-pointer text-sm">
                 Aktyvus
               </Label>
             </div>

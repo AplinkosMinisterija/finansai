@@ -14,10 +14,11 @@ export const TEST_AUTH_USER: AuthUser = {
   username: 'demo',
   fullName: 'Demo Vartotojas',
   email: 'demo@am.lt',
-  role: 'am_admin',
+  role: 'admin',
   tenantId: 1,
   tenantCode: 'AM',
   tenantName: 'Aplinkos ministerija',
+  tenantIsApprover: true,
   amScopeOrgIds: null,
 };
 

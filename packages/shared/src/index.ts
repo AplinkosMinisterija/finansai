@@ -4,7 +4,7 @@
  * Konvencijos:
  *  - camelCase laukai (snake_case tik DB-internal)
  *  - Datos kaip ISO 8601 stringai
- *  - Pinigų sumos perduodamos kaip `string` (decimal preservation), UI parseina į number
+ *  - Pinigų sumos perduodamos kaip `string` (decimal preservation)
  *  - ID'ai kaip number (PostgreSQL serial)
  */
 
@@ -41,13 +41,52 @@ export type Tenant = {
   id: number;
   code: string;
   name: string;
+  /** Aprašymas — pvz. „Pavaldi įstaiga, vykdanti aplinkos apsaugos kontrolę". */
+  description: string | null;
+  /**
+   * Ar tenant'as gali tvirtinti prašymus. AM = true; pavaldžios institucijos = false.
+   * Šis flag'as nustato role'es teisės (admin/user) tikslią reikšmę.
+   */
   isApprover: boolean;
   active: boolean;
+  /** Naudotojų skaičius (užkrautas serveryje, kai prašoma). */
+  usersCount?: number;
+  /** Prašymų skaičius (užkrautas serveryje, kai prašoma). */
+  requestsCount?: number;
+};
+
+export type TenantCreateRequest = {
+  code: string;
+  name: string;
+  description?: string | null;
+  isApprover?: boolean;
+  active?: boolean;
+};
+
+export type TenantUpdateRequest = {
+  code?: string;
+  name?: string;
+  description?: string | null;
+  isApprover?: boolean;
+  active?: boolean;
 };
 
 // ---------- Auth ----------
 
-export type UserRole = 'am_admin' | 'am_user' | 'org_admin' | 'org_user';
+/**
+ * Dvi rolės — `admin` ir `user`.
+ *
+ * Ką role'ė reiškia, priklauso nuo vartotojo tenant'o:
+ * - Jei tenant.is_approver = true (AM):
+ *   - admin → mato + tvirtina VISŲ organizacijų prašymus; valdo AM vartotojus
+ *   - user  → mato + tvirtina tik scope organizacijų prašymus
+ * - Jei tenant.is_approver = false (pavaldi institucija):
+ *   - admin → valdo savo org vartotojus + mato/teikia visus org prašymus
+ *   - user  → mato/teikia tik savo (=user) prašymus
+ *
+ * `amScopeOrgIds` aktualus tik užvirš `user` rolei aprover tenant'e.
+ */
+export type UserRole = 'admin' | 'user';
 
 export type AuthUser = {
   id: number;
@@ -58,6 +97,9 @@ export type AuthUser = {
   tenantId: number;
   tenantCode: string;
   tenantName: string;
+  /** Ar šis vartotojas iš tvirtintojų tenant'o (AM). */
+  tenantIsApprover: boolean;
+  /** Kuriose org'ose AM specialistas mato prašymus. NULL = visos (arba neaktualu). */
   amScopeOrgIds: number[] | null;
 };
 
@@ -85,6 +127,7 @@ export type User = {
   tenantId: number;
   tenantCode: string;
   tenantName: string;
+  tenantIsApprover: boolean;
   amScopeOrgIds: number[] | null;
   active: boolean;
   createdAt: string;
@@ -149,9 +192,6 @@ export type RequestComment = {
   createdAt: string;
 };
 
-/**
- * Finansavimo prašymo objektas. Pinigų sumos — string (decimal preservation).
- */
 export type FinancingRequest = {
   id: number;
   tenantId: number;
@@ -161,7 +201,6 @@ export type FinancingRequest = {
   createdByName: string;
   status: RequestStatus;
 
-  // Step 1
   projectName: string;
   systemCode: string | null;
   projectType: string | null;
@@ -170,7 +209,6 @@ export type FinancingRequest = {
   priority: number | null;
   procurementStage: string | null;
 
-  // Step 2
   costDu: string;
   costEquipment: string;
   costCreation: string;
@@ -183,20 +221,17 @@ export type FinancingRequest = {
   otherFunds: string;
   otherFundsSource: string | null;
 
-  // Step 3
   q1Amount: string;
   q2Amount: string;
   q3Amount: string;
   q4Amount: string;
 
-  // Step 4
   responsibleInstitution: string | null;
   executorName: string | null;
   executorEmail: string | null;
   implementationDeadline: string | null;
   submitterNotes: string | null;
 
-  // Step 5 (AM)
   decisionGrantedAmount: string | null;
   decisionFundingSource: string | null;
   decisionProtocol: string | null;
@@ -214,10 +249,6 @@ export type FinancingRequestDetail = FinancingRequest & {
   comments: RequestComment[];
 };
 
-/**
- * Visi laukai, kuriuos submitter gali pildyti (be sprendimo).
- * Naudojamas tiek create, tiek update PATCH (visi optional).
- */
 export type RequestPayload = {
   projectName?: string;
   systemCode?: string | null;
@@ -313,10 +344,17 @@ export type DashboardPerTenantStats = {
 
 export type DashboardData = {
   role: UserRole;
+  tenantIsApprover: boolean;
   year: number;
   stats: DashboardStats;
   actionable: FinancingRequest[];
   pendingReview: FinancingRequest[];
   recentActivity: DashboardActivityItem[];
   perTenantBreakdown?: DashboardPerTenantStats[];
+  /** Mėnesinis pateikimų ir patvirtinimų trendas (12 mėn). */
+  monthlyTrend: Array<{
+    month: string; // YYYY-MM
+    submitted: number;
+    approved: number;
+  }>;
 };

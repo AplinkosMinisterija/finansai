@@ -9,6 +9,7 @@ export class Tenant extends BaseModel {
   id!: number;
   code!: string;
   name!: string;
+  description!: string | null;
   isApprover!: boolean;
   active!: boolean;
   createdAt!: string;

@@ -7,21 +7,39 @@ import {
   canEdit,
   canSubmit,
   fmtEur,
+  isCreateOnBehalf,
   STATUS_LABELS,
   totalQuarterly,
   totalRequested,
 } from './requests';
 
-function makeUser(overrides: Partial<AuthUser> = {}): AuthUser {
+function makeSubmitter(overrides: Partial<AuthUser> = {}): AuthUser {
   return {
     id: 100,
     username: 'u',
     fullName: 'Test User',
-    email: 'u@am.lt',
-    role: 'org_user',
+    email: 'u@aad.lt',
+    role: 'user',
     tenantId: 2,
     tenantCode: 'AAD',
     tenantName: 'AAD',
+    tenantIsApprover: false,
+    amScopeOrgIds: null,
+    ...overrides,
+  };
+}
+
+function makeApprover(overrides: Partial<AuthUser> = {}): AuthUser {
+  return {
+    id: 1,
+    username: 'am',
+    fullName: 'AM Admin',
+    email: 'am@am.lt',
+    role: 'admin',
+    tenantId: 1,
+    tenantCode: 'AM',
+    tenantName: 'Aplinkos ministerija',
+    tenantIsApprover: true,
     amScopeOrgIds: null,
     ...overrides,
   };
@@ -105,103 +123,138 @@ describe('fmtEur', () => {
 });
 
 describe('canCreate', () => {
-  it('org_user / org_admin gali', () => {
-    expect(canCreate(makeUser({ role: 'org_user' }))).toBe(true);
-    expect(canCreate(makeUser({ role: 'org_admin' }))).toBe(true);
+  it('teikėjai (visi) gali kurti', () => {
+    expect(canCreate(makeSubmitter({ role: 'user' }))).toBe(true);
+    expect(canCreate(makeSubmitter({ role: 'admin' }))).toBe(true);
   });
-  it('AM rolės negali', () => {
-    expect(canCreate(makeUser({ role: 'am_admin' }))).toBe(false);
-    expect(canCreate(makeUser({ role: 'am_user' }))).toBe(false);
+  it('AM admin gali kurti kitos org. vardu', () => {
+    expect(canCreate(makeApprover({ role: 'admin' }))).toBe(true);
+  });
+  it('AM specialistai negali kurti', () => {
+    expect(canCreate(makeApprover({ role: 'user' }))).toBe(false);
+  });
+  it('null user negali', () => {
+    expect(canCreate(null)).toBe(false);
+  });
+});
+
+describe('isCreateOnBehalf', () => {
+  it('true tik AM admin', () => {
+    expect(isCreateOnBehalf(makeApprover({ role: 'admin' }))).toBe(true);
+    expect(isCreateOnBehalf(makeApprover({ role: 'user' }))).toBe(false);
+    expect(isCreateOnBehalf(makeSubmitter({ role: 'admin' }))).toBe(false);
+    expect(isCreateOnBehalf(makeSubmitter({ role: 'user' }))).toBe(false);
   });
 });
 
 describe('canEdit', () => {
-  const u = makeUser({ role: 'org_user', id: 100 });
-
-  it('savininkas gali redaguoti DRAFT', () => {
+  it('savininkas (org. spec.) gali redaguoti DRAFT', () => {
+    const u = makeSubmitter({ id: 100 });
     const r = makeRequest({ status: 'DRAFT', createdByUserId: 100 });
     expect(canEdit(u, r)).toBe(true);
   });
 
   it('savininkas gali redaguoti RETURNED', () => {
+    const u = makeSubmitter({ id: 100 });
     const r = makeRequest({ status: 'RETURNED', createdByUserId: 100 });
     expect(canEdit(u, r)).toBe(true);
   });
 
   it('negalima redaguoti SUBMITTED', () => {
+    const u = makeSubmitter({ id: 100 });
     const r = makeRequest({ status: 'SUBMITTED', createdByUserId: 100 });
     expect(canEdit(u, r)).toBe(false);
   });
 
   it('negalima redaguoti APPROVED', () => {
+    const u = makeSubmitter({ id: 100 });
     const r = makeRequest({ status: 'APPROVED', createdByUserId: 100 });
     expect(canEdit(u, r)).toBe(false);
   });
 
-  it('kitas org_user negali redaguoti', () => {
+  it('kitas spec. negali redaguoti svetimo', () => {
+    const u = makeSubmitter({ id: 100 });
     const r = makeRequest({ status: 'DRAFT', createdByUserId: 999 });
     expect(canEdit(u, r)).toBe(false);
   });
 
-  it('org_admin gali redaguoti bet kurio savo tenant DRAFT', () => {
-    const admin = makeUser({ role: 'org_admin' });
+  it('org. admin gali redaguoti bet kurio savo tenant DRAFT', () => {
+    const admin = makeSubmitter({ role: 'admin' });
     const r = makeRequest({ status: 'DRAFT', createdByUserId: 999 });
     expect(canEdit(admin, r)).toBe(true);
   });
 
-  it('kito tenant org_admin negali redaguoti', () => {
-    const admin = makeUser({ role: 'org_admin', tenantId: 99 });
+  it('kito tenant org. admin negali redaguoti', () => {
+    const admin = makeSubmitter({ role: 'admin', tenantId: 99 });
     const r = makeRequest({ status: 'DRAFT', tenantId: 2 });
     expect(canEdit(admin, r)).toBe(false);
   });
 
-  it('am_admin negali redaguoti (tik AM rolės sprendžia)', () => {
-    const admin = makeUser({ role: 'am_admin', tenantId: 1 });
-    const r = makeRequest({ status: 'DRAFT', tenantId: 2 });
-    expect(canEdit(admin, r)).toBe(false);
+  it('AM admin gali redaguoti tik savo „on behalf" prašymus', () => {
+    const am = makeApprover({ id: 1 });
+    const ownDraft = makeRequest({ status: 'DRAFT', tenantId: 2, createdByUserId: 1 });
+    const someoneElse = makeRequest({ status: 'DRAFT', tenantId: 2, createdByUserId: 100 });
+    expect(canEdit(am, ownDraft)).toBe(true);
+    expect(canEdit(am, someoneElse)).toBe(false);
+  });
+
+  it('AM specialistas niekada negali redaguoti', () => {
+    const am = makeApprover({ role: 'user' });
+    const r = makeRequest({ status: 'DRAFT', tenantId: 2, createdByUserId: am.id });
+    expect(canEdit(am, r)).toBe(false);
   });
 });
 
 describe('canSubmit', () => {
   it('toks pats kaip canEdit', () => {
-    const u = makeUser({ role: 'org_user' });
+    const u = makeSubmitter();
     const r = makeRequest({ status: 'DRAFT', createdByUserId: 100 });
     expect(canSubmit(u, r)).toBe(canEdit(u, r));
   });
 });
 
 describe('canDecide', () => {
-  it('am_admin gali decide SUBMITTED', () => {
-    const u = makeUser({ role: 'am_admin', tenantId: 1, amScopeOrgIds: null });
+  it('AM admin gali decide SUBMITTED', () => {
+    const u = makeApprover();
     const r = makeRequest({ status: 'SUBMITTED', tenantId: 2 });
     expect(canDecide(u, r)).toBe(true);
   });
 
-  it('am_admin negali decide ne-SUBMITTED', () => {
-    const u = makeUser({ role: 'am_admin', tenantId: 1 });
+  it('AM admin negali decide ne-SUBMITTED', () => {
+    const u = makeApprover();
     const r = makeRequest({ status: 'APPROVED', tenantId: 2 });
     expect(canDecide(u, r)).toBe(false);
   });
 
-  it('am_user su scope mato tik scope orgs', () => {
-    const u = makeUser({ role: 'am_user', tenantId: 1, amScopeOrgIds: [2] });
+  it('AM specialistas su scope mato tik scope orgs', () => {
+    const u = makeApprover({ role: 'user', amScopeOrgIds: [2] });
     expect(canDecide(u, makeRequest({ status: 'SUBMITTED', tenantId: 2 }))).toBe(true);
     expect(canDecide(u, makeRequest({ status: 'SUBMITTED', tenantId: 3 }))).toBe(false);
   });
 
-  it('org rolės negali decide', () => {
-    const u = makeUser({ role: 'org_admin' });
-    const r = makeRequest({ status: 'SUBMITTED' });
-    expect(canDecide(u, r)).toBe(false);
+  it('AM specialistas su NULL scope mato visus', () => {
+    const u = makeApprover({ role: 'user', amScopeOrgIds: null });
+    expect(canDecide(u, makeRequest({ status: 'SUBMITTED', tenantId: 5 }))).toBe(true);
+  });
+
+  it('teikėjai (org.) niekada negali decide', () => {
+    expect(canDecide(makeSubmitter({ role: 'admin' }), makeRequest({ status: 'SUBMITTED' }))).toBe(false);
+    expect(canDecide(makeSubmitter({ role: 'user' }), makeRequest({ status: 'SUBMITTED' }))).toBe(false);
   });
 });
 
 describe('canDelete', () => {
-  it('tik DRAFT, savininko', () => {
-    const u = makeUser({ role: 'org_user', id: 100 });
+  it('tik DRAFT, savininko (teikėjas)', () => {
+    const u = makeSubmitter({ id: 100 });
     expect(canDelete(u, makeRequest({ status: 'DRAFT', createdByUserId: 100 }))).toBe(true);
     expect(canDelete(u, makeRequest({ status: 'SUBMITTED', createdByUserId: 100 }))).toBe(false);
     expect(canDelete(u, makeRequest({ status: 'DRAFT', createdByUserId: 999 }))).toBe(false);
+  });
+
+  it('AM admin gali ištrinti tik savo „on behalf" DRAFT', () => {
+    const am = makeApprover({ id: 1 });
+    expect(canDelete(am, makeRequest({ status: 'DRAFT', tenantId: 2, createdByUserId: 1 }))).toBe(true);
+    expect(canDelete(am, makeRequest({ status: 'DRAFT', tenantId: 2, createdByUserId: 100 }))).toBe(false);
   });
 });
 

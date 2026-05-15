@@ -184,6 +184,10 @@ const ApiService: ServiceSchema = {
         autoAliases: false,
         aliases: {
           'GET /tenants': 'tenants.list',
+          'GET /tenants/:id': 'tenants.get',
+          'POST /tenants': 'tenants.create',
+          'PATCH /tenants/:id': 'tenants.update',
+          'DELETE /tenants/:id': 'tenants.delete',
 
           'GET /users': 'users.list',
           'GET /users/:id': 'users.get',

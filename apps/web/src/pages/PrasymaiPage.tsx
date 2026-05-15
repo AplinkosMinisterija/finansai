@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, Plus, Search } from 'lucide-react';
+import { ChevronRight, Loader2, Plus, Search } from 'lucide-react';
 import type {
   FinancingRequest,
   PaginatedResponse,
@@ -11,11 +11,35 @@ import type {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/lib/auth';
 import { requestCreate, requestsList, tenantsList } from '@/lib/api';
-import { canCreate, fmtDate, fmtEur, STATUS_LABELS, STATUS_VARIANTS, totalRequested } from '@/lib/requests';
+import {
+  canCreate,
+  fmtDate,
+  fmtEur,
+  isCreateOnBehalf,
+  STATUS_LABELS,
+  STATUS_VARIANTS,
+  totalRequested,
+} from '@/lib/requests';
 import { cn } from '@/lib/utils';
 
 const STATUSES: { value: 'all' | RequestStatus; label: string }[] = [
@@ -36,6 +60,9 @@ export default function PrasymaiPage(): JSX.Element {
   const [debouncedQ, setDebouncedQ] = React.useState('');
   const [status, setStatus] = React.useState<'all' | RequestStatus>('all');
   const [tenantId, setTenantId] = React.useState<number | undefined>(undefined);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const [pickerTenant, setPickerTenant] = React.useState<string>('');
+  const [pickerError, setPickerError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q), 300);
@@ -60,16 +87,49 @@ export default function PrasymaiPage(): JSX.Element {
   });
 
   const createMutation = useMutation({
-    mutationFn: () => requestCreate({}),
+    mutationFn: (args: { tenantId?: number }) =>
+      args.tenantId !== undefined
+        ? requestCreate({ tenantId: args.tenantId })
+        : requestCreate({}),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['requests'] });
+      setPickerOpen(false);
       navigate(`/prasymai/${r.id}/redaguoti`);
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Nepavyko sukurti prašymo.';
+      setPickerError(msg);
     },
   });
 
   const tenants = tenantsQ.data ?? [];
   const items = listQ.data?.items ?? [];
-  const isAmRole = user?.role === 'am_admin' || user?.role === 'am_user';
+  const isApprover = user?.tenantIsApprover === true;
+  const onBehalf = isCreateOnBehalf(user);
+  const submitterTenants = React.useMemo(
+    () => tenants.filter((t) => !t.isApprover && t.active),
+    [tenants],
+  );
+
+  function handleNewRequest(): void {
+    setPickerError(null);
+    if (onBehalf) {
+      setPickerTenant('');
+      setPickerOpen(true);
+      return;
+    }
+    createMutation.mutate({});
+  }
+
+  function handlePickerSubmit(e: React.FormEvent): void {
+    e.preventDefault();
+    setPickerError(null);
+    if (!pickerTenant) {
+      setPickerError('Pasirinkite organizaciją.');
+      return;
+    }
+    createMutation.mutate({ tenantId: Number(pickerTenant) });
+  }
 
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
@@ -84,7 +144,7 @@ export default function PrasymaiPage(): JSX.Element {
         </div>
         {canCreate(user) && (
           <Button
-            onClick={() => createMutation.mutate()}
+            onClick={handleNewRequest}
             disabled={createMutation.isPending}
             data-testid="open-new-request"
           >
@@ -132,20 +192,29 @@ export default function PrasymaiPage(): JSX.Element {
               aria-label="Paieška"
             />
           </div>
-          {isAmRole && tenants.length > 0 && (
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              value={tenantId ?? ''}
-              onChange={(e) => setTenantId(e.target.value ? Number(e.target.value) : undefined)}
-              aria-label="Filtras pagal organizaciją"
+          {isApprover && tenants.length > 0 && (
+            <Select
+              value={tenantId !== undefined ? String(tenantId) : 'all'}
+              onValueChange={(v) => setTenantId(v === 'all' ? undefined : Number(v))}
             >
-              <option value="">Visos organizacijos</option>
-              {tenants.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.code} — {t.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                className="h-9 w-full sm:w-56"
+                aria-label="Filtras pagal organizaciją"
+              >
+                <SelectValue placeholder="Organizacija" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Visos organizacijos</SelectItem>
+                {tenants.map((t) => (
+                  <SelectItem key={t.id} value={String(t.id)}>
+                    <span className="mr-1.5 font-mono text-[11px] text-muted-foreground">
+                      {t.code}
+                    </span>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </CardContent>
       </Card>
@@ -208,6 +277,79 @@ export default function PrasymaiPage(): JSX.Element {
             </li>
           ))}
         </ul>
+      )}
+
+      {onBehalf && (
+        <Dialog
+          open={pickerOpen}
+          onOpenChange={(o) => {
+            if (!o && !createMutation.isPending) setPickerOpen(false);
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <form onSubmit={handlePickerSubmit} noValidate>
+              <DialogHeader>
+                <DialogTitle>Naujas prašymas — kurios org. vardu?</DialogTitle>
+                <DialogDescription>
+                  Kaip AM administratorius, jūs sukursite prašymą pasirinktos organizacijos vardu.
+                  Kūrėjas liks jūsų vardas, bet prašymas priklausys tai organizacijai.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="picker-tenant">Organizacija</Label>
+                  <Select value={pickerTenant} onValueChange={setPickerTenant}>
+                    <SelectTrigger id="picker-tenant" data-testid="picker-tenant">
+                      <SelectValue placeholder="Pasirinkite organizaciją…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {submitterTenants.map((t) => (
+                        <SelectItem key={t.id} value={String(t.id)}>
+                          <span className="mr-1.5 font-mono text-[11px] text-muted-foreground">
+                            {t.code}
+                          </span>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {pickerError && (
+                  <div
+                    className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                    role="alert"
+                  >
+                    {pickerError}
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setPickerOpen(false)}
+                  disabled={createMutation.isPending}
+                >
+                  Atšaukti
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={createMutation.isPending}
+                  data-testid="picker-submit"
+                >
+                  {createMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Kuriama…
+                    </>
+                  ) : (
+                    'Tęsti'
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

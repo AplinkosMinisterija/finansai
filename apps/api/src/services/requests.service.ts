@@ -203,15 +203,15 @@ function canView(
   viewer: NonNullable<AuthMeta['user']>,
   r: { tenantId: number; createdByUserId: number },
 ): boolean {
-  if (viewer.role === 'am_admin') return true;
-  if (viewer.role === 'am_user') {
+  if (viewer.tenantIsApprover) {
+    // AM admin = visi; AM user = scope
+    if (viewer.role === 'admin') return true;
     if (viewer.amScopeOrgIds === null) return true;
     return viewer.amScopeOrgIds.includes(r.tenantId);
   }
-  // org_admin / org_user — tik savo tenant
+  // Pavaldi institucija — tik savo tenant
   if (r.tenantId !== viewer.tenantId) return false;
-  if (viewer.role === 'org_admin') return true;
-  // org_user — tik savo
+  if (viewer.role === 'admin') return true;
   return r.createdByUserId === viewer.id;
 }
 
@@ -220,20 +220,22 @@ function canEdit(
   r: { tenantId: number; createdByUserId: number; status: RequestStatus },
 ): boolean {
   if (r.status !== 'DRAFT' && r.status !== 'RETURNED') return false;
+  // AM admin gali redaguoti tai, ką pats sukūrė (kitų org vardu)
+  if (viewer.tenantIsApprover) {
+    return viewer.role === 'admin' && r.createdByUserId === viewer.id;
+  }
   if (r.tenantId !== viewer.tenantId) return false;
-  if (viewer.role === 'org_admin') return true;
-  if (viewer.role === 'org_user') return r.createdByUserId === viewer.id;
-  return false;
+  if (viewer.role === 'admin') return true;
+  return r.createdByUserId === viewer.id;
 }
 
 function canDecide(viewer: NonNullable<AuthMeta['user']>, r: { tenantId: number; status: RequestStatus }): boolean {
+  if (!viewer.tenantIsApprover) return false;
   if (r.status !== 'SUBMITTED') return false;
-  if (viewer.role === 'am_admin') return true;
-  if (viewer.role === 'am_user') {
-    if (viewer.amScopeOrgIds === null) return true;
-    return viewer.amScopeOrgIds.includes(r.tenantId);
-  }
-  return false;
+  if (viewer.role === 'admin') return true;
+  // user role — scope
+  if (viewer.amScopeOrgIds === null) return true;
+  return viewer.amScopeOrgIds.includes(r.tenantId);
 }
 
 const RequestsService: ServiceSchema = {
@@ -259,17 +261,27 @@ const RequestsService: ServiceSchema = {
           .orderBy('requests.id', 'desc');
 
         // Scope pre-filter
-        if (me.role === 'org_admin') {
-          query.where('requests.tenant_id', me.tenantId);
-        } else if (me.role === 'org_user') {
-          query.where('requests.tenant_id', me.tenantId).andWhere('requests.created_by_user_id', me.id);
-        } else if (me.role === 'am_user' && me.amScopeOrgIds !== null) {
-          if (me.amScopeOrgIds.length === 0) {
-            return { items: [], total: 0, page, pageSize };
+        if (me.tenantIsApprover) {
+          // AM admin — visi; AM user — scope (NULL = visi)
+          if (me.role === 'user' && me.amScopeOrgIds !== null) {
+            if (me.amScopeOrgIds.length === 0) {
+              return { items: [], total: 0, page, pageSize };
+            }
+            query.whereIn('requests.tenant_id', me.amScopeOrgIds);
           }
-          query.whereIn('requests.tenant_id', me.amScopeOrgIds);
+          // Galimybė: AM admin teikia kitų org vardu — toks prašymas turi created_by = me.id.
+          // Šitas atvejis dengiamas automatiškai (matomi visi prašymai AM admin'ui).
+        } else {
+          // Pavaldi institucija
+          if (me.role === 'admin') {
+            query.where('requests.tenant_id', me.tenantId);
+          } else {
+            // user — tik savo prašymai. Tačiau gali matyti AM admin sukurtus jų org vardu.
+            query
+              .where('requests.tenant_id', me.tenantId)
+              .andWhere('requests.created_by_user_id', me.id);
+          }
         }
-        // am_admin / am_user (no scope) — no pre-filter
 
         if (q !== undefined && q.trim() !== '') {
           const like = `%${q.trim().toLowerCase()}%`;
@@ -315,20 +327,58 @@ const RequestsService: ServiceSchema = {
 
     create: {
       params: {
+        tenantId: { type: 'number', integer: true, optional: true, convert: true },
         projectName: { type: 'string', optional: true, max: 500 },
       },
-      async handler(ctx: Context<RequestPayload, AuthMeta>): Promise<RequestDTO> {
+      async handler(
+        ctx: Context<RequestPayload & { tenantId?: number }, AuthMeta>,
+      ): Promise<RequestDTO> {
         const me = requireMe(ctx);
-        if (me.role === 'am_admin' || me.role === 'am_user') {
-          throw new Errors.MoleculerClientError(
-            'AM vartotojai negali teikti prašymų',
-            403,
-            'FORBIDDEN',
-          );
+        let targetTenantId: number;
+
+        if (me.tenantIsApprover) {
+          // AM administratorius gali teikti kitų organizacijų vardu.
+          // AM specialistas (user) — negali teikti, tik tvirtina.
+          if (me.role !== 'admin') {
+            throw new Errors.MoleculerClientError(
+              'Aprover specialistai negali teikti prašymų',
+              403,
+              'FORBIDDEN',
+            );
+          }
+          if (!ctx.params.tenantId) {
+            throw new Errors.MoleculerClientError(
+              'AM administratorius privalo nurodyti organizaciją, kurios vardu teikiamas prašymas',
+              400,
+              'TENANT_REQUIRED',
+            );
+          }
+          const target = await Tenant.query().findById(ctx.params.tenantId);
+          if (!target || !target.active) {
+            throw new Errors.MoleculerClientError(
+              'Organizacija nerasta arba neaktyvi',
+              400,
+              'TENANT_INVALID',
+            );
+          }
+          if (target.isApprover) {
+            throw new Errors.MoleculerClientError(
+              'Prašymai teikiami tik pavaldžių organizacijų vardu',
+              400,
+              'TENANT_NOT_SUBMITTER',
+            );
+          }
+          targetTenantId = target.id;
+        } else {
+          // Pavaldi institucija — naudoja savo tenant'ą.
+          targetTenantId = me.tenantId;
         }
-        const patch = sanitizePayload(ctx.params);
+
+        const { tenantId: _tid, ...rest } = ctx.params;
+        void _tid;
+        const patch = sanitizePayload(rest);
         const inserted = await Request.query().insert({
-          tenantId: me.tenantId,
+          tenantId: targetTenantId,
           createdByUserId: me.id,
           status: 'DRAFT',
           projectName: (patch['projectName'] as string) ?? 'Naujas prašymas',
@@ -375,18 +425,12 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (r.tenantId !== me.tenantId) {
-          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
-        }
-        if (r.status !== 'DRAFT' && r.status !== 'RETURNED') {
+        if (!canEdit(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
           throw new Errors.MoleculerClientError(
-            'Prašymą galima teikti tik iš DRAFT arba RETURNED būsenos',
-            400,
-            'INVALID_STATUS_TRANSITION',
+            'Neturite teisės teikti arba prašymas ne DRAFT/RETURNED būsenoje',
+            403,
+            'FORBIDDEN',
           );
-        }
-        if (me.role === 'org_user' && r.createdByUserId !== me.id) {
-          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         if (!r.projectName || r.projectName.trim() === '') {
           throw new Errors.MoleculerClientError(
@@ -427,10 +471,7 @@ const RequestsService: ServiceSchema = {
             'INVALID_STATUS',
           );
         }
-        if (r.tenantId !== me.tenantId) {
-          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
-        }
-        if (me.role === 'org_user' && r.createdByUserId !== me.id) {
+        if (!canEdit(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         await Request.query().deleteById(r.id);

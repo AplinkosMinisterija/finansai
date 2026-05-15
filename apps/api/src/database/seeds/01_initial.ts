@@ -1,7 +1,11 @@
 /**
- * Iter 1+2 seed: tenants, users + pavyzdiniai prašymai.
+ * Iter 6 seed: tenants + users (admin/user rolės) + pavyzdiniai prašymai.
  *
  * Idempotent — truncatina ir įdeda iš naujo. Visi demo passwordai = "demo".
+ *
+ * Role'ės semantika nustatoma per `tenant.is_approver`:
+ *   - is_approver=true  (AM)  → admin/user yra "tvirtintojai"
+ *   - is_approver=false (kiti) → admin/user yra "teikėjai"
  */
 import type { Knex } from 'knex';
 import bcrypt from 'bcryptjs';
@@ -9,14 +13,35 @@ import bcrypt from 'bcryptjs';
 interface TenantSeed {
   code: string;
   name: string;
+  description: string;
   isApprover: boolean;
 }
 
 const TENANTS: TenantSeed[] = [
-  { code: 'AM', name: 'Aplinkos ministerija', isApprover: true },
-  { code: 'AAD', name: 'Aplinkos apsaugos departamentas', isApprover: false },
-  { code: 'VSTT', name: 'Valstybinė saugomų teritorijų tarnyba', isApprover: false },
-  { code: 'LGT', name: 'Lietuvos geologijos tarnyba', isApprover: false },
+  {
+    code: 'AM',
+    name: 'Aplinkos ministerija',
+    description: 'Pagrindinė ministerija. Tvirtina pavaldžių institucijų finansavimo prašymus.',
+    isApprover: true,
+  },
+  {
+    code: 'AAD',
+    name: 'Aplinkos apsaugos departamentas',
+    description: 'Vykdomoji institucija aplinkos apsaugos kontrolės srityje.',
+    isApprover: false,
+  },
+  {
+    code: 'VSTT',
+    name: 'Valstybinė saugomų teritorijų tarnyba',
+    description: 'Tvarko saugomas teritorijas (parkus, rezervatus, draustinius).',
+    isApprover: false,
+  },
+  {
+    code: 'LGT',
+    name: 'Lietuvos geologijos tarnyba',
+    description: 'Vykdo geologijos ir žemės gelmių stebėseną bei tyrimus.',
+    isApprover: false,
+  },
 ];
 
 interface UserSeed {
@@ -24,22 +49,98 @@ interface UserSeed {
   password: string;
   fullName: string;
   email: string;
-  role: 'am_admin' | 'am_user' | 'org_admin' | 'org_user';
+  role: 'admin' | 'user';
   tenantCode: string;
   amScopeOrgCodes?: string[] | null;
 }
 
 const USERS: UserSeed[] = [
-  { username: 'am-admin', password: 'demo', fullName: 'AM Administratorius', email: 'admin@am.lt', role: 'am_admin', tenantCode: 'AM' },
-  { username: 'demo', password: 'demo', fullName: 'Demo Administratorius', email: 'demo@am.lt', role: 'am_admin', tenantCode: 'AM' },
-  { username: 'am-user', password: 'demo', fullName: 'AM Specialistas (visi)', email: 'specialistas@am.lt', role: 'am_user', tenantCode: 'AM' },
-  { username: 'am-user-aad', password: 'demo', fullName: 'AM Specialistas (AAD)', email: 'aad-koordinatorius@am.lt', role: 'am_user', tenantCode: 'AM', amScopeOrgCodes: ['AAD'] },
-  { username: 'aad-admin', password: 'demo', fullName: 'AAD Administratorius', email: 'admin@aad.lt', role: 'org_admin', tenantCode: 'AAD' },
-  { username: 'aad-user', password: 'demo', fullName: 'AAD Specialistas', email: 'specialistas@aad.lt', role: 'org_user', tenantCode: 'AAD' },
-  { username: 'vstt-admin', password: 'demo', fullName: 'VSTT Administratorius', email: 'admin@vstt.lt', role: 'org_admin', tenantCode: 'VSTT' },
-  { username: 'vstt-user', password: 'demo', fullName: 'VSTT Specialistas', email: 'specialistas@vstt.lt', role: 'org_user', tenantCode: 'VSTT' },
-  { username: 'lgt-admin', password: 'demo', fullName: 'LGT Administratorius', email: 'admin@lgt.lt', role: 'org_admin', tenantCode: 'LGT' },
-  { username: 'lgt-user', password: 'demo', fullName: 'LGT Specialistas', email: 'specialistas@lgt.lt', role: 'org_user', tenantCode: 'LGT' },
+  // AM (approver)
+  {
+    username: 'demo',
+    password: 'demo',
+    fullName: 'Demo Administratorius',
+    email: 'demo@am.lt',
+    role: 'admin',
+    tenantCode: 'AM',
+  },
+  {
+    username: 'am-admin',
+    password: 'demo',
+    fullName: 'Jonas Administratorius',
+    email: 'jonas.administratorius@am.lt',
+    role: 'admin',
+    tenantCode: 'AM',
+  },
+  {
+    username: 'am-user',
+    password: 'demo',
+    fullName: 'Petras Specialistas',
+    email: 'petras.specialistas@am.lt',
+    role: 'user',
+    tenantCode: 'AM',
+    // null = visos org'os
+  },
+  {
+    username: 'am-user-aad',
+    password: 'demo',
+    fullName: 'Agnė AAD Koordinatorė',
+    email: 'agne.koordinatore@am.lt',
+    role: 'user',
+    tenantCode: 'AM',
+    amScopeOrgCodes: ['AAD'],
+  },
+  // AAD
+  {
+    username: 'aad-admin',
+    password: 'demo',
+    fullName: 'AAD Administratorius',
+    email: 'admin@aad.lt',
+    role: 'admin',
+    tenantCode: 'AAD',
+  },
+  {
+    username: 'aad-user',
+    password: 'demo',
+    fullName: 'AAD Specialistas',
+    email: 'specialistas@aad.lt',
+    role: 'user',
+    tenantCode: 'AAD',
+  },
+  // VSTT
+  {
+    username: 'vstt-admin',
+    password: 'demo',
+    fullName: 'VSTT Administratorius',
+    email: 'admin@vstt.lt',
+    role: 'admin',
+    tenantCode: 'VSTT',
+  },
+  {
+    username: 'vstt-user',
+    password: 'demo',
+    fullName: 'VSTT Specialistas',
+    email: 'specialistas@vstt.lt',
+    role: 'user',
+    tenantCode: 'VSTT',
+  },
+  // LGT
+  {
+    username: 'lgt-admin',
+    password: 'demo',
+    fullName: 'LGT Administratorius',
+    email: 'admin@lgt.lt',
+    role: 'admin',
+    tenantCode: 'LGT',
+  },
+  {
+    username: 'lgt-user',
+    password: 'demo',
+    fullName: 'LGT Specialistas',
+    email: 'specialistas@lgt.lt',
+    role: 'user',
+    tenantCode: 'LGT',
+  },
 ];
 
 interface RequestSeed {
@@ -53,6 +154,7 @@ interface RequestSeed {
   plannedWorks?: string;
   priority?: number;
   procurementStage?: string;
+  costDu?: number;
   costEquipment?: number;
   costMaintenance?: number;
   costDevelopment?: number;
@@ -66,13 +168,14 @@ interface RequestSeed {
   executorName?: string;
   executorEmail?: string;
   implementationDeadline?: string;
-  // Sprendimas (jei APPROVED/REJECTED/RETURNED)
   decisionAmount?: number;
   decisionSource?: string;
   decisionProtocol?: string;
   decisionOrder?: string;
   decisionByUsername?: string;
-  // Komentarai (kronologiškai)
+  /** Optionaliai konkretūs offset'ai nuo dabarties (dienomis), trends'ams. */
+  submittedDaysAgo?: number;
+  decidedDaysAgo?: number;
   comments?: Array<{
     authorUsername: string;
     kind: 'comment' | 'submitted' | 'returned' | 'approved' | 'rejected';
@@ -82,7 +185,7 @@ interface RequestSeed {
 }
 
 const REQUESTS: RequestSeed[] = [
-  // 1. AAD — DRAFT
+  // ── DRAFT ──
   {
     tenantCode: 'AAD',
     createdByUsername: 'aad-user',
@@ -106,8 +209,25 @@ const REQUESTS: RequestSeed[] = [
     executorEmail: 'tomas.kazlauskas@aad.lt',
     implementationDeadline: '2026-12-31',
   },
+  {
+    tenantCode: 'LGT',
+    createdByUsername: 'lgt-admin',
+    status: 'DRAFT',
+    projectName: 'Žemės gelmių stebėsenos sistemos atnaujinimas',
+    systemCode: 'GELMES',
+    projectType: 'IT sistema',
+    description: 'Stebėsenos sistemos vidinis atnaujinimas + sąsajos su EU portalu.',
+    priority: 4,
+    costAnalysis: 5000,
+    costDevelopment: 15000,
+    fundingFromIt: 20000,
+    q1: 5000,
+    q2: 10000,
+    q3: 5000,
+    responsibleInstitution: 'LGT',
+  },
 
-  // 2. VSTT — SUBMITTED (laukia AM tvirtinimo)
+  // ── SUBMITTED — laukia AM tvirtinimo ──
   {
     tenantCode: 'VSTT',
     createdByUsername: 'vstt-user',
@@ -131,12 +251,57 @@ const REQUESTS: RequestSeed[] = [
     executorName: 'Eglė Vaitkutė',
     executorEmail: 'egle.vaitkute@vstt.lt',
     implementationDeadline: '2026-11-30',
-    comments: [
-      { authorUsername: 'vstt-user', kind: 'submitted' },
-    ],
+    submittedDaysAgo: 2,
+    comments: [{ authorUsername: 'vstt-user', kind: 'submitted' }],
+  },
+  {
+    tenantCode: 'AAD',
+    createdByUsername: 'aad-user',
+    status: 'SUBMITTED',
+    projectName: 'AADIS palaikymo paslaugos 2026',
+    systemCode: 'AADIS',
+    projectType: 'Palaikymas',
+    description: 'Tęstinis IS palaikymas, SLA pagrindu.',
+    plannedWorks: 'Incidentų valdymas, smulkūs patobulinimai, naudotojų konsultacijos.',
+    priority: 2,
+    procurementStage: 'Vykdomas',
+    costMaintenance: 48000,
+    fundingFromIt: 48000,
+    q1: 12000,
+    q2: 12000,
+    q3: 12000,
+    q4: 12000,
+    responsibleInstitution: 'AAD',
+    executorName: 'Renaldas Klimas',
+    executorEmail: 'renaldas.klimas@aad.lt',
+    implementationDeadline: '2026-12-31',
+    submittedDaysAgo: 5,
+    comments: [{ authorUsername: 'aad-user', kind: 'submitted' }],
+  },
+  // SUBMITTED — AM admin sukurtas pavaldžios org vardu
+  {
+    tenantCode: 'LGT',
+    createdByUsername: 'demo',
+    status: 'SUBMITTED',
+    projectName: 'GELMES interfaceų lokalizacija (AM admin pavedimu)',
+    systemCode: 'GELMES',
+    projectType: 'Lokalizacija',
+    description: 'Pavedimas, kad AM admin sukurtų prašymą LGT vardu — testinis flow.',
+    plannedWorks: 'Lokalizacijos atnaujinimas, kalbų failo refaktoringas.',
+    priority: 3,
+    procurementStage: 'Pradėtas',
+    costDevelopment: 8000,
+    fundingFromIt: 8000,
+    q1: 4000,
+    q2: 4000,
+    responsibleInstitution: 'LGT',
+    executorName: 'Marius Petraitis',
+    executorEmail: 'marius.petraitis@lgt.lt',
+    submittedDaysAgo: 1,
+    comments: [{ authorUsername: 'demo', kind: 'submitted' }],
   },
 
-  // 3. LGT — RETURNED (AM grąžino pataisymui)
+  // ── RETURNED ──
   {
     tenantCode: 'LGT',
     createdByUsername: 'lgt-user',
@@ -160,6 +325,8 @@ const REQUESTS: RequestSeed[] = [
     executorEmail: 'marius.petraitis@lgt.lt',
     implementationDeadline: '2026-10-31',
     decisionByUsername: 'am-admin',
+    submittedDaysAgo: 10,
+    decidedDaysAgo: 7,
     comments: [
       { authorUsername: 'lgt-user', kind: 'submitted' },
       {
@@ -171,7 +338,7 @@ const REQUESTS: RequestSeed[] = [
     ],
   },
 
-  // 4. AAD — APPROVED
+  // ── APPROVED ──
   {
     tenantCode: 'AAD',
     createdByUsername: 'aad-admin',
@@ -195,6 +362,8 @@ const REQUESTS: RequestSeed[] = [
     decisionProtocol: 'AM/IT-2026/04 (2026-04-15)',
     decisionOrder: 'A-2026/132',
     decisionByUsername: 'demo',
+    submittedDaysAgo: 60,
+    decidedDaysAgo: 45,
     comments: [
       { authorUsername: 'aad-admin', kind: 'submitted' },
       {
@@ -205,8 +374,75 @@ const REQUESTS: RequestSeed[] = [
       },
     ],
   },
+  {
+    tenantCode: 'VSTT',
+    createdByUsername: 'vstt-admin',
+    status: 'APPROVED',
+    projectName: 'GeoSTT serverio atnaujinimas',
+    systemCode: 'GEOSTT',
+    projectType: 'Įranga',
+    description: 'Senstančio serverio (2018 m.) keitimas naujesniu.',
+    priority: 2,
+    procurementStage: 'Užbaigtas',
+    costEquipment: 18000,
+    fundingFromIt: 18000,
+    q1: 18000,
+    responsibleInstitution: 'VSTT',
+    executorName: 'Audrius Tamošaitis',
+    implementationDeadline: '2026-03-15',
+    decisionAmount: 17500,
+    decisionSource: 'Valstybės biudžeto lėšos',
+    decisionProtocol: 'AM/IT-2026/02',
+    decisionOrder: 'A-2026/45',
+    decisionByUsername: 'am-admin',
+    submittedDaysAgo: 90,
+    decidedDaysAgo: 75,
+    comments: [
+      { authorUsername: 'vstt-admin', kind: 'submitted' },
+      {
+        authorUsername: 'am-admin',
+        kind: 'approved',
+        body: 'Patvirtinta. Suma sumažinta atsižvelgiant į rinkos kainų derybas.',
+        metadata: { fromStatus: 'SUBMITTED', toStatus: 'APPROVED' },
+      },
+    ],
+  },
+  {
+    tenantCode: 'AAD',
+    createdByUsername: 'aad-admin',
+    status: 'APPROVED',
+    projectName: 'Specialistų mokymai 2026',
+    systemCode: 'HR',
+    projectType: 'Mokymai',
+    description: 'Aplinkos apsaugos specialistų kvalifikacijos kėlimas.',
+    priority: 3,
+    costDu: 0,
+    costMaintenance: 6000,
+    fundingFromIt: 6000,
+    q2: 3000,
+    q3: 3000,
+    responsibleInstitution: 'AAD',
+    executorName: 'Lina Petrauskienė',
+    implementationDeadline: '2026-09-30',
+    decisionAmount: 5500,
+    decisionSource: 'Valstybės biudžeto lėšos',
+    decisionProtocol: 'AM/IT-2026/03',
+    decisionOrder: 'A-2026/89',
+    decisionByUsername: 'am-user',
+    submittedDaysAgo: 30,
+    decidedDaysAgo: 20,
+    comments: [
+      { authorUsername: 'aad-admin', kind: 'submitted' },
+      {
+        authorUsername: 'am-user',
+        kind: 'approved',
+        body: 'Patvirtinta.',
+        metadata: { fromStatus: 'SUBMITTED', toStatus: 'APPROVED' },
+      },
+    ],
+  },
 
-  // 5. VSTT — REJECTED
+  // ── REJECTED ──
   {
     tenantCode: 'VSTT',
     createdByUsername: 'vstt-admin',
@@ -228,6 +464,8 @@ const REQUESTS: RequestSeed[] = [
     executorEmail: 'jonas.vaitkus@vstt.lt',
     implementationDeadline: '2026-09-30',
     decisionByUsername: 'am-user',
+    submittedDaysAgo: 40,
+    decidedDaysAgo: 25,
     comments: [
       { authorUsername: 'vstt-admin', kind: 'submitted' },
       {
@@ -238,54 +476,16 @@ const REQUESTS: RequestSeed[] = [
       },
     ],
   },
-
-  // 6. AAD — SUBMITTED (kitas pavyzdys AM puseje)
-  {
-    tenantCode: 'AAD',
-    createdByUsername: 'aad-user',
-    status: 'SUBMITTED',
-    projectName: 'AADIS palaikymo paslaugos 2026',
-    systemCode: 'AADIS',
-    projectType: 'Palaikymas',
-    description: 'Tęstinis IS palaikymas, SLA pagrindu.',
-    plannedWorks: 'Incidentų valdymas, smulkūs patobulinimai, naudotojų konsultacijos.',
-    priority: 2,
-    procurementStage: 'Vykdomas',
-    costMaintenance: 48000,
-    fundingFromIt: 48000,
-    q1: 12000,
-    q2: 12000,
-    q3: 12000,
-    q4: 12000,
-    responsibleInstitution: 'AAD',
-    executorName: 'Renaldas Klimas',
-    executorEmail: 'renaldas.klimas@aad.lt',
-    implementationDeadline: '2026-12-31',
-    comments: [{ authorUsername: 'aad-user', kind: 'submitted' }],
-  },
-
-  // 7. LGT — DRAFT
-  {
-    tenantCode: 'LGT',
-    createdByUsername: 'lgt-admin',
-    status: 'DRAFT',
-    projectName: 'Žemės gelmių stebėsenos sistemos atnaujinimas',
-    systemCode: 'GELMES',
-    projectType: 'IT sistema',
-    description: 'Stebėsenos sistemos vidinis atnaujinimas + sąsajos su EU portalu.',
-    priority: 4,
-    costAnalysis: 5000,
-    costDevelopment: 15000,
-    fundingFromIt: 20000,
-    q1: 5000,
-    q2: 10000,
-    q3: 5000,
-    responsibleInstitution: 'LGT',
-  },
 ];
 
+function daysAgoIso(days?: number): string | null {
+  if (days === undefined) return null;
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString();
+}
+
 export async function seed(knex: Knex): Promise<void> {
-  // Trinam viską reverse-order'iu.
   const hasRequests = await knex.schema.hasTable('requests');
   if (hasRequests) {
     await knex('request_comments').del();
@@ -303,7 +503,13 @@ export async function seed(knex: Knex): Promise<void> {
   const tenantIdByCode: Record<string, number> = {};
   for (const t of TENANTS) {
     const inserted = (await knex('tenants')
-      .insert({ code: t.code, name: t.name, is_approver: t.isApprover, active: true })
+      .insert({
+        code: t.code,
+        name: t.name,
+        description: t.description,
+        is_approver: t.isApprover,
+        active: true,
+      })
       .returning('id')) as Array<{ id: number }>;
     const firstRow = inserted[0];
     if (!firstRow) throw new Error(`Tenant insert failed: ${t.code}`);
@@ -343,10 +549,8 @@ export async function seed(knex: Knex): Promise<void> {
     userIdByUsername[u.username] = firstRow.id;
   }
 
-  // 3) Requests + comments (jei lentelės jau migruotos)
+  // 3) Requests + comments
   if (!hasRequests) return;
-
-  const now = new Date().toISOString();
 
   for (const r of REQUESTS) {
     const tenantId = tenantIdByCode[r.tenantCode];
@@ -355,8 +559,14 @@ export async function seed(knex: Knex): Promise<void> {
     if (tenantId === undefined || createdById === undefined) {
       throw new Error(`Request seed link broken: ${r.projectName}`);
     }
-    const submittedAt = r.status !== 'DRAFT' ? now : null;
-    const decidedAt = r.status === 'APPROVED' || r.status === 'REJECTED' || r.status === 'RETURNED' ? now : null;
+    const submittedAt = r.submittedDaysAgo !== undefined
+      ? daysAgoIso(r.submittedDaysAgo)
+      : r.status !== 'DRAFT' ? new Date().toISOString() : null;
+    const decidedAt = r.decidedDaysAgo !== undefined
+      ? daysAgoIso(r.decidedDaysAgo)
+      : (r.status === 'APPROVED' || r.status === 'REJECTED' || r.status === 'RETURNED'
+          ? new Date().toISOString()
+          : null);
 
     const inserted = (await knex('requests')
       .insert({
@@ -373,7 +583,7 @@ export async function seed(knex: Knex): Promise<void> {
         cost_du: 0,
         cost_equipment: r.costEquipment ?? 0,
         cost_creation: 0,
-        cost_analysis: 0,
+        cost_analysis: r.costAnalysis ?? 0,
         cost_development: r.costDevelopment ?? 0,
         cost_maintenance: r.costMaintenance ?? 0,
         cost_modernization: 0,

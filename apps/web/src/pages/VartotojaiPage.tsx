@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { UserDialog } from '@/components/users/UserDialog';
 import { useAuth } from '@/lib/auth';
 import { tenantsList, userDelete, usersList } from '@/lib/api';
-import { canManageUsers, ROLE_LABELS } from '@/lib/roles';
+import { canManageUsers, roleLabel } from '@/lib/roles';
 
 export default function VartotojaiPage(): JSX.Element {
   const { user: me } = useAuth();
@@ -97,7 +97,7 @@ export default function VartotojaiPage(): JSX.Element {
               aria-label="Paieška"
             />
           </div>
-          {(me?.role === 'am_admin' || me?.role === 'am_user') && tenants.length > 0 && (
+          {me?.tenantIsApprover && tenants.length > 0 && (
             <select
               className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               value={tenantId ?? ''}
@@ -152,10 +152,7 @@ export default function VartotojaiPage(): JSX.Element {
                         {u.username}
                       </code>
                       <Badge variant="outline" className="text-[10px]">
-                        {ROLE_LABELS[u.role]}
-                      </Badge>
-                      <Badge variant="outline" className="text-[10px]">
-                        {u.tenantCode}
+                        {roleLabel(u)}
                       </Badge>
                       {!u.active && (
                         <Badge variant="destructive" className="text-[10px]">

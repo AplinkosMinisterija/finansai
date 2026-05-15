@@ -1,11 +1,12 @@
 /**
- * Users servisas — CRUD su role-based scope.
+ * Users servisas — CRUD su role+tenant scope.
  *
- * Scope rules (žr. docs/04-vartotoju-modelis.md):
- * - am_admin: visi vartotojai, gali valdyti AM vartotojus
- * - am_user: read-only AM + scope orgs
- * - org_admin: savo tenant vartotojai, gali juos valdyti
- * - org_user: tik save (read-only)
+ * Modelis: rolės yra tik `admin` ir `user`. Faktinę galią suteikia tenant'as:
+ *
+ * | Tenant            | admin                                  | user                                  |
+ * |-------------------|----------------------------------------|---------------------------------------|
+ * | is_approver=true  | visi vartotojai, AM vartotojų CRUD    | AM vartotojai (read-only)             |
+ * | is_approver=false | savo tenant vartotojų CRUD             | tik save (read-only)                  |
  */
 import type { ServiceSchema, Context } from 'moleculer';
 import { Errors } from 'moleculer';
@@ -15,7 +16,6 @@ import type {
   User as UserDTO,
   UserCreateRequest,
   UserListQuery,
-  UserRole,
   UserUpdateRequest,
 } from '@biip-finansai/shared';
 import { User } from '../models/User';
@@ -40,6 +40,7 @@ function toDTO(u: UserWithTenant): UserDTO {
     tenantId: u.tenantId,
     tenantCode: tenant.code,
     tenantName: tenant.name,
+    tenantIsApprover: tenant.isApprover,
     amScopeOrgIds: u.amScopeOrgIds,
     active: u.active,
     createdAt: u.createdAt,
@@ -59,65 +60,39 @@ async function loadUser(id: number): Promise<UserWithTenant | undefined> {
   return u as UserWithTenant | undefined;
 }
 
-/**
- * Įvertina, ar `viewer` mato `target` user'į (list/get).
- */
+/** Įvertina, ar `viewer` mato `target` user'į (list/get). */
 function canView(viewer: NonNullable<AuthMeta['user']>, target: UserDTO): boolean {
-  if (viewer.role === 'am_admin') return true;
-  if (viewer.role === 'am_user') {
-    // Visus AM vartotojus + scope organizacijų vartotojus
-    if (target.tenantCode === 'AM') return true;
+  if (viewer.tenantIsApprover) {
+    // AM admin = visi; AM user = AM + scope orgs (read-only)
+    if (viewer.role === 'admin') return true;
+    if (target.tenantIsApprover) return true; // mato visus AM (read-only)
     if (viewer.amScopeOrgIds === null) return true;
     return viewer.amScopeOrgIds.includes(target.tenantId);
   }
-  // org_admin / org_user: tik savo tenant
+  // Pavaldi institucija
   if (target.tenantId !== viewer.tenantId) return false;
-  if (viewer.role === 'org_admin') return true;
-  // org_user — tik save
+  if (viewer.role === 'admin') return true;
   return target.id === viewer.id;
 }
 
-/**
- * Įvertina, ar `viewer` gali valdyti (create/update/delete) `target` user'į.
- */
-function canManage(viewer: NonNullable<AuthMeta['user']>, target: { tenantId: number; tenantCode?: string }): boolean {
-  if (viewer.role === 'am_admin') {
-    // am_admin valdo AM vartotojus + visus kitus
+/** Įvertina, ar `viewer` gali valdyti (create/update/delete) `target` user'į. */
+function canManage(
+  viewer: NonNullable<AuthMeta['user']>,
+  target: { tenantId: number },
+): boolean {
+  if (viewer.role !== 'admin') return false;
+  if (viewer.tenantIsApprover) {
+    // AM admin — gali valdyti tik AM vartotojus
+    // (pavaldžių org admin valdymas — pačios org admin atsakomybė)
+    // Tačiau techniškai AM admin gali ir pavaldžių — leiskim
     return true;
   }
-  if (viewer.role === 'org_admin') {
-    // org_admin valdo TIK savo org
-    return target.tenantId === viewer.tenantId;
-  }
-  return false;
+  // Org admin — tik savo tenant
+  return target.tenantId === viewer.tenantId;
 }
 
-/**
- * Įvertina, ar leidžiama suteikti tokį `role` su tokia `tenantId` kombinacija.
- */
-async function validateRoleAndTenant(role: UserRole, tenantId: number): Promise<void> {
-  const tenant = await Tenant.query().findById(tenantId);
-  if (!tenant) {
-    throw new Errors.MoleculerClientError('Organizacija nerasta', 400, 'TENANT_NOT_FOUND');
-  }
-  if (!tenant.active) {
-    throw new Errors.MoleculerClientError('Organizacija neaktyvi', 400, 'TENANT_INACTIVE');
-  }
-  const isAmRole = role === 'am_admin' || role === 'am_user';
-  if (isAmRole && tenant.code !== 'AM') {
-    throw new Errors.MoleculerClientError(
-      'AM rolės galimos tik AM organizacijoje',
-      400,
-      'ROLE_TENANT_MISMATCH',
-    );
-  }
-  if (!isAmRole && tenant.code === 'AM') {
-    throw new Errors.MoleculerClientError(
-      'Pavaldžios institucijos rolės negalimos AM organizacijoje',
-      400,
-      'ROLE_TENANT_MISMATCH',
-    );
-  }
+async function loadTenant(tenantId: number): Promise<Tenant | undefined> {
+  return Tenant.query().findById(tenantId);
 }
 
 const UsersService: ServiceSchema = {
@@ -139,18 +114,18 @@ const UsersService: ServiceSchema = {
 
         const query = User.query().withGraphFetched('tenant').orderBy('users.id');
 
-        // Scope pre-filter — performance, ne security (security finalas — canView)
-        if (me.role === 'org_admin' || me.role === 'org_user') {
+        // Scope pre-filter
+        if (!me.tenantIsApprover) {
           query.where('users.tenant_id', me.tenantId);
-        } else if (me.role === 'am_user') {
-          const amTenant = await Tenant.query().findOne({ code: 'AM' });
-          const visibleTenantIds = new Set<number>();
-          if (amTenant) visibleTenantIds.add(amTenant.id);
+        } else if (me.role === 'user') {
+          // AM specialistas — AM vartotojai + scope orgs
+          const amTenant = await Tenant.query().findOne({ isApprover: true });
+          const visibleTenantIds: number[] = amTenant ? [amTenant.id] : [];
           if (me.amScopeOrgIds === null) {
-            // nieko nefiltruojam
+            // nieko nefiltruojam — mato visus
           } else {
-            for (const id of me.amScopeOrgIds) visibleTenantIds.add(id);
-            query.whereIn('users.tenant_id', Array.from(visibleTenantIds));
+            visibleTenantIds.push(...me.amScopeOrgIds);
+            query.whereIn('users.tenant_id', visibleTenantIds);
           }
         }
 
@@ -171,15 +146,15 @@ const UsersService: ServiceSchema = {
           .offset((page - 1) * pageSize)
           .limit(pageSize)) as UserWithTenant[];
 
-        // org_user matomumas — tik save
+        // Org user — tik save
         const filtered =
-          me.role === 'org_user'
+          !me.tenantIsApprover && me.role === 'user'
             ? items.filter((u) => u.id === me.id)
             : items;
 
         return {
           items: filtered.map(toDTO),
-          total: me.role === 'org_user' ? filtered.length : total,
+          total: !me.tenantIsApprover && me.role === 'user' ? filtered.length : total,
           page,
           pageSize,
         };
@@ -210,7 +185,7 @@ const UsersService: ServiceSchema = {
         password: { type: 'string', min: 4, max: 200 },
         fullName: { type: 'string', min: 1, max: 200 },
         email: { type: 'string', optional: true, max: 200 },
-        role: { type: 'enum', values: ['am_admin', 'am_user', 'org_admin', 'org_user'] },
+        role: { type: 'enum', values: ['admin', 'user'] },
         tenantId: { type: 'number', integer: true, convert: true },
         amScopeOrgIds: { type: 'array', items: 'number', optional: true, nullable: true },
         active: { type: 'boolean', optional: true, default: true },
@@ -223,11 +198,16 @@ const UsersService: ServiceSchema = {
           throw new Errors.MoleculerClientError('Neturite teisės kurti šio vartotojo', 403, 'FORBIDDEN');
         }
 
-        await validateRoleAndTenant(p.role, p.tenantId);
+        const tenant = await loadTenant(p.tenantId);
+        if (!tenant) {
+          throw new Errors.MoleculerClientError('Organizacija nerasta', 400, 'TENANT_NOT_FOUND');
+        }
+        if (!tenant.active) {
+          throw new Errors.MoleculerClientError('Organizacija neaktyvi', 400, 'TENANT_INACTIVE');
+        }
 
-        // Tik AM rolėms gali būti `am_scope_org_ids`
-        const isAmRole = p.role === 'am_admin' || p.role === 'am_user';
-        const amScope = isAmRole ? (p.amScopeOrgIds ?? null) : null;
+        // Scope orgs aktualus tik approver tenant `user` rolei
+        const amScope = tenant.isApprover && p.role === 'user' ? (p.amScopeOrgIds ?? null) : null;
 
         const exists = await User.query().findOne({ username: p.username });
         if (exists) {
@@ -259,7 +239,7 @@ const UsersService: ServiceSchema = {
         password: { type: 'string', optional: true, min: 4, max: 200 },
         fullName: { type: 'string', optional: true, min: 1, max: 200 },
         email: { type: 'string', optional: true, nullable: true, max: 200 },
-        role: { type: 'enum', optional: true, values: ['am_admin', 'am_user', 'org_admin', 'org_user'] },
+        role: { type: 'enum', optional: true, values: ['admin', 'user'] },
         tenantId: { type: 'number', integer: true, optional: true, convert: true },
         amScopeOrgIds: { type: 'array', items: 'number', optional: true, nullable: true },
         active: { type: 'boolean', optional: true },
@@ -277,11 +257,13 @@ const UsersService: ServiceSchema = {
           throw new Errors.MoleculerClientError('Neturite teisės redaguoti šio vartotojo', 403, 'FORBIDDEN');
         }
 
+        const newTenantId = targetTenantId;
+        const tenant = await loadTenant(newTenantId);
+        if (!tenant) {
+          throw new Errors.MoleculerClientError('Organizacija nerasta', 400, 'TENANT_NOT_FOUND');
+        }
+
         const newRole = p.role ?? target.role;
-        await validateRoleAndTenant(newRole, targetTenantId);
-
-        const isAmRole = newRole === 'am_admin' || newRole === 'am_user';
-
         const patch: Record<string, unknown> = {};
         if (p.username !== undefined) patch['username'] = p.username;
         if (p.fullName !== undefined) patch['fullName'] = p.fullName;
@@ -289,12 +271,16 @@ const UsersService: ServiceSchema = {
         if (p.role !== undefined) patch['role'] = p.role;
         if (p.tenantId !== undefined) patch['tenantId'] = p.tenantId;
         if (p.active !== undefined) patch['active'] = p.active;
+
+        // amScopeOrgIds reset'inam, jei tenant/role pakeitimas pakeičia jo aktualumą
+        const scopeRelevant = tenant.isApprover && newRole === 'user';
         if (p.amScopeOrgIds !== undefined) {
-          patch['amScopeOrgIds'] = isAmRole ? p.amScopeOrgIds : null;
-        } else if (p.role !== undefined && !isAmRole) {
-          // Jei keičiame iš AM rolės į org rolę — išvalom scope
+          patch['amScopeOrgIds'] = scopeRelevant ? p.amScopeOrgIds : null;
+        } else if (!scopeRelevant && target.amScopeOrgIds !== null) {
+          // Jei scope tapo nebeaktualus — išvalom
           patch['amScopeOrgIds'] = null;
         }
+
         if (p.password !== undefined) {
           patch['passwordHash'] = await bcrypt.hash(p.password, 10);
         }
