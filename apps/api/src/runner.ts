@@ -13,6 +13,7 @@ import apiService from './services/api.service';
 import authService from './services/auth.service';
 import tenantsService from './services/tenants.service';
 import usersService from './services/users.service';
+import requestsService from './services/requests.service';
 import { initDb, runMigrations, runSeeds, getKnex, closeDb } from './database/db';
 import { closeRedis } from './utils/redis';
 
@@ -53,6 +54,7 @@ async function main(): Promise<void> {
   broker.createService(authService);
   broker.createService(tenantsService);
   broker.createService(usersService);
+  broker.createService(requestsService);
   broker.createService(apiService);
 
   await broker.start();

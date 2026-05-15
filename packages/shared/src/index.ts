@@ -4,6 +4,7 @@
  * Konvencijos:
  *  - camelCase laukai (snake_case tik DB-internal)
  *  - Datos kaip ISO 8601 stringai
+ *  - Pinigų sumos perduodamos kaip `string` (decimal preservation), UI parseina į number
  *  - ID'ai kaip number (PostgreSQL serial)
  */
 
@@ -38,21 +39,14 @@ export type PaginatedResponse<T> = {
 
 export type Tenant = {
   id: number;
-  code: string; // 'AM', 'AAD', 'VSTT', 'LGT'
+  code: string;
   name: string;
-  isApprover: boolean; // tik AM
+  isApprover: boolean;
   active: boolean;
 };
 
 // ---------- Auth ----------
 
-/**
- * Role'ės:
- * - `am_admin` — AM administratorius: visi vartotojai + visos paraiškos
- * - `am_user`  — AM darbuotojas: scope org'ų paraiškos
- * - `org_admin` — pavaldžios institucijos administratorius: savo org vartotojai + visos savo org paraiškos
- * - `org_user`  — pavaldžios institucijos vartotojas: tik savo (=user) paraiškos
- */
 export type UserRole = 'am_admin' | 'am_user' | 'org_admin' | 'org_user';
 
 export type AuthUser = {
@@ -64,7 +58,6 @@ export type AuthUser = {
   tenantId: number;
   tenantCode: string;
   tenantName: string;
-  /** AM userio scope — kuriose org'uose mato paraiškas. NULL = visos. */
   amScopeOrgIds: number[] | null;
 };
 
@@ -125,4 +118,152 @@ export type UserListQuery = {
   tenantId?: number;
   page?: number;
   pageSize?: number;
+};
+
+// ---------- Requests ----------
+
+export type RequestStatus =
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'RETURNED'
+  | 'APPROVED'
+  | 'REJECTED';
+
+export type RequestCommentKind =
+  | 'comment'
+  | 'status_change'
+  | 'submitted'
+  | 'returned'
+  | 'approved'
+  | 'rejected';
+
+export type RequestComment = {
+  id: number;
+  requestId: number;
+  authorUserId: number;
+  authorName: string;
+  authorRole: UserRole;
+  kind: RequestCommentKind;
+  body: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+/**
+ * Finansavimo prašymo objektas. Pinigų sumos — string (decimal preservation).
+ */
+export type FinancingRequest = {
+  id: number;
+  tenantId: number;
+  tenantCode: string;
+  tenantName: string;
+  createdByUserId: number;
+  createdByName: string;
+  status: RequestStatus;
+
+  // Step 1
+  projectName: string;
+  systemCode: string | null;
+  projectType: string | null;
+  description: string | null;
+  plannedWorks: string | null;
+  priority: number | null;
+  procurementStage: string | null;
+
+  // Step 2
+  costDu: string;
+  costEquipment: string;
+  costCreation: string;
+  costAnalysis: string;
+  costDevelopment: string;
+  costMaintenance: string;
+  costModernization: string;
+  costDecommissioning: string;
+  fundingFromIt: string;
+  otherFunds: string;
+  otherFundsSource: string | null;
+
+  // Step 3
+  q1Amount: string;
+  q2Amount: string;
+  q3Amount: string;
+  q4Amount: string;
+
+  // Step 4
+  responsibleInstitution: string | null;
+  executorName: string | null;
+  executorEmail: string | null;
+  implementationDeadline: string | null;
+  submitterNotes: string | null;
+
+  // Step 5 (AM)
+  decisionGrantedAmount: string | null;
+  decisionFundingSource: string | null;
+  decisionProtocol: string | null;
+  decisionOrder: string | null;
+  decidedAt: string | null;
+  decidedByUserId: number | null;
+  decidedByName: string | null;
+
+  submittedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FinancingRequestDetail = FinancingRequest & {
+  comments: RequestComment[];
+};
+
+/**
+ * Visi laukai, kuriuos submitter gali pildyti (be sprendimo).
+ * Naudojamas tiek create, tiek update PATCH (visi optional).
+ */
+export type RequestPayload = {
+  projectName?: string;
+  systemCode?: string | null;
+  projectType?: string | null;
+  description?: string | null;
+  plannedWorks?: string | null;
+  priority?: number | null;
+  procurementStage?: string | null;
+
+  costDu?: number | string;
+  costEquipment?: number | string;
+  costCreation?: number | string;
+  costAnalysis?: number | string;
+  costDevelopment?: number | string;
+  costMaintenance?: number | string;
+  costModernization?: number | string;
+  costDecommissioning?: number | string;
+  fundingFromIt?: number | string;
+  otherFunds?: number | string;
+  otherFundsSource?: string | null;
+
+  q1Amount?: number | string;
+  q2Amount?: number | string;
+  q3Amount?: number | string;
+  q4Amount?: number | string;
+
+  responsibleInstitution?: string | null;
+  executorName?: string | null;
+  executorEmail?: string | null;
+  implementationDeadline?: string | null;
+  submitterNotes?: string | null;
+};
+
+export type RequestListQuery = {
+  q?: string;
+  status?: RequestStatus;
+  tenantId?: number;
+  page?: number;
+  pageSize?: number;
+};
+
+export type RequestDecisionPayload = {
+  decision: 'approve' | 'reject' | 'return';
+  comment?: string;
+  grantedAmount?: number | string;
+  fundingSource?: string;
+  protocol?: string;
+  order?: string;
 };

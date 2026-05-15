@@ -1,0 +1,565 @@
+/**
+ * Requests servisas — finansavimo prašymai.
+ *
+ * Statuso mašina (žr. docs/05-prasymo-modelis.md):
+ *   DRAFT → SUBMITTED → (RETURNED → SUBMITTED)* → APPROVED | REJECTED
+ *
+ * Scope rules (žr. docs/04-vartotoju-modelis.md):
+ *   - am_admin: visi prašymai
+ *   - am_user: scope organizacijų prašymai
+ *   - org_admin: savo tenant prašymai (CRUD draft, submit)
+ *   - org_user: tik savo (=user) prašymai
+ */
+import type { ServiceSchema, Context } from 'moleculer';
+import { Errors } from 'moleculer';
+import type {
+  FinancingRequest as RequestDTO,
+  FinancingRequestDetail,
+  PaginatedResponse,
+  RequestComment as RequestCommentDTO,
+  RequestDecisionPayload,
+  RequestListQuery,
+  RequestPayload,
+  RequestStatus,
+} from '@biip-finansai/shared';
+import { Request } from '../models/Request';
+import { RequestComment } from '../models/RequestComment';
+import { Tenant } from '../models/Tenant';
+import { User } from '../models/User';
+import type { AuthMeta } from './auth.service';
+
+interface RequestWithRels extends Request {
+  tenant?: Tenant;
+  createdByUser?: User;
+  decidedByUser?: User;
+  comments?: (RequestComment & { authorUser?: User })[];
+}
+
+const PAYLOAD_FIELDS = [
+  'projectName',
+  'systemCode',
+  'projectType',
+  'description',
+  'plannedWorks',
+  'priority',
+  'procurementStage',
+  'costDu',
+  'costEquipment',
+  'costCreation',
+  'costAnalysis',
+  'costDevelopment',
+  'costMaintenance',
+  'costModernization',
+  'costDecommissioning',
+  'fundingFromIt',
+  'otherFunds',
+  'otherFundsSource',
+  'q1Amount',
+  'q2Amount',
+  'q3Amount',
+  'q4Amount',
+  'responsibleInstitution',
+  'executorName',
+  'executorEmail',
+  'implementationDeadline',
+  'submitterNotes',
+] as const;
+
+const NUMERIC_FIELDS = new Set([
+  'costDu',
+  'costEquipment',
+  'costCreation',
+  'costAnalysis',
+  'costDevelopment',
+  'costMaintenance',
+  'costModernization',
+  'costDecommissioning',
+  'fundingFromIt',
+  'otherFunds',
+  'q1Amount',
+  'q2Amount',
+  'q3Amount',
+  'q4Amount',
+]);
+
+function normalizeAmount(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '0';
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Errors.MoleculerClientError('Suma turi būti teigiamas skaičius', 400, 'INVALID_AMOUNT');
+  }
+  return n.toFixed(2);
+}
+
+function sanitizePayload(payload: RequestPayload): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of PAYLOAD_FIELDS) {
+    const value = (payload as Record<string, unknown>)[key];
+    if (value === undefined) continue;
+    if (NUMERIC_FIELDS.has(key)) {
+      out[key] = normalizeAmount(value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+function requireMe(ctx: Context<unknown, AuthMeta>): NonNullable<AuthMeta['user']> {
+  if (!ctx.meta.user) {
+    throw new Errors.MoleculerClientError('Neautentifikuota', 401, 'AUTH_REQUIRED');
+  }
+  return ctx.meta.user;
+}
+
+function toRequestDTO(r: RequestWithRels): RequestDTO {
+  if (!r.tenant || !r.createdByUser) {
+    throw new Error(`Request ${r.id} loaded without relations`);
+  }
+  return {
+    id: r.id,
+    tenantId: r.tenantId,
+    tenantCode: r.tenant.code,
+    tenantName: r.tenant.name,
+    createdByUserId: r.createdByUserId,
+    createdByName: r.createdByUser.fullName,
+    status: r.status,
+    projectName: r.projectName,
+    systemCode: r.systemCode,
+    projectType: r.projectType,
+    description: r.description,
+    plannedWorks: r.plannedWorks,
+    priority: r.priority,
+    procurementStage: r.procurementStage,
+    costDu: String(r.costDu),
+    costEquipment: String(r.costEquipment),
+    costCreation: String(r.costCreation),
+    costAnalysis: String(r.costAnalysis),
+    costDevelopment: String(r.costDevelopment),
+    costMaintenance: String(r.costMaintenance),
+    costModernization: String(r.costModernization),
+    costDecommissioning: String(r.costDecommissioning),
+    fundingFromIt: String(r.fundingFromIt),
+    otherFunds: String(r.otherFunds),
+    otherFundsSource: r.otherFundsSource,
+    q1Amount: String(r.q1Amount),
+    q2Amount: String(r.q2Amount),
+    q3Amount: String(r.q3Amount),
+    q4Amount: String(r.q4Amount),
+    responsibleInstitution: r.responsibleInstitution,
+    executorName: r.executorName,
+    executorEmail: r.executorEmail,
+    implementationDeadline: r.implementationDeadline,
+    submitterNotes: r.submitterNotes,
+    decisionGrantedAmount:
+      r.decisionGrantedAmount === null ? null : String(r.decisionGrantedAmount),
+    decisionFundingSource: r.decisionFundingSource,
+    decisionProtocol: r.decisionProtocol,
+    decisionOrder: r.decisionOrder,
+    decidedAt: r.decidedAt,
+    decidedByUserId: r.decidedByUserId,
+    decidedByName: r.decidedByUser?.fullName ?? null,
+    submittedAt: r.submittedAt,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
+
+function toCommentDTO(c: RequestComment & { authorUser?: User }): RequestCommentDTO {
+  if (!c.authorUser) {
+    throw new Error(`Comment ${c.id} loaded without author`);
+  }
+  return {
+    id: c.id,
+    requestId: c.requestId,
+    authorUserId: c.authorUserId,
+    authorName: c.authorUser.fullName,
+    authorRole: c.authorUser.role,
+    kind: c.kind,
+    body: c.body,
+    metadata: c.metadata,
+    createdAt: c.createdAt,
+  };
+}
+
+async function loadRequest(id: number): Promise<RequestWithRels | undefined> {
+  const r = await Request.query()
+    .findById(id)
+    .withGraphFetched('[tenant, createdByUser, decidedByUser]');
+  return r as RequestWithRels | undefined;
+}
+
+async function loadRequestDetail(id: number): Promise<RequestWithRels | undefined> {
+  const r = await Request.query()
+    .findById(id)
+    .withGraphFetched('[tenant, createdByUser, decidedByUser, comments.authorUser]')
+    .modifyGraph('comments', (b) => {
+      b.orderBy('created_at', 'asc');
+    });
+  return r as RequestWithRels | undefined;
+}
+
+function canView(
+  viewer: NonNullable<AuthMeta['user']>,
+  r: { tenantId: number; createdByUserId: number },
+): boolean {
+  if (viewer.role === 'am_admin') return true;
+  if (viewer.role === 'am_user') {
+    if (viewer.amScopeOrgIds === null) return true;
+    return viewer.amScopeOrgIds.includes(r.tenantId);
+  }
+  // org_admin / org_user — tik savo tenant
+  if (r.tenantId !== viewer.tenantId) return false;
+  if (viewer.role === 'org_admin') return true;
+  // org_user — tik savo
+  return r.createdByUserId === viewer.id;
+}
+
+function canEdit(
+  viewer: NonNullable<AuthMeta['user']>,
+  r: { tenantId: number; createdByUserId: number; status: RequestStatus },
+): boolean {
+  if (r.status !== 'DRAFT' && r.status !== 'RETURNED') return false;
+  if (r.tenantId !== viewer.tenantId) return false;
+  if (viewer.role === 'org_admin') return true;
+  if (viewer.role === 'org_user') return r.createdByUserId === viewer.id;
+  return false;
+}
+
+function canDecide(viewer: NonNullable<AuthMeta['user']>, r: { tenantId: number; status: RequestStatus }): boolean {
+  if (r.status !== 'SUBMITTED') return false;
+  if (viewer.role === 'am_admin') return true;
+  if (viewer.role === 'am_user') {
+    if (viewer.amScopeOrgIds === null) return true;
+    return viewer.amScopeOrgIds.includes(r.tenantId);
+  }
+  return false;
+}
+
+const RequestsService: ServiceSchema = {
+  name: 'requests',
+
+  actions: {
+    list: {
+      params: {
+        q: { type: 'string', optional: true },
+        status: { type: 'enum', optional: true, values: ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REJECTED'] },
+        tenantId: { type: 'number', integer: true, optional: true, convert: true },
+        page: { type: 'number', integer: true, optional: true, default: 1, convert: true },
+        pageSize: { type: 'number', integer: true, optional: true, default: 50, convert: true },
+      },
+      async handler(ctx: Context<RequestListQuery, AuthMeta>): Promise<PaginatedResponse<RequestDTO>> {
+        const me = requireMe(ctx);
+        const { q, status, tenantId } = ctx.params;
+        const page = ctx.params.page ?? 1;
+        const pageSize = Math.min(ctx.params.pageSize ?? 50, 200);
+
+        const query = Request.query()
+          .withGraphFetched('[tenant, createdByUser, decidedByUser]')
+          .orderBy('requests.id', 'desc');
+
+        // Scope pre-filter
+        if (me.role === 'org_admin') {
+          query.where('requests.tenant_id', me.tenantId);
+        } else if (me.role === 'org_user') {
+          query.where('requests.tenant_id', me.tenantId).andWhere('requests.created_by_user_id', me.id);
+        } else if (me.role === 'am_user' && me.amScopeOrgIds !== null) {
+          if (me.amScopeOrgIds.length === 0) {
+            return { items: [], total: 0, page, pageSize };
+          }
+          query.whereIn('requests.tenant_id', me.amScopeOrgIds);
+        }
+        // am_admin / am_user (no scope) — no pre-filter
+
+        if (q !== undefined && q.trim() !== '') {
+          const like = `%${q.trim().toLowerCase()}%`;
+          query.whereRaw('LOWER(requests.project_name) LIKE ?', [like]);
+        }
+        if (status !== undefined) {
+          query.where('requests.status', status);
+        }
+        if (tenantId !== undefined) {
+          query.where('requests.tenant_id', tenantId);
+        }
+
+        const total = await query.clone().resultSize();
+        const items = (await query
+          .offset((page - 1) * pageSize)
+          .limit(pageSize)) as RequestWithRels[];
+
+        return {
+          items: items.map(toRequestDTO),
+          total,
+          page,
+          pageSize,
+        };
+      },
+    },
+
+    get: {
+      params: { id: { type: 'number', integer: true, convert: true } },
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<FinancingRequestDetail> {
+        const me = requireMe(ctx);
+        const r = await loadRequestDetail(ctx.params.id);
+        if (!r) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId })) {
+          throw new Errors.MoleculerClientError('Neturite teisės matyti šio prašymo', 403, 'FORBIDDEN');
+        }
+        const dto = toRequestDTO(r);
+        const comments = (r.comments ?? []).map(toCommentDTO);
+        return { ...dto, comments };
+      },
+    },
+
+    create: {
+      params: {
+        projectName: { type: 'string', optional: true, max: 500 },
+      },
+      async handler(ctx: Context<RequestPayload, AuthMeta>): Promise<RequestDTO> {
+        const me = requireMe(ctx);
+        if (me.role === 'am_admin' || me.role === 'am_user') {
+          throw new Errors.MoleculerClientError(
+            'AM vartotojai negali teikti prašymų',
+            403,
+            'FORBIDDEN',
+          );
+        }
+        const patch = sanitizePayload(ctx.params);
+        const inserted = await Request.query().insert({
+          tenantId: me.tenantId,
+          createdByUserId: me.id,
+          status: 'DRAFT',
+          projectName: (patch['projectName'] as string) ?? 'Naujas prašymas',
+          ...patch,
+        });
+        const full = await loadRequest(inserted.id);
+        if (!full) throw new Error('Inserted request not found');
+        return toRequestDTO(full);
+      },
+    },
+
+    update: {
+      params: {
+        id: { type: 'number', integer: true, convert: true },
+      },
+      async handler(ctx: Context<RequestPayload & { id: number }, AuthMeta>): Promise<RequestDTO> {
+        const me = requireMe(ctx);
+        const r = await Request.query().findById(ctx.params.id);
+        if (!r) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        if (!canEdit(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+          throw new Errors.MoleculerClientError(
+            'Neturite teisės redaguoti šio prašymo arba jis nėra DRAFT/RETURNED būsenoje',
+            403,
+            'FORBIDDEN',
+          );
+        }
+        const { id: _id, ...rest } = ctx.params;
+        void _id;
+        const patch = sanitizePayload(rest);
+        await Request.query().findById(r.id).patch(patch);
+        const full = await loadRequest(r.id);
+        if (!full) throw new Error('Updated request not found');
+        return toRequestDTO(full);
+      },
+    },
+
+    submit: {
+      params: { id: { type: 'number', integer: true, convert: true } },
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<RequestDTO> {
+        const me = requireMe(ctx);
+        const r = await Request.query().findById(ctx.params.id);
+        if (!r) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        if (r.tenantId !== me.tenantId) {
+          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+        if (r.status !== 'DRAFT' && r.status !== 'RETURNED') {
+          throw new Errors.MoleculerClientError(
+            'Prašymą galima teikti tik iš DRAFT arba RETURNED būsenos',
+            400,
+            'INVALID_STATUS_TRANSITION',
+          );
+        }
+        if (me.role === 'org_user' && r.createdByUserId !== me.id) {
+          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+        if (!r.projectName || r.projectName.trim() === '') {
+          throw new Errors.MoleculerClientError(
+            'Projekto pavadinimas privalomas',
+            400,
+            'VALIDATION_PROJECT_NAME',
+          );
+        }
+        await Request.query().findById(r.id).patch({
+          status: 'SUBMITTED',
+          submittedAt: new Date().toISOString(),
+        });
+        await RequestComment.query().insert({
+          requestId: r.id,
+          authorUserId: me.id,
+          kind: 'submitted',
+          body: null,
+          metadata: { fromStatus: r.status, toStatus: 'SUBMITTED' },
+        });
+        const full = await loadRequest(r.id);
+        if (!full) throw new Error('Submitted request not found');
+        return toRequestDTO(full);
+      },
+    },
+
+    delete: {
+      params: { id: { type: 'number', integer: true, convert: true } },
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<{ ok: true }> {
+        const me = requireMe(ctx);
+        const r = await Request.query().findById(ctx.params.id);
+        if (!r) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        if (r.status !== 'DRAFT') {
+          throw new Errors.MoleculerClientError(
+            'Galima ištrinti tik DRAFT prašymus',
+            400,
+            'INVALID_STATUS',
+          );
+        }
+        if (r.tenantId !== me.tenantId) {
+          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+        if (me.role === 'org_user' && r.createdByUserId !== me.id) {
+          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+        await Request.query().deleteById(r.id);
+        return { ok: true };
+      },
+    },
+
+    decision: {
+      params: {
+        id: { type: 'number', integer: true, convert: true },
+        decision: { type: 'enum', values: ['approve', 'reject', 'return'] },
+        comment: { type: 'string', optional: true, max: 4000 },
+        grantedAmount: { type: 'any', optional: true },
+        fundingSource: { type: 'string', optional: true, max: 500 },
+        protocol: { type: 'string', optional: true, max: 500 },
+        order: { type: 'string', optional: true, max: 500 },
+      },
+      async handler(
+        ctx: Context<RequestDecisionPayload & { id: number }, AuthMeta>,
+      ): Promise<RequestDTO> {
+        const me = requireMe(ctx);
+        const r = await Request.query().findById(ctx.params.id);
+        if (!r) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        if (!canDecide(me, { tenantId: r.tenantId, status: r.status })) {
+          throw new Errors.MoleculerClientError(
+            'Neturite teisės arba prašymas ne SUBMITTED būsenoje',
+            403,
+            'FORBIDDEN',
+          );
+        }
+        const p = ctx.params;
+        const isApprove = p.decision === 'approve';
+        const isReject = p.decision === 'reject';
+        const isReturn = p.decision === 'return';
+
+        if (isReject || isReturn) {
+          if (!p.comment || p.comment.trim() === '') {
+            throw new Errors.MoleculerClientError(
+              'Atmetimas ir grąžinimas reikalauja komentaro',
+              400,
+              'COMMENT_REQUIRED',
+            );
+          }
+        }
+
+        const now = new Date().toISOString();
+        const patch: Record<string, unknown> = {};
+        let newStatus: RequestStatus;
+        let kind: 'returned' | 'approved' | 'rejected';
+
+        if (isApprove) {
+          newStatus = 'APPROVED';
+          kind = 'approved';
+          patch['decisionGrantedAmount'] = p.grantedAmount !== undefined ? normalizeAmount(p.grantedAmount) : null;
+          patch['decisionFundingSource'] = p.fundingSource ?? null;
+          patch['decisionProtocol'] = p.protocol ?? null;
+          patch['decisionOrder'] = p.order ?? null;
+          patch['decidedAt'] = now;
+          patch['decidedByUserId'] = me.id;
+        } else if (isReject) {
+          newStatus = 'REJECTED';
+          kind = 'rejected';
+          patch['decidedAt'] = now;
+          patch['decidedByUserId'] = me.id;
+        } else {
+          newStatus = 'RETURNED';
+          kind = 'returned';
+        }
+
+        patch['status'] = newStatus;
+        await Request.query().findById(r.id).patch(patch);
+        await RequestComment.query().insert({
+          requestId: r.id,
+          authorUserId: me.id,
+          kind,
+          body: p.comment ?? null,
+          metadata: {
+            fromStatus: r.status,
+            toStatus: newStatus,
+            ...(isApprove
+              ? {
+                  grantedAmount: patch['decisionGrantedAmount'],
+                  fundingSource: patch['decisionFundingSource'],
+                  protocol: patch['decisionProtocol'],
+                  order: patch['decisionOrder'],
+                }
+              : {}),
+          },
+        });
+
+        const full = await loadRequest(r.id);
+        if (!full) throw new Error('Decided request not found');
+        return toRequestDTO(full);
+      },
+    },
+
+    addComment: {
+      params: {
+        id: { type: 'number', integer: true, convert: true },
+        body: { type: 'string', min: 1, max: 4000 },
+      },
+      async handler(
+        ctx: Context<{ id: number; body: string }, AuthMeta>,
+      ): Promise<RequestCommentDTO> {
+        const me = requireMe(ctx);
+        const r = await Request.query().findById(ctx.params.id);
+        if (!r) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId })) {
+          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+        const inserted = await RequestComment.query().insert({
+          requestId: r.id,
+          authorUserId: me.id,
+          kind: 'comment',
+          body: ctx.params.body,
+          metadata: null,
+        });
+        const full = await RequestComment.query()
+          .findById(inserted.id)
+          .withGraphFetched('authorUser');
+        if (!full) throw new Error('Comment not found');
+        return toCommentDTO(full as RequestComment & { authorUser: User });
+      },
+    },
+  },
+};
+
+export default RequestsService;

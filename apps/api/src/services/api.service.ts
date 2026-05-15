@@ -176,7 +176,7 @@ const ApiService: ServiceSchema = {
       {
         name: 'protected',
         path: '/finansai',
-        whitelist: ['tenants.*', 'users.*'],
+        whitelist: ['tenants.*', 'users.*', 'requests.*'],
         use: [],
         authentication: true,
         authorization: true,
@@ -190,6 +190,15 @@ const ApiService: ServiceSchema = {
           'POST /users': 'users.create',
           'PATCH /users/:id': 'users.update',
           'DELETE /users/:id': 'users.delete',
+
+          'GET /requests': 'requests.list',
+          'GET /requests/:id': 'requests.get',
+          'POST /requests': 'requests.create',
+          'PATCH /requests/:id': 'requests.update',
+          'POST /requests/:id/submit': 'requests.submit',
+          'DELETE /requests/:id': 'requests.delete',
+          'POST /requests/:id/decision': 'requests.decision',
+          'POST /requests/:id/comments': 'requests.addComment',
         },
         bodyParsers: {
           json: { strict: false, limit: '1MB' },
