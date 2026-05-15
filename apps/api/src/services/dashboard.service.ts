@@ -312,11 +312,11 @@ const DashboardService: ServiceSchema = {
             .select('requests.submitted_at', 'requests.decided_at', 'requests.status')) as Request[];
           for (const r of fullRequests) {
             if (r.submittedAt) {
-              const m = String(r.submittedAt).slice(0, 7);
+              const m = new Date(r.submittedAt).toISOString().slice(0, 7);
               if (m in submittedByMonth) submittedByMonth[m]!++;
             }
             if (r.decidedAt && r.status === 'APPROVED') {
-              const m = String(r.decidedAt).slice(0, 7);
+              const m = new Date(r.decidedAt).toISOString().slice(0, 7);
               if (m in approvedByMonth) approvedByMonth[m]!++;
             }
           }
