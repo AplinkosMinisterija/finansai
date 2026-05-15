@@ -176,7 +176,7 @@ const ApiService: ServiceSchema = {
       {
         name: 'protected',
         path: '/finansai',
-        whitelist: ['tenants.*', 'users.*', 'requests.*'],
+        whitelist: ['tenants.*', 'users.*', 'requests.*', 'dashboard.*'],
         use: [],
         authentication: true,
         authorization: true,
@@ -199,6 +199,8 @@ const ApiService: ServiceSchema = {
           'DELETE /requests/:id': 'requests.delete',
           'POST /requests/:id/decision': 'requests.decision',
           'POST /requests/:id/comments': 'requests.addComment',
+
+          'GET /dashboard': 'dashboard.get',
         },
         bodyParsers: {
           json: { strict: false, limit: '1MB' },

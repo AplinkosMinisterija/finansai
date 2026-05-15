@@ -267,3 +267,56 @@ export type RequestDecisionPayload = {
   protocol?: string;
   order?: string;
 };
+
+// ---------- Dashboard ----------
+
+export type DashboardStats = {
+  totalRequests: number;
+  byStatus: {
+    DRAFT: number;
+    SUBMITTED: number;
+    RETURNED: number;
+    APPROVED: number;
+    REJECTED: number;
+  };
+  totalRequestedThisYear: number;
+  totalApprovedThisYear: number;
+  usersCount: number;
+};
+
+export type DashboardActivityItem = {
+  requestId: number;
+  projectName: string;
+  tenantCode: string;
+  kind: RequestCommentKind;
+  body: string | null;
+  authorName: string;
+  authorRole: UserRole;
+  createdAt: string;
+};
+
+export type DashboardPerTenantStats = {
+  tenantId: number;
+  tenantCode: string;
+  tenantName: string;
+  total: number;
+  byStatus: {
+    DRAFT: number;
+    SUBMITTED: number;
+    RETURNED: number;
+    APPROVED: number;
+    REJECTED: number;
+  };
+  totalRequested: number;
+  totalApproved: number;
+};
+
+export type DashboardData = {
+  role: UserRole;
+  year: number;
+  stats: DashboardStats;
+  actionable: FinancingRequest[];
+  pendingReview: FinancingRequest[];
+  recentActivity: DashboardActivityItem[];
+  perTenantBreakdown?: DashboardPerTenantStats[];
+};

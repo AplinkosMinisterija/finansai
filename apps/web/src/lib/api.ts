@@ -9,6 +9,7 @@ import type {
   AuthLoginRequest,
   AuthLoginResponse,
   AuthMeResponse,
+  DashboardData,
   FinancingRequest,
   FinancingRequestDetail,
   PaginatedResponse,
@@ -164,5 +165,12 @@ export async function requestAddComment(
   body: string,
 ): Promise<RequestComment> {
   const { data } = await api.post<RequestComment>(`/requests/${id}/comments`, { body });
+  return data;
+}
+
+// ---------- Dashboard ----------
+
+export async function dashboardGet(): Promise<DashboardData> {
+  const { data } = await api.get<DashboardData>('/dashboard');
   return data;
 }
