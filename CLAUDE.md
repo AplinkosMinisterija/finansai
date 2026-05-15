@@ -88,5 +88,5 @@ Bendras ciklas push → URL atnaujintas: ~2-3 min.
 | Stack | Moleculer.js + TS + Knex + Objection + PostgreSQL + Redis (backend); React 18 + Vite + Tailwind + shadcn/ui + React Query (frontend); VitePress (docs) |
 | MVP fokusas | Vartotojų valdymas (tenant→user) + prašymo wizard'as + tvirtinimo ping-pong |
 | Auth (MVP) | session-based, `demo`/demo. Vėliau biip-auth-api SSO |
-| Dabartinis statusas | Iter 0 (bootstrap) baigtas. Žiūrėk `docs/06-implementacijos-planas.md` |
+| Dabartinis statusas | Iter 0-5 baigti — MVP ready. Žiūrėk `docs/06-implementacijos-planas.md` |
 | Local dev | `yarn install && yarn dev:db && yarn dev` (api 3000, web 5173, docs 5174) |
