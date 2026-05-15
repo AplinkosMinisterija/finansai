@@ -249,7 +249,7 @@ const DashboardService: ServiceSchema = {
         // ===== Per-tenant breakdown (approver rolėms) =====
         let perTenantBreakdown: DashboardPerTenantStats[] | undefined;
         if (isApprover) {
-          const tenants = await Tenant.query().where('isApprover', false).orderBy('code');
+          const tenants = await Tenant.query().where('is_approver', false).orderBy('code');
           const visibleTenants =
             me.role === 'user' && me.amScopeOrgIds !== null
               ? tenants.filter((t) => me.amScopeOrgIds!.includes(t.id))
