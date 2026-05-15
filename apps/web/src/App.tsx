@@ -8,6 +8,7 @@ const HomePage = lazy(() => import('@/pages/HomePage'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const VartotojaiPage = lazy(() => import('@/pages/VartotojaiPage'));
 const OrganizacijosPage = lazy(() => import('@/pages/OrganizacijosPage'));
+const StatistikaPage = lazy(() => import('@/pages/StatistikaPage'));
 const PrasymaiPage = lazy(() => import('@/pages/PrasymaiPage'));
 const PrasymoDetailPage = lazy(() => import('@/pages/PrasymoDetailPage'));
 const PrasymoEditPage = lazy(() => import('@/pages/PrasymoEditPage'));
@@ -39,6 +40,7 @@ export default function App(): JSX.Element {
           <Route path="/" element={<HomePage />} />
           <Route path="/vartotojai" element={<VartotojaiPage />} />
           <Route path="/organizacijos" element={<OrganizacijosPage />} />
+          <Route path="/statistika" element={<StatistikaPage />} />
           <Route path="/prasymai" element={<PrasymaiPage />} />
           <Route path="/prasymai/:id" element={<PrasymoDetailPage />} />
           <Route path="/prasymai/:id/redaguoti" element={<PrasymoEditPage />} />

@@ -25,6 +25,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MonthlyTrendChart } from '@/components/charts/MonthlyTrendChart';
 import { useAuth } from '@/lib/auth';
 import { dashboardGet } from '@/lib/api';
 import {
@@ -248,6 +249,25 @@ export default function HomePage(): JSX.Element {
                     Naujas prašymas
                   </Link>
                 </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Mėnesinis trendas — kompaktiškas */}
+          {d.monthlyTrend.some((m) => m.submitted > 0 || m.approved > 0) && (
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                  <Activity className="h-4 w-4" />
+                  12 mėn. dinamika
+                  <Link
+                    to="/statistika"
+                    className="ml-auto text-[11px] font-normal text-muted-foreground hover:text-foreground"
+                  >
+                    Visa statistika →
+                  </Link>
+                </h3>
+                <MonthlyTrendChart data={d.monthlyTrend} height={160} compact />
               </CardContent>
             </Card>
           )}

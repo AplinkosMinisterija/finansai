@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
+  BarChart3,
   Building2,
   ChevronUp,
   ExternalLink,
@@ -33,6 +34,7 @@ interface NavItem {
 const PRIMARY_NAV: NavItem[] = [
   { to: '/', label: 'Pradžia', icon: LayoutDashboard },
   { to: '/prasymai', label: 'Prašymai', icon: FileText },
+  { to: '/statistika', label: 'Statistika', icon: BarChart3 },
   { to: '/vartotojai', label: 'Vartotojai', icon: Users },
   { to: '/organizacijos', label: 'Organizacijos', icon: Building2, adminOnly: true },
 ];

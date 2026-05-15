@@ -25,6 +25,12 @@
     --input: 214 28% 89%;
     --ring: 184 60% 22%;
     --radius: 0.5rem;
+
+    /* Charts (grafikams) */
+    --chart-success: 152 60% 36%;
+    --chart-warning: 38 92% 50%;
+    --chart-info: 200 80% 50%;
+    --chart-muted: 215 16% 60%;
   }
 }
 
