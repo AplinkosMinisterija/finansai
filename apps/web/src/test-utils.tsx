@@ -14,7 +14,11 @@ export const TEST_AUTH_USER: AuthUser = {
   username: 'demo',
   fullName: 'Demo Vartotojas',
   email: 'demo@am.lt',
-  role: 'admin',
+  role: 'am_admin',
+  tenantId: 1,
+  tenantCode: 'AM',
+  tenantName: 'Aplinkos ministerija',
+  amScopeOrgIds: null,
 };
 
 export function makeAuthValue(

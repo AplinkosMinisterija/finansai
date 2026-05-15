@@ -32,7 +32,16 @@ const loginSchema = z.object({
 type LoginFormValues = z.infer<typeof loginSchema>;
 
 const DEMO_ACCOUNTS: { username: string; description: string }[] = [
-  { username: 'demo', description: 'Admin (Iter 0 — bootstrap demo)' },
+  { username: 'demo', description: 'AM administratorius (alias)' },
+  { username: 'am-admin', description: 'AM administratorius' },
+  { username: 'am-user', description: 'AM specialistas (visos org.)' },
+  { username: 'am-user-aad', description: 'AM specialistas (tik AAD scope)' },
+  { username: 'aad-admin', description: 'AAD administratorius' },
+  { username: 'aad-user', description: 'AAD specialistas' },
+  { username: 'vstt-admin', description: 'VSTT administratorius' },
+  { username: 'vstt-user', description: 'VSTT specialistas' },
+  { username: 'lgt-admin', description: 'LGT administratorius' },
+  { username: 'lgt-user', description: 'LGT specialistas' },
 ];
 
 interface LocationState {

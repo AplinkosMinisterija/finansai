@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { ROLE_LABELS } from '@/lib/roles';
 
 interface NavItem {
   to: string;
@@ -28,7 +29,7 @@ interface NavItem {
 
 const PRIMARY_NAV: NavItem[] = [
   { to: '/', label: 'Pradžia', icon: LayoutDashboard },
-  { to: '/vartotojai', label: 'Vartotojai', icon: Users, disabled: true },
+  { to: '/vartotojai', label: 'Vartotojai', icon: Users },
   { to: '/prasymai', label: 'Prašymai', icon: FileText, disabled: true },
 ];
 
@@ -41,6 +42,7 @@ export function Sidebar({ onNavigate }: SidebarProps): JSX.Element {
 
   const fullName = user?.fullName ?? 'Naudotojas';
   const initials = user ? initialsFrom(fullName) : '??';
+  const roleLabel = user ? ROLE_LABELS[user.role] : '';
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-card">
@@ -51,7 +53,7 @@ export function Sidebar({ onNavigate }: SidebarProps): JSX.Element {
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold leading-tight">Finansai</div>
           <div className="-mt-0.5 truncate text-[11px] text-muted-foreground">
-            Aplinkos ministerija
+            {user?.tenantName ?? 'Aplinkos ministerija'}
           </div>
         </div>
       </div>
@@ -107,7 +109,7 @@ export function Sidebar({ onNavigate }: SidebarProps): JSX.Element {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{fullName}</div>
                 <div className="truncate text-[11px] text-muted-foreground">
-                  {user?.role ?? ''}
+                  {roleLabel}
                 </div>
               </div>
               <ChevronUp className="h-4 w-4 text-muted-foreground" />

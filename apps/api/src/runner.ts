@@ -11,23 +11,27 @@ import { ServiceBroker } from 'moleculer';
 import brokerConfig from './moleculer.config';
 import apiService from './services/api.service';
 import authService from './services/auth.service';
+import tenantsService from './services/tenants.service';
+import usersService from './services/users.service';
 import { initDb, runMigrations, runSeeds, getKnex, closeDb } from './database/db';
 import { closeRedis } from './utils/redis';
 
 async function maybeSeed(): Promise<void> {
-  // Idempotent seed — jei users lentelė tuščia, paleidžiam.
+  // Idempotent: jei tenants lentelė tuščia, paleidžiam seed'ą (jis truncatina
+  // ir iš naujo įsideda tenants + users). Toks check'as leidžia atnaujinti
+  // seed'us tarp iteracijų — tik užwipinti tenants kad refresh'intų.
   const knex = getKnex();
   try {
     const rows = await knex.raw<{ rows: { count: string }[] }>(
-      'SELECT COUNT(*)::text AS count FROM users',
+      'SELECT COUNT(*)::text AS count FROM tenants',
     );
     const first = rows.rows[0];
     const count = first ? Number(first.count) : 0;
     if (count === 0) {
-      console.log('Users table empty — running seeds');
+      console.log('Tenants table empty — running seeds');
       await runSeeds();
     } else {
-      console.log(`Seeds already complete (${count} users) — skipping`);
+      console.log(`Seeds already complete (${count} tenants) — skipping`);
     }
   } catch (err) {
     console.log('Seed check failed (table not ready?) — running seeds anyway:', err);
@@ -47,6 +51,8 @@ async function main(): Promise<void> {
   const broker = new ServiceBroker(brokerConfig);
 
   broker.createService(authService);
+  broker.createService(tenantsService);
+  broker.createService(usersService);
   broker.createService(apiService);
 
   await broker.start();

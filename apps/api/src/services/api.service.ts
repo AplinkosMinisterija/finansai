@@ -6,10 +6,12 @@
  *  - session resolution per auth.resolveSession
  *  - HttpOnly cookie nustatymas/išvalymas po login/logout
  *  - public ir protected route grupių išskyrimas
+ *  - pilno AuthUser (su tenant) atnaujinimas per auth.resolveUser
  */
 import type { ServiceSchema, Context } from 'moleculer';
 import type { IncomingMessage, ServerResponse } from 'http';
 import ApiGateway from 'moleculer-web';
+import type { AuthUser } from '@biip-finansai/shared';
 
 const WebErrors = ApiGateway.Errors;
 import type { AuthMeta, SessionPayload } from './auth.service';
@@ -174,13 +176,21 @@ const ApiService: ServiceSchema = {
       {
         name: 'protected',
         path: '/finansai',
-        whitelist: [],
+        whitelist: ['tenants.*', 'users.*'],
         use: [],
         authentication: true,
         authorization: true,
         mergeParams: true,
         autoAliases: false,
-        aliases: {},
+        aliases: {
+          'GET /tenants': 'tenants.list',
+
+          'GET /users': 'users.list',
+          'GET /users/:id': 'users.get',
+          'POST /users': 'users.create',
+          'PATCH /users/:id': 'users.update',
+          'DELETE /users/:id': 'users.delete',
+        },
         bodyParsers: {
           json: { strict: false, limit: '1MB' },
           urlencoded: { extended: true, limit: '1MB' },
@@ -215,14 +225,15 @@ const ApiService: ServiceSchema = {
       if (!payload) {
         return null;
       }
-      ctx.meta.user = {
-        id: payload.userId,
-        username: '',
-        fullName: '',
-        email: null,
-        role: payload.role,
-      };
-      return ctx.meta.user;
+      // Pilnas user'is — su tenant info ir scope. Reikia visiems guard'ams.
+      const user = (await this.broker.call('auth.resolveUser', {
+        userId: payload.userId,
+      })) as AuthUser | null;
+      if (!user) {
+        return null;
+      }
+      ctx.meta.user = user;
+      return user;
     },
 
     authorize(

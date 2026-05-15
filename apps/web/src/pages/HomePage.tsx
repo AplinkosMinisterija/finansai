@@ -1,5 +1,7 @@
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
+import { ROLE_LABELS } from '@/lib/roles';
 
 export default function HomePage(): JSX.Element {
   const { user } = useAuth();
@@ -11,28 +13,40 @@ export default function HomePage(): JSX.Element {
           Sveiki, {user?.fullName ?? 'naudotojau'}!
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Finansavimo prašymų sistema — Aplinkos ministerija.
+          {user ? (
+            <>
+              {ROLE_LABELS[user.role]} · {user.tenantName}
+            </>
+          ) : (
+            'Finansavimo prašymų sistema — Aplinkos ministerija.'
+          )}
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Iter 0 — Bootstrap</CardTitle>
+          <CardTitle>Iter 1 — Vartotojų valdymas</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
-            Aplikacija sėkmingai prisijungė prie backend'o ir Redis sesijos veikia.
+            Vartotojai ir organizacijos jau veikia. Eikite į{' '}
+            <Link
+              to="/vartotojai"
+              className="font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Vartotojai
+            </Link>{' '}
+            — pamatysite sąrašą pagal jūsų rolę.
           </p>
           <p>
             <strong className="text-foreground">Kas toliau:</strong>
           </p>
           <ul className="list-disc space-y-1 pl-5">
             <li>
-              <strong>Iter 1</strong> — organizacijos (tenants), vartotojų valdymas,
-              role-based prieiga (AM admin/user, organizacijos admin/user)
+              <strong>Iter 2</strong> — prašymo duomenų modelis, DB schema
             </li>
             <li>
-              <strong>Iter 2-3</strong> — prašymo duomenų modelis ir teikimo wizard'as
+              <strong>Iter 3</strong> — prašymo teikimo wizard'as (multi-step)
             </li>
             <li>
               <strong>Iter 4</strong> — tvirtinimo flow (AM perspektyva, ping-pong)
@@ -42,7 +56,13 @@ export default function HomePage(): JSX.Element {
             </li>
           </ul>
           <p className="pt-2">
-            Pilna dokumentacija — <a href="/docs/" className="font-medium text-primary underline-offset-2 hover:underline">/docs/</a>
+            Pilna dokumentacija —{' '}
+            <a
+              href="/docs/"
+              className="font-medium text-primary underline-offset-2 hover:underline"
+            >
+              /docs/
+            </a>
           </p>
         </CardContent>
       </Card>

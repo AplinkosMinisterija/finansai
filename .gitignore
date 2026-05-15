@@ -12,6 +12,7 @@ dist/
 build/
 .vitepress/dist/
 .vitepress/cache/
+*.tsbuildinfo
 
 # Test outputs
 coverage/

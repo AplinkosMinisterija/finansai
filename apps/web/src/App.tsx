@@ -6,6 +6,7 @@ import { ProtectedRoute } from '@/lib/auth';
 
 const HomePage = lazy(() => import('@/pages/HomePage'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
+const VartotojaiPage = lazy(() => import('@/pages/VartotojaiPage'));
 
 function RouteFallback(): JSX.Element {
   return (
@@ -32,6 +33,7 @@ export default function App(): JSX.Element {
           }
         >
           <Route path="/" element={<HomePage />} />
+          <Route path="/vartotojai" element={<VartotojaiPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

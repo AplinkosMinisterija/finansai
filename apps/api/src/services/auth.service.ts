@@ -16,6 +16,7 @@ import type {
   UserRole,
 } from '@biip-finansai/shared';
 import { User } from '../models/User';
+import { Tenant } from '../models/Tenant';
 import { getRedis } from '../utils/redis';
 
 const SESSION_PREFIX = 'finansai:session:';
@@ -24,6 +25,7 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 export interface SessionPayload {
   userId: number;
   role: UserRole;
+  tenantId: number;
   createdAt: string;
 }
 
@@ -39,14 +41,31 @@ interface LoginContext extends Context<LoginParams, AuthMeta> {}
 interface LogoutContext extends Context<unknown, AuthMeta & { sessionToken?: string }> {}
 interface MeContext extends Context<unknown, AuthMeta> {}
 
-function toAuthUser(user: User): AuthUser {
+interface UserWithTenant extends User {
+  tenant?: Tenant;
+}
+
+function toAuthUser(user: UserWithTenant): AuthUser {
+  const tenant = user.tenant;
+  if (!tenant) {
+    throw new Error(`User ${user.id} loaded without tenant`);
+  }
   return {
     id: user.id,
     username: user.username,
     fullName: user.fullName,
     email: user.email,
     role: user.role,
+    tenantId: user.tenantId,
+    tenantCode: tenant.code,
+    tenantName: tenant.name,
+    amScopeOrgIds: user.amScopeOrgIds,
   };
+}
+
+async function loadUserWithTenant(id: number): Promise<UserWithTenant | undefined> {
+  const u = await User.query().findById(id).withGraphFetched('tenant');
+  return u as UserWithTenant | undefined;
 }
 
 const AuthService: ServiceSchema = {
@@ -58,10 +77,15 @@ const AuthService: ServiceSchema = {
         username: { type: 'string', min: 1, max: 64 },
         password: { type: 'string', min: 1, max: 200 },
       },
-      async handler(this: { logger: { warn: Function } }, ctx: LoginContext): Promise<AuthLoginResponse> {
+      async handler(
+        this: { logger: { warn: Function } },
+        ctx: LoginContext,
+      ): Promise<AuthLoginResponse> {
         const { username, password } = ctx.params;
 
-        const user = await User.query().findOne({ username });
+        const user = (await User.query()
+          .findOne({ username })
+          .withGraphFetched('tenant')) as UserWithTenant | undefined;
 
         if (!user || !user.active) {
           this.logger.warn(`Login failed: user not found or inactive`, { username });
@@ -79,11 +103,19 @@ const AuthService: ServiceSchema = {
             'AUTH_INVALID_CREDENTIALS',
           );
         }
+        if (!user.tenant) {
+          throw new Errors.MoleculerClientError(
+            'Vartotojas neturi organizacijos',
+            500,
+            'AUTH_NO_TENANT',
+          );
+        }
 
         const token = crypto.randomBytes(32).toString('hex');
         const payload: SessionPayload = {
           userId: user.id,
           role: user.role,
+          tenantId: user.tenantId,
           createdAt: new Date().toISOString(),
         };
         const redis = getRedis();
@@ -125,19 +157,11 @@ const AuthService: ServiceSchema = {
       async handler(ctx: MeContext): Promise<AuthMeResponse> {
         const authUser = ctx.meta.user;
         if (!authUser) {
-          throw new Errors.MoleculerClientError(
-            'Neautentifikuota',
-            401,
-            'AUTH_REQUIRED',
-          );
+          throw new Errors.MoleculerClientError('Neautentifikuota', 401, 'AUTH_REQUIRED');
         }
-        const user = await User.query().findById(authUser.id);
+        const user = await loadUserWithTenant(authUser.id);
         if (!user || !user.active) {
-          throw new Errors.MoleculerClientError(
-            'Vartotojas nerastas',
-            401,
-            'AUTH_USER_NOT_FOUND',
-          );
+          throw new Errors.MoleculerClientError('Vartotojas nerastas', 401, 'AUTH_USER_NOT_FOUND');
         }
         return { user: toAuthUser(user) };
       },
@@ -162,6 +186,22 @@ const AuthService: ServiceSchema = {
         } catch {
           return null;
         }
+      },
+    },
+
+    /**
+     * Vidinė pagalbinė — naudoja api gateway authenticate hook'as.
+     * Grąžina pilną AuthUser su tenant info.
+     */
+    resolveUser: {
+      visibility: 'public',
+      params: {
+        userId: { type: 'number', integer: true },
+      },
+      async handler(ctx: Context<{ userId: number }>): Promise<AuthUser | null> {
+        const u = await loadUserWithTenant(ctx.params.userId);
+        if (!u || !u.active || !u.tenant) return null;
+        return toAuthUser(u);
       },
     },
   },
