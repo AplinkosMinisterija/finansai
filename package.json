@@ -1,0 +1,32 @@
+{
+  "name": "biip-finansai",
+  "version": "0.2.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "docs"
+  ],
+  "scripts": {
+    "dev:db": "docker compose up -d postgres redis",
+    "dev:db:stop": "docker compose stop postgres redis",
+    "dev:api": "yarn workspace @biip-finansai/api dev",
+    "dev:web": "yarn workspace @biip-finansai/web dev",
+    "dev:docs": "yarn workspace @biip-finansai/docs dev",
+    "dev": "concurrently -n api,web,docs -c blue,green,magenta \"yarn dev:api\" \"yarn dev:web\" \"yarn dev:docs\"",
+    "build": "yarn workspaces run build",
+    "test": "yarn workspaces run test",
+    "lint": "yarn workspaces run lint",
+    "typecheck": "yarn workspaces run typecheck",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  },
+  "packageManager": "yarn@1.22.22",
+  "engines": {
+    "node": ">=20"
+  }
+}

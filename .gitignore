@@ -1,0 +1,20 @@
+.DS_Store
+node_modules/
+.idea/
+.vscode/
+*.log
+.env
+.env.local
+.gstack/
+
+# Build outputs
+dist/
+build/
+.vitepress/dist/
+.vitepress/cache/
+
+# Test outputs
+coverage/
+
+# OS
+Thumbs.db

@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 215 28% 14%;
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 28% 14%;
+    /* Finansai brand: deep teal (skiriasi nuo HR žalio) */
+    --primary: 184 60% 22%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 200 25% 96%;
+    --secondary-foreground: 215 28% 14%;
+    --muted: 200 25% 96%;
+    --muted-foreground: 215 16% 42%;
+    --accent: 184 35% 92%;
+    --accent-foreground: 184 60% 18%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 214 28% 89%;
+    --input: 214 28% 89%;
+    --ring: 184 60% 22%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', ui-sans-serif, system-ui;
+  }
+}

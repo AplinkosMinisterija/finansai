@@ -1,0 +1,24 @@
+:80 {
+	encode gzip
+
+	handle /api/* {
+		uri replace /api/ /hr/
+		reverse_proxy {$HR_API_HOST:finansai-api:3000}
+	}
+
+	# /docs be slash'o → redirect į /docs/ (VitePress base = /docs/)
+	redir /docs /docs/ 308
+
+	# /docs/* — VitePress dist'as serveriniam'as iš /srv-docs (be docs prefix'o, todėl handle_path strip'ina).
+	handle_path /docs/* {
+		root * /srv-docs
+		try_files {path} {path}.html {path}/index.html /index.html
+		file_server
+	}
+
+	handle {
+		root * /srv-web
+		try_files {path} /index.html
+		file_server
+	}
+}

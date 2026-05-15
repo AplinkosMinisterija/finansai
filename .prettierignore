@@ -1,0 +1,8 @@
+node_modules
+dist
+build
+.vitepress/dist
+.vitepress/cache
+yarn.lock
+coverage
+mockups
