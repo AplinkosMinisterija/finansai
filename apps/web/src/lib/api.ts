@@ -9,7 +9,13 @@ import type {
   AuthLoginRequest,
   AuthLoginResponse,
   AuthMeResponse,
+  FinancingRequest,
+  FinancingRequestDetail,
   PaginatedResponse,
+  RequestComment,
+  RequestDecisionPayload,
+  RequestListQuery,
+  RequestPayload,
   Tenant,
   User,
   UserCreateRequest,
@@ -48,9 +54,7 @@ api.interceptors.response.use(
 
 // ---------- Auth ----------
 
-export async function authLogin(
-  body: AuthLoginRequest,
-): Promise<AuthLoginResponse> {
+export async function authLogin(body: AuthLoginRequest): Promise<AuthLoginResponse> {
   const { data } = await api.post<AuthLoginResponse>('/auth/login', body);
   return data;
 }
@@ -74,9 +78,7 @@ export async function tenantsList(): Promise<Tenant[]> {
 
 // ---------- Users ----------
 
-export async function usersList(
-  query: UserListQuery = {},
-): Promise<PaginatedResponse<User>> {
+export async function usersList(query: UserListQuery = {}): Promise<PaginatedResponse<User>> {
   const params: Record<string, string | number> = {};
   if (query.q !== undefined && query.q !== '') params.q = query.q;
   if (query.tenantId !== undefined) params.tenantId = query.tenantId;
@@ -96,15 +98,71 @@ export async function userCreate(body: UserCreateRequest): Promise<User> {
   return data;
 }
 
-export async function userUpdate(
-  id: number,
-  patch: UserUpdateRequest,
-): Promise<User> {
+export async function userUpdate(id: number, patch: UserUpdateRequest): Promise<User> {
   const { data } = await api.patch<User>(`/users/${id}`, patch);
   return data;
 }
 
 export async function userDelete(id: number): Promise<{ ok: true }> {
   const { data } = await api.delete<{ ok: true }>(`/users/${id}`);
+  return data;
+}
+
+// ---------- Requests ----------
+
+export async function requestsList(
+  query: RequestListQuery = {},
+): Promise<PaginatedResponse<FinancingRequest>> {
+  const params: Record<string, string | number> = {};
+  if (query.q !== undefined && query.q !== '') params.q = query.q;
+  if (query.status !== undefined) params.status = query.status;
+  if (query.tenantId !== undefined) params.tenantId = query.tenantId;
+  if (query.page !== undefined) params.page = query.page;
+  if (query.pageSize !== undefined) params.pageSize = query.pageSize;
+  const { data } = await api.get<PaginatedResponse<FinancingRequest>>('/requests', { params });
+  return data;
+}
+
+export async function requestGet(id: number): Promise<FinancingRequestDetail> {
+  const { data } = await api.get<FinancingRequestDetail>(`/requests/${id}`);
+  return data;
+}
+
+export async function requestCreate(body: RequestPayload = {}): Promise<FinancingRequest> {
+  const { data } = await api.post<FinancingRequest>('/requests', body);
+  return data;
+}
+
+export async function requestUpdate(
+  id: number,
+  patch: RequestPayload,
+): Promise<FinancingRequest> {
+  const { data } = await api.patch<FinancingRequest>(`/requests/${id}`, patch);
+  return data;
+}
+
+export async function requestSubmit(id: number): Promise<FinancingRequest> {
+  const { data } = await api.post<FinancingRequest>(`/requests/${id}/submit`);
+  return data;
+}
+
+export async function requestDelete(id: number): Promise<{ ok: true }> {
+  const { data } = await api.delete<{ ok: true }>(`/requests/${id}`);
+  return data;
+}
+
+export async function requestDecision(
+  id: number,
+  body: RequestDecisionPayload,
+): Promise<FinancingRequest> {
+  const { data } = await api.post<FinancingRequest>(`/requests/${id}/decision`, body);
+  return data;
+}
+
+export async function requestAddComment(
+  id: number,
+  body: string,
+): Promise<RequestComment> {
+  const { data } = await api.post<RequestComment>(`/requests/${id}/comments`, { body });
   return data;
 }

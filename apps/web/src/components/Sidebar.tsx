@@ -30,7 +30,7 @@ interface NavItem {
 const PRIMARY_NAV: NavItem[] = [
   { to: '/', label: 'Pradžia', icon: LayoutDashboard },
   { to: '/vartotojai', label: 'Vartotojai', icon: Users },
-  { to: '/prasymai', label: 'Prašymai', icon: FileText, disabled: true },
+  { to: '/prasymai', label: 'Prašymai', icon: FileText },
 ];
 
 export interface SidebarProps {
