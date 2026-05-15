@@ -18,21 +18,36 @@ import { initDb, runMigrations, runSeeds, getKnex, closeDb } from './database/db
 import { closeRedis } from './utils/redis';
 
 async function maybeSeed(): Promise<void> {
-  // Idempotent: jei tenants lentelė tuščia, paleidžiam seed'ą (jis truncatina
-  // ir iš naujo įsideda tenants + users). Toks check'as leidžia atnaujinti
-  // seed'us tarp iteracijų — tik užwipinti tenants kad refresh'intų.
+  // Idempotent: tikrinam newest seedinamą lentelę — requests. Jei tuščia,
+  // paleidžiam seed'ą (truncatina ir įdeda viską iš naujo). Tai dengia ir
+  // pirmąjį deploy'ą (tenants/users), ir incrementinį (kai pridėta requests).
+  // Jei kažkas jau sukurtų realių prašymų — count > 0, ir seed skipinasi.
   const knex = getKnex();
   try {
-    const rows = await knex.raw<{ rows: { count: string }[] }>(
+    const hasRequests = await knex.schema.hasTable('requests');
+    if (hasRequests) {
+      const rows = await knex.raw<{ rows: { count: string }[] }>(
+        'SELECT COUNT(*)::text AS count FROM requests',
+      );
+      const count = rows.rows[0] ? Number(rows.rows[0].count) : 0;
+      if (count === 0) {
+        console.log('Requests table empty — running seeds');
+        await runSeeds();
+      } else {
+        console.log(`Seeds already complete (${count} requests) — skipping`);
+      }
+      return;
+    }
+    // Fallback (Iter 0 deploy be requests migracijos)
+    const tenantRows = await knex.raw<{ rows: { count: string }[] }>(
       'SELECT COUNT(*)::text AS count FROM tenants',
     );
-    const first = rows.rows[0];
-    const count = first ? Number(first.count) : 0;
-    if (count === 0) {
-      console.log('Tenants table empty — running seeds');
+    const tenantsCount = tenantRows.rows[0] ? Number(tenantRows.rows[0].count) : 0;
+    if (tenantsCount === 0) {
+      console.log('Tenants table empty (no requests migration yet) — running seeds');
       await runSeeds();
     } else {
-      console.log(`Seeds already complete (${count} tenants) — skipping`);
+      console.log(`Seeds already complete (${tenantsCount} tenants) — skipping`);
     }
   } catch (err) {
     console.log('Seed check failed (table not ready?) — running seeds anyway:', err);
