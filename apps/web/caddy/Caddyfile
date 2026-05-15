@@ -2,8 +2,8 @@
 	encode gzip
 
 	handle /api/* {
-		uri replace /api/ /hr/
-		reverse_proxy {$HR_API_HOST:finansai-api:3000}
+		uri replace /api/ /finansai/
+		reverse_proxy {$FINANSAI_API_HOST:finansai-api:3000}
 	}
 
 	# /docs be slash'o → redirect į /docs/ (VitePress base = /docs/)
