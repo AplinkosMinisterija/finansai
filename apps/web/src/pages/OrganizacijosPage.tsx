@@ -48,6 +48,29 @@ export default function OrganizacijosPage(): JSX.Element {
   });
 
   function handleDelete(t: Tenant): void {
+    if (t.isApprover) {
+      window.alert(
+        `Organizacijos „${t.name}" ištrinti negalima — tai tvirtintojas (AM). ` +
+          `Pirma reikia pakeisti jos „Tvirtintojas" žymę.`,
+      );
+      return;
+    }
+    const usersCount = t.usersCount ?? 0;
+    const requestsCount = t.requestsCount ?? 0;
+    if (usersCount > 0 || requestsCount > 0) {
+      const parts: string[] = [];
+      if (usersCount > 0) {
+        parts.push(`${usersCount} vartotoj${usersCount === 1 ? 'as' : 'ai'}`);
+      }
+      if (requestsCount > 0) {
+        parts.push(`${requestsCount} prašym${requestsCount === 1 ? 'as' : 'ai'}`);
+      }
+      window.alert(
+        `Negalima ištrinti „${t.name}" — yra ${parts.join(' ir ')}. ` +
+          `Pirma perkelkite arba ištrinkite susijusius įrašus.`,
+      );
+      return;
+    }
     if (!window.confirm(`Ar tikrai ištrinti organizaciją „${t.name}"?`)) {
       return;
     }
@@ -114,7 +137,6 @@ export default function OrganizacijosPage(): JSX.Element {
                   <TenantRow
                     key={t.id}
                     tenant={t}
-                    canDelete={false}
                     onEdit={() => setEditing(t)}
                     onDelete={() => handleDelete(t)}
                   />
@@ -134,9 +156,6 @@ export default function OrganizacijosPage(): JSX.Element {
                   <TenantRow
                     key={t.id}
                     tenant={t}
-                    canDelete={
-                      (t.usersCount ?? 0) === 0 && (t.requestsCount ?? 0) === 0
-                    }
                     onEdit={() => setEditing(t)}
                     onDelete={() => handleDelete(t)}
                   />
@@ -179,12 +198,11 @@ export default function OrganizacijosPage(): JSX.Element {
 
 interface TenantRowProps {
   tenant: Tenant;
-  canDelete: boolean;
   onEdit: () => void;
   onDelete: () => void;
 }
 
-function TenantRow({ tenant, canDelete, onEdit, onDelete }: TenantRowProps): JSX.Element {
+function TenantRow({ tenant, onEdit, onDelete }: TenantRowProps): JSX.Element {
   return (
     <li>
       <Card
@@ -240,12 +258,7 @@ function TenantRow({ tenant, canDelete, onEdit, onDelete }: TenantRowProps): JSX
               size="sm"
               className="text-destructive hover:text-destructive"
               onClick={onDelete}
-              disabled={!canDelete}
-              title={
-                !canDelete
-                  ? 'Negalima ištrinti — yra vartotojų ar prašymų'
-                  : 'Ištrinti organizaciją'
-              }
+              title="Ištrinti organizaciją"
               data-testid={`delete-tenant-${tenant.id}`}
             >
               <Trash2 className="h-4 w-4" />
