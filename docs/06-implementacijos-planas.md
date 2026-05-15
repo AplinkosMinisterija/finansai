@@ -1,6 +1,6 @@
 # 06 — Implementacijos planas
 
-5 iteracijos + bootstrap. Po kiekvienos — nepriklausomas review subagent'as patikrina, ar viskas atitinka acceptance kriterijus, prieš einant prie sekančios.
+8 iteracijos + bootstrap (Iter 0). Pradžioje planavome 5 iteracijas iki MVP — vėlesnės (6-8) gimė iš realių poreikių po pirmojo paleisto. Po kiekvienos iteracijos — nepriklausomas review subagent'as patikrina acceptance kriterijus prieš einant prie sekančios.
 
 ## Iter 0 — Bootstrap + Infra ✅
 
@@ -105,10 +105,52 @@
 - [x] /docs/ visose 3 aplinkose
 - [x] Demo accounts veikia visose 3 aplinkose
 
-**Polish užduotys vėliau (po MVP):**
+## Iter 6 — Rolių modelio supaprastinimas + UI polish ✅
+
+**Tikslas:** atsisakyti dubliuojančio 4-rolių modelio + pakelti UI kokybę.
+
+- [x] Migracija + modelis: `tenant.description` laukas
+- [x] Backend role refaktorinimas: `am_admin/am_user/org_admin/org_user` → `admin/user` + tenant.is_approver
+- [x] Backend: `requests.create` palaiko AM admin „on behalf" — gali nurodyti `tenantId` kitos organizacijos
+- [x] Backend: `tenants.service.ts` pilnas CRUD su sauga (negalima ištrinti su vartotojais/prašymais)
+- [x] Backend: `dashboard.service.ts` papildytas `monthlyTrend` (12 mėn dinamika)
+- [x] Frontend role refaktorinimas: `lib/roles.ts` + `lib/requests.ts` permission helper'iai
+- [x] Shadcn primitives: Checkbox (@radix-ui/react-checkbox) + custom MultiSelect
+- [x] UserDialog: native HTML pakeisti į shadcn Select + Checkbox + MultiSelect (AM scope)
+- [x] PrasymaiPage: tenant picker dialog AM admin'ams
+- [x] Sidebar: Dokumentacija nuoroda (/docs/) + Organizacijos meniu punktas
+- [x] Testai: 27 permission testai, visi praeina
+
+## Iter 7 — Organizacijų valdymas (UI) ✅
+
+**Tikslas:** AM admin gali pilnai valdyti organizacijas.
+
+- [x] OrganizacijosPage (/organizacijos) — sąrašas su grupavimu (Tvirtintojai vs Pavaldžios)
+- [x] TenantDialog — CRUD su code/name/description/isApprover/active laukais
+- [x] Vartotojų ir prašymų skaičiukai pagal organizaciją
+- [x] Apsauga: ne-AM admin matytojas, kad puslapis prieinamas tik AM admin
+- [x] Sidebar punktas filtruojamas pagal canManageTenants
+
+## Iter 8 — Statistika su grafikais ✅
+
+**Tikslas:** vizualizuoti dinamiką + įvedimas analytical dashboardui.
+
+- [x] recharts priklausomybė
+- [x] Trys reusable chart komponentai:
+  - MonthlyTrendChart (bar pora pateikta vs patvirtinta)
+  - StatusPieChart + StatusLegend (donut)
+  - PerTenantBarChart (€ horizontaliai)
+- [x] StatistikaPage (/statistika) — money summary + monthly + status pie + per-tenant
+- [x] HomePage mini-chart su nuoroda į pilną statistiką
+- [x] Sidebar punktas „Statistika" visiems vartotojams
+- [x] CSS spalvų kintamieji grafikams (`--chart-success`, etc.)
+
+## Polish užduotys vėliau (po MVP):
+
 - Backend integration tests (Jest) — bent vienas per scope rules / state machine
 - Daugiau frontend testų (Vitest + RTL) wizard + decision flow'ams
 - E2E (Playwright) happy path
-- Ketvirtinės ataskaitos + metinė ataskaita (Iter 6+)
-- VIISP / biip-auth-api integracija (vėliau)
-- Power BI dashboard'ai (vėliau)
+- Ketvirtinės ataskaitos + metinė ataskaita
+- VIISP / biip-auth-api integracija
+- Power BI dashboard'ai
+- Notifikacijos (email, in-app) apie status pakeitimus

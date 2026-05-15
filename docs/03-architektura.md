@@ -17,8 +17,10 @@
 │                                                             │
 │  /finansai/ping     /finansai/health                        │
 │  /finansai/auth/login   /auth/logout   /auth/me             │
-│  /finansai/users        /tenants       (Iter 1+)            │
-│  /finansai/requests     ...            (Iter 2+)            │
+│  /finansai/tenants      CRUD                                │
+│  /finansai/users        CRUD su scope filtru                │
+│  /finansai/requests     CRUD + submit + decision + comments │
+│  /finansai/dashboard    role-tailored stats + trend         │
 └─────────────────────────────────────────────────────────────┘
         │                                       │
         ▼                                       ▼
@@ -39,6 +41,7 @@
 | Frontend    | **React 18 + Vite + Tailwind + shadcn** | Greitas dev, gražus default look                       |
 | Forms       | react-hook-form + zod                   | BIIP standartas                                        |
 | API client  | axios + React Query                     | Caching, retries, optimistic updates                   |
+| Grafikai    | **recharts**                            | Lengvi, sklandi React API, gerai dirba su responsive   |
 | Docs        | **VitePress**                           | Markdown native, paprastas hosting'as šalia SPA        |
 | Caddy       | In-container Caddy                      | SPA + docs + API reverse proxy vienam port             |
 
@@ -48,12 +51,28 @@
 finansai/
 ├── apps/
 │   ├── api/                          Moleculer.js + TS + Knex/Objection
-│   │   ├── src/services/             api, auth, (Iter 1+) tenants, users, requests
-│   │   ├── src/models/               Base, User, (Iter 1+) Tenant, Request
+│   │   ├── src/services/
+│   │   │   ├── api.service.ts        Gateway: cookie parsing, route groups
+│   │   │   ├── auth.service.ts       login/logout/me, session resolve
+│   │   │   ├── tenants.service.ts    Tenants CRUD (AM admin only)
+│   │   │   ├── users.service.ts      Users CRUD su scope filtru
+│   │   │   ├── requests.service.ts   Prašymų state machine + komentarai
+│   │   │   └── dashboard.service.ts  Role-tailored stats + monthly trend
+│   │   ├── src/models/               Base, User, Tenant, Request, RequestComment
 │   │   ├── src/database/             knexfile, db.ts, migrations/, seeds/
 │   │   └── Dockerfile                produces ghcr.io/.../finansai-api:<Env>
 │   └── web/                          React 18 + Vite + shadcn
-│       ├── src/                      App, pages/, components/, lib/
+│       ├── src/
+│       │   ├── pages/                HomePage, LoginPage, Vartotojai, Organizacijos,
+│       │   │                         Statistika, Prasymai, PrasymoDetail, PrasymoEdit
+│       │   ├── components/
+│       │   │   ├── ui/               shadcn primitives (Button, Card, Select,
+│       │   │   │                     Checkbox, MultiSelect, …)
+│       │   │   ├── charts/           recharts wrap'ai (Monthly, Status, PerTenant)
+│       │   │   ├── tenants/          TenantDialog
+│       │   │   ├── users/            UserDialog
+│       │   │   └── Sidebar, Layout
+│       │   └── lib/                  api, auth, roles, requests helpers
 │       ├── caddy/Caddyfile           in-container: /api → finansai-api, /docs → docs, / → SPA
 │       └── Dockerfile                produces ghcr.io/.../finansai:<Env>
 ├── packages/shared/                  TS tipai dalinami tarp api ir web
