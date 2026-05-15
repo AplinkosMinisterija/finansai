@@ -20,7 +20,8 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 
 /** Sukombinuota etiketė: „AM administratorius", „LGT specialistas" ir t.t. */
 export function roleLabel(user: Pick<AuthUser, 'role' | 'tenantIsApprover' | 'tenantCode'>): string {
-  const role = ROLE_LABELS[user.role].toLowerCase();
+  const label = ROLE_LABELS[user.role] ?? String(user.role ?? 'vartotojas');
+  const role = label.toLowerCase();
   const prefix = user.tenantIsApprover ? 'AM' : user.tenantCode;
   return `${prefix} ${role}`;
 }
