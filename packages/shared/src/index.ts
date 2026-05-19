@@ -373,6 +373,30 @@ export type DashboardPerTenantStats = {
   totalApproved: number;
 };
 
+// ---------- Prašymo prikabinti dokumentai ----------
+
+export type AttachmentKind = 'order_pdf' | 'invoice' | 'other';
+
+export type RequestAttachment = {
+  id: number;
+  requestId: number;
+  kind: AttachmentKind;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedByUserId: number;
+  uploadedByName?: string;
+  createdAt: string;
+};
+
+export type RequestAttachmentUploadRequest = {
+  kind: AttachmentKind;
+  fileName: string;
+  mimeType: string;
+  /** base64 enkoduotas turinys (be data: URI prefikso). */
+  dataBase64: string;
+};
+
 // ---------- Klasifikatoriai ----------
 
 export type ClassifierGroup = {

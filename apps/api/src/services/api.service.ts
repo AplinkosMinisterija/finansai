@@ -183,6 +183,7 @@ const ApiService: ServiceSchema = {
           'dashboard.*',
           'classifiers.*',
           'budgets.*',
+          'requestAttachments.*',
         ],
         use: [],
         authentication: true,
@@ -229,9 +230,15 @@ const ApiService: ServiceSchema = {
           'GET /budgets/:id': 'budgets.get',
           'POST /budgets': 'budgets.upsert',
           'DELETE /budgets/:id': 'budgets.delete',
+
+          'GET /requests/:requestId/attachments': 'requestAttachments.list',
+          'POST /requests/:requestId/attachments': 'requestAttachments.upload',
+          'GET /attachments/:id/download': 'requestAttachments.download',
+          'DELETE /attachments/:id': 'requestAttachments.delete',
         },
         bodyParsers: {
-          json: { strict: false, limit: '1MB' },
+          // 10MB JSON — leidžia įkelti ~5MB failus base64 enkoduotame payload'e.
+          json: { strict: false, limit: '10MB' },
           urlencoded: { extended: true, limit: '1MB' },
         },
         mappingPolicy: 'restrict',

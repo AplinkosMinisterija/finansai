@@ -1,0 +1,239 @@
+/**
+ * Prikabintų dokumentų servisas (issue #13).
+ *
+ * - list/download: visi, kurie mato prašymą (per canViewRequest).
+ * - upload: AM admin (kanclerio potvarkis prie patvirtinimo) arba prašymo
+ *   teikėjas (sąskaitos, kiti dokumentai prie atsiskaitymo — busimo #2).
+ * - delete: uploader arba AM admin.
+ *
+ * Saugoma DB kaip base64 — limit'as 5 MB per failą.
+ */
+import type { ServiceSchema, Context } from 'moleculer';
+import { Errors } from 'moleculer';
+import type {
+  RequestAttachment as AttachmentDTO,
+  RequestAttachmentUploadRequest,
+} from '@biip-finansai/shared';
+import { Request } from '../models/Request';
+import type { RequestStatus } from '../models/Request';
+import { RequestAttachment } from '../models/RequestAttachment';
+import type { AuthMeta } from './auth.service';
+import type { User } from '../models/User';
+
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
+const ALLOWED_KINDS = ['order_pdf', 'invoice', 'other'] as const;
+const ALLOWED_MIME_PREFIX = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
+
+interface AttachmentWithUser extends RequestAttachment {
+  uploadedByUser?: User;
+}
+
+function toDTO(a: AttachmentWithUser): AttachmentDTO {
+  return {
+    id: a.id,
+    requestId: a.requestId,
+    kind: a.kind,
+    fileName: a.fileName,
+    mimeType: a.mimeType,
+    sizeBytes: a.sizeBytes,
+    uploadedByUserId: a.uploadedByUserId,
+    uploadedByName: a.uploadedByUser?.fullName,
+    createdAt: a.createdAt,
+  };
+}
+
+function requireMe(ctx: Context<unknown, AuthMeta>): NonNullable<AuthMeta['user']> {
+  if (!ctx.meta.user) {
+    throw new Errors.MoleculerClientError('Neautentifikuota', 401, 'AUTH_REQUIRED');
+  }
+  return ctx.meta.user;
+}
+
+function canView(
+  viewer: NonNullable<AuthMeta['user']>,
+  r: { tenantId: number; createdByUserId: number; status: RequestStatus },
+): boolean {
+  if (viewer.tenantIsApprover) {
+    if (r.status === 'DRAFT' && r.createdByUserId !== viewer.id) return false;
+    if (viewer.role === 'admin') return true;
+    if (viewer.amScopeOrgIds === null) return true;
+    return viewer.amScopeOrgIds.includes(r.tenantId);
+  }
+  if (r.tenantId !== viewer.tenantId) return false;
+  if (viewer.role === 'admin') return true;
+  return r.createdByUserId === viewer.id;
+}
+
+function canUpload(
+  viewer: NonNullable<AuthMeta['user']>,
+  r: { tenantId: number; createdByUserId: number; status: RequestStatus },
+  kind: string,
+): boolean {
+  if (!canView(viewer, r)) return false;
+  // Kanclerio potvarkis — tik AM (sprendimo dalies dokumentas).
+  if (kind === 'order_pdf') {
+    return viewer.tenantIsApprover;
+  }
+  // Sąskaitos / kiti — teikėjas arba AM admin.
+  return true;
+}
+
+function isValidBase64(s: string): boolean {
+  // Bendras base64 alphabet check; nepilna validacija, bet pakanka.
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(s);
+}
+
+const RequestAttachmentsService: ServiceSchema = {
+  name: 'requestAttachments',
+
+  actions: {
+    list: {
+      params: { requestId: { type: 'number', integer: true, convert: true } },
+      async handler(
+        ctx: Context<{ requestId: number }, AuthMeta>,
+      ): Promise<AttachmentDTO[]> {
+        const me = requireMe(ctx);
+        const r = await Request.query().findById(ctx.params.requestId);
+        if (!r) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+        const rows = (await RequestAttachment.query()
+          .where('request_id', r.id)
+          .withGraphFetched('uploadedByUser')
+          .orderBy('created_at', 'desc')) as AttachmentWithUser[];
+        return rows.map(toDTO);
+      },
+    },
+
+    upload: {
+      params: {
+        requestId: { type: 'number', integer: true, convert: true },
+        kind: { type: 'enum', values: ALLOWED_KINDS },
+        fileName: { type: 'string', min: 1, max: 255 },
+        mimeType: { type: 'string', min: 1, max: 100 },
+        dataBase64: { type: 'string', min: 1 },
+      },
+      async handler(
+        ctx: Context<{ requestId: number } & RequestAttachmentUploadRequest, AuthMeta>,
+      ): Promise<AttachmentDTO> {
+        const me = requireMe(ctx);
+        const r = await Request.query().findById(ctx.params.requestId);
+        if (!r) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        const { kind, fileName, mimeType, dataBase64 } = ctx.params;
+
+        if (!canUpload(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status }, kind)) {
+          throw new Errors.MoleculerClientError(
+            'Neturite teisės įkelti šio tipo dokumento',
+            403,
+            'FORBIDDEN',
+          );
+        }
+
+        if (!ALLOWED_MIME_PREFIX.some((m) => mimeType.startsWith(m))) {
+          throw new Errors.MoleculerClientError(
+            'Leidžiami tik PDF arba paveiksliuko (PNG/JPG) failai',
+            400,
+            'INVALID_MIME',
+          );
+        }
+
+        // Pašalinam galimą "data:application/pdf;base64," prefix'ą.
+        const cleanBase64 = dataBase64.includes(',')
+          ? (dataBase64.split(',', 2)[1] ?? '')
+          : dataBase64;
+
+        if (!isValidBase64(cleanBase64)) {
+          throw new Errors.MoleculerClientError(
+            'Neteisingas failo turinys (laukiamas base64)',
+            400,
+            'INVALID_BASE64',
+          );
+        }
+
+        // Apskaičiuojam baitų dydį iš base64 ilgio (apytikslis).
+        const padCount = (cleanBase64.match(/=+$/) ?? [''])[0]!.length;
+        const sizeBytes = Math.floor((cleanBase64.length * 3) / 4) - padCount;
+        if (sizeBytes > MAX_FILE_BYTES) {
+          throw new Errors.MoleculerClientError(
+            `Failas per didelis (max ${MAX_FILE_BYTES / 1024 / 1024} MB)`,
+            400,
+            'FILE_TOO_LARGE',
+          );
+        }
+
+        const inserted = await RequestAttachment.query().insert({
+          requestId: r.id,
+          kind,
+          fileName,
+          mimeType,
+          sizeBytes,
+          dataBase64: cleanBase64,
+          uploadedByUserId: me.id,
+        });
+        const withUser = (await RequestAttachment.query()
+          .findById(inserted.id)
+          .withGraphFetched('uploadedByUser')) as AttachmentWithUser | undefined;
+        if (!withUser) throw new Error('Insert failed');
+        return toDTO(withUser);
+      },
+    },
+
+    download: {
+      params: { id: { type: 'number', integer: true, convert: true } },
+      async handler(
+        ctx: Context<{ id: number }, AuthMeta>,
+      ): Promise<{ fileName: string; mimeType: string; dataBase64: string }> {
+        const me = requireMe(ctx);
+        const a = await RequestAttachment.query().findById(ctx.params.id);
+        if (!a) {
+          throw new Errors.MoleculerClientError('Dokumentas nerastas', 404, 'ATTACHMENT_NOT_FOUND');
+        }
+        const r = await Request.query().findById(a.requestId);
+        if (!r) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+        return {
+          fileName: a.fileName,
+          mimeType: a.mimeType,
+          dataBase64: a.dataBase64,
+        };
+      },
+    },
+
+    delete: {
+      params: { id: { type: 'number', integer: true, convert: true } },
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<{ ok: true }> {
+        const me = requireMe(ctx);
+        const a = await RequestAttachment.query().findById(ctx.params.id);
+        if (!a) {
+          throw new Errors.MoleculerClientError('Dokumentas nerastas', 404, 'ATTACHMENT_NOT_FOUND');
+        }
+        const r = await Request.query().findById(a.requestId);
+        if (!r) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        // Tinka uploader'is arba AM admin.
+        const isAmAdmin = me.tenantIsApprover && me.role === 'admin';
+        if (a.uploadedByUserId !== me.id && !isAmAdmin) {
+          throw new Errors.MoleculerClientError(
+            'Galite ištrinti tik savo įkeltą dokumentą',
+            403,
+            'FORBIDDEN',
+          );
+        }
+        await RequestAttachment.query().deleteById(a.id);
+        return { ok: true };
+      },
+    },
+  },
+};
+
+export default RequestAttachmentsService;

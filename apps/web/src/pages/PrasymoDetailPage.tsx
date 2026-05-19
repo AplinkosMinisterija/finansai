@@ -21,6 +21,7 @@ import {
 } from '@/lib/api';
 import { classifierLabel, useClassifier } from '@/lib/classifiers';
 import { ClassifierSelect } from '@/components/classifiers/ClassifierSelect';
+import { AttachmentList } from '@/components/requests/AttachmentList';
 import {
   canDecide,
   canDelete,
@@ -345,6 +346,17 @@ export default function PrasymoDetailPage(): JSX.Element {
                         }
                       />
                     </div>
+                    <div className="col-span-2 space-y-1">
+                      <Label>Kanclerio potvarkis (PDF)</Label>
+                      <AttachmentList
+                        requestId={requestId}
+                        kind="order_pdf"
+                        canUpload
+                        uploadKind="order_pdf"
+                        uploadLabel="Įkelti potvarkio PDF"
+                        emptyText="Dar neįkeltas potvarkio PDF."
+                      />
+                    </div>
                   </div>
                 )}
                 <div className="space-y-1">
@@ -452,6 +464,16 @@ export default function PrasymoDetailPage(): JSX.Element {
               </KV>
               <KV label="Protokolas">{r.decisionProtocol ?? '—'}</KV>
               <KV label="Įsakymas">{r.decisionOrder ?? '—'}</KV>
+              <KV label="Potvarkio PDF" wide>
+                <AttachmentList
+                  requestId={requestId}
+                  kind="order_pdf"
+                  canUpload={user?.tenantIsApprover === true && user.role === 'admin'}
+                  uploadKind="order_pdf"
+                  uploadLabel="Įkelti papildomą versiją"
+                  emptyText="Potvarkio PDF nepriklijuotas."
+                />
+              </KV>
             </Section>
           )}
         </div>
