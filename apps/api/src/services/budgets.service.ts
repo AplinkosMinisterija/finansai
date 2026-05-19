@@ -16,6 +16,7 @@ import type {
 import { Budget } from '../models/Budget';
 import { BudgetAllocation } from '../models/BudgetAllocation';
 import { ClassifierItem } from '../models/ClassifierItem';
+import { Request } from '../models/Request';
 import { centsToAmount, sumAmounts, toCents } from '../utils/money';
 import type { AuthMeta } from './auth.service';
 
@@ -35,7 +36,7 @@ function toAllocationDTO(a: BudgetAllocation & { classifierItem?: ClassifierItem
   };
 }
 
-function toBudgetDTO(b: BudgetWithRels): BudgetDTO {
+function toBudgetDTO(b: BudgetWithRels, approvedAmount?: string): BudgetDTO {
   const allocations = (b.allocations ?? []).map(toAllocationDTO);
   const allocatedAmount = sumAmounts(allocations.map((a) => a.amount));
   return {
@@ -45,7 +46,22 @@ function toBudgetDTO(b: BudgetWithRels): BudgetDTO {
     notes: b.notes,
     allocations,
     allocatedAmount,
+    approvedAmount,
   };
+}
+
+/**
+ * Susumuoja patvirtintų prašymų (status='APPROVED') `decisionGrantedAmount` per metus.
+ * Naudoja cents'us, kad išvengtume float klaidų.
+ */
+async function approvedAmountForYear(year: number): Promise<string> {
+  const rows = (await Request.query()
+    .where({ year, status: 'APPROVED' })
+    .whereNotNull('decision_granted_amount')
+    .select('decision_granted_amount as decisionGrantedAmount')) as Array<{
+    decisionGrantedAmount: string | null;
+  }>;
+  return sumAmounts(rows.map((r) => r.decisionGrantedAmount ?? '0'));
 }
 
 function requireMe(ctx: Context<unknown, AuthMeta>): NonNullable<AuthMeta['user']> {
@@ -82,7 +98,13 @@ const BudgetsService: ServiceSchema = {
         const budgets = (await Budget.query()
           .withGraphFetched('allocations.classifierItem')
           .orderBy('year', 'desc')) as BudgetWithRels[];
-        return budgets.map(toBudgetDTO);
+        const approvedByYear = new Map<number, string>();
+        await Promise.all(
+          budgets.map(async (b) => {
+            approvedByYear.set(b.year, await approvedAmountForYear(b.year));
+          }),
+        );
+        return budgets.map((b) => toBudgetDTO(b, approvedByYear.get(b.year)));
       },
     },
 
@@ -93,7 +115,9 @@ const BudgetsService: ServiceSchema = {
         const b = (await Budget.query()
           .findOne({ year: ctx.params.year })
           .withGraphFetched('allocations.classifierItem')) as BudgetWithRels | undefined;
-        return b ? toBudgetDTO(b) : null;
+        if (!b) return null;
+        const approvedAmount = await approvedAmountForYear(b.year);
+        return toBudgetDTO(b, approvedAmount);
       },
     },
 
@@ -105,7 +129,8 @@ const BudgetsService: ServiceSchema = {
         if (!b) {
           throw new Errors.MoleculerClientError('Biudžetas nerastas', 404, 'BUDGET_NOT_FOUND');
         }
-        return toBudgetDTO(b);
+        const approvedAmount = await approvedAmountForYear(b.year);
+        return toBudgetDTO(b, approvedAmount);
       },
     },
 
@@ -197,7 +222,8 @@ const BudgetsService: ServiceSchema = {
           await trx.commit();
           const out = await loadBudget(budget.id);
           if (!out) throw new Error('Updated budget not found');
-          return toBudgetDTO(out);
+          const approvedAmount = await approvedAmountForYear(out.year);
+          return toBudgetDTO(out, approvedAmount);
         } catch (e) {
           await trx.rollback();
           throw e;
