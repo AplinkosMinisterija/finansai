@@ -192,6 +192,12 @@ export type RequestComment = {
   createdAt: string;
 };
 
+/**
+ * Pagal `year` skiriama:
+ *  - year === currentYear → įprastas einamųjų metų prašymas
+ *  - year  >  currentYear → planas (issue #4); pateikiamas paprastai, atėjus
+ *    jo metams gali būti perkeltas į einamųjų metų prašymą per atskirą veiksmą.
+ */
 export type FinancingRequest = {
   id: number;
   tenantId: number;
@@ -200,6 +206,8 @@ export type FinancingRequest = {
   createdByUserId: number;
   createdByName: string;
   status: RequestStatus;
+  /** Kuriai metams skirtas prašymas/planas. */
+  year: number;
 
   projectName: string;
   systemCode: string | null;
@@ -247,9 +255,13 @@ export type FinancingRequest = {
 
 export type FinancingRequestDetail = FinancingRequest & {
   comments: RequestComment[];
+  /** Aprobacijos žingsniai (issue #9). AAD scope: 1 žingsnis; visa AM: N žingsnių. */
+  approvalSteps: ApprovalStep[];
 };
 
 export type RequestPayload = {
+  /** Metai, kuriems prašymas/planas (issue #4). Negali būti mažesnis nei current. */
+  year?: number;
   projectName?: string;
   systemCode?: string | null;
   projectType?: string | null;
@@ -286,6 +298,10 @@ export type RequestListQuery = {
   q?: string;
   status?: RequestStatus;
   tenantId?: number;
+  /** Filtras pagal metus. Jei nenurodyta — visi metai. */
+  year?: number;
+  /** Filtruoti tik planus (year > currentYear). */
+  plansOnly?: boolean;
   page?: number;
   pageSize?: number;
 };
@@ -310,9 +326,40 @@ export type DashboardStats = {
     APPROVED: number;
     REJECTED: number;
   };
+  /** Prašytos sumos pagal statusą (einamiems metams). */
+  amountsByStatus: {
+    SUBMITTED: number;
+    RETURNED: number;
+    APPROVED: number;
+    REJECTED: number;
+  };
   totalRequestedThisYear: number;
   totalApprovedThisYear: number;
+  /** Atmestų prašymų suma einamais metais (pinigų prizmė, issue #6). */
+  totalRejectedThisYear: number;
   usersCount: number;
+};
+
+/** Pjūvis pagal lėšų kategoriją (issue #6). */
+export type CostCategoryStats = {
+  /** Stabilus kodas, atitinkantis lėšų lauką. */
+  key:
+    | 'du'
+    | 'equipment'
+    | 'creation'
+    | 'analysis'
+    | 'development'
+    | 'maintenance'
+    | 'modernization'
+    | 'decommissioning';
+  label: string;
+  /** Prašyta einamais metais (visi statusai). */
+  requested: number;
+  /** Patvirtinta einamais metais (proporcingai pagal patvirtintą sumą). */
+  approved: number;
+  /** Atmesta einamais metais (prašyta atmestose paraiškose). */
+  rejected: number;
+  count: number;
 };
 
 export type DashboardActivityItem = {
@@ -342,6 +389,163 @@ export type DashboardPerTenantStats = {
   totalApproved: number;
 };
 
+// ---------- Atsiskaitymai (issue #2) ----------
+
+export type ReportStatus = 'DRAFT' | 'SUBMITTED';
+
+export type RequestReport = {
+  id: number;
+  requestId: number;
+  periodYear: number;
+  /** 1-4 = ketvirtis; null = metinis. */
+  periodQuarter: number | null;
+  amountUsed: string;
+  description: string | null;
+  status: ReportStatus;
+  submittedByUserId: number;
+  submittedByName?: string;
+  submittedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RequestReportUpsertRequest = {
+  periodYear: number;
+  periodQuarter: number | null;
+  amountUsed: string;
+  description?: string | null;
+};
+
+// ---------- Aprobacijos workflow (issue #9) ----------
+
+export type ApprovalStepStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED';
+
+export type ApprovalStep = {
+  id: number;
+  requestId: number;
+  sequence: number;
+  /** Klasifikatoriaus item code iš grupės "approval_levels". */
+  levelCode: string;
+  /** Snapshot label'as (lieka net jei klasifikatorius keičiasi). */
+  levelName: string;
+  status: ApprovalStepStatus;
+  decidedByUserId: number | null;
+  decidedByName: string | null;
+  decidedAt: string | null;
+  comment: string | null;
+  createdAt: string;
+};
+
+// ---------- Prašymo prikabinti dokumentai ----------
+
+export type AttachmentKind = 'order_pdf' | 'invoice' | 'other';
+
+export type RequestAttachment = {
+  id: number;
+  requestId: number;
+  kind: AttachmentKind;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedByUserId: number;
+  uploadedByName?: string;
+  createdAt: string;
+};
+
+export type RequestAttachmentUploadRequest = {
+  kind: AttachmentKind;
+  fileName: string;
+  mimeType: string;
+  /** base64 enkoduotas turinys (be data: URI prefikso). */
+  dataBase64: string;
+};
+
+// ---------- Klasifikatoriai ----------
+
+export type ClassifierGroup = {
+  id: number;
+  code: string;
+  name: string;
+  description: string | null;
+  active: boolean;
+  itemsCount?: number;
+};
+
+export type ClassifierItem = {
+  id: number;
+  groupId: number;
+  groupCode?: string;
+  parentId: number | null;
+  code: string;
+  name: string;
+  sortOrder: number;
+  active: boolean;
+};
+
+export type ClassifierGroupCreateRequest = {
+  code: string;
+  name: string;
+  description?: string | null;
+  active?: boolean;
+};
+
+export type ClassifierGroupUpdateRequest = {
+  code?: string;
+  name?: string;
+  description?: string | null;
+  active?: boolean;
+};
+
+export type ClassifierItemCreateRequest = {
+  groupId: number;
+  parentId?: number | null;
+  code: string;
+  name: string;
+  sortOrder?: number;
+  active?: boolean;
+};
+
+export type ClassifierItemUpdateRequest = {
+  parentId?: number | null;
+  code?: string;
+  name?: string;
+  sortOrder?: number;
+  active?: boolean;
+};
+
+// ---------- Biudžetas ----------
+
+export type BudgetAllocation = {
+  id: number;
+  budgetId: number;
+  classifierItemId: number;
+  classifierItemCode?: string;
+  classifierItemName?: string;
+  classifierItemParentId?: number | null;
+  amount: string;
+};
+
+export type Budget = {
+  id: number;
+  year: number;
+  totalAmount: string;
+  notes: string | null;
+  allocations: BudgetAllocation[];
+  /** Sumažintas allocations.amount; jei < totalAmount — likutis nepaskirstytas. */
+  allocatedAmount?: string;
+  /** Patvirtinta suma šio metų prašymuose (status='APPROVED', decisionGrantedAmount). */
+  approvedAmount?: string;
+};
+
+export type BudgetUpsertRequest = {
+  year: number;
+  totalAmount: string;
+  notes?: string | null;
+  allocations: Array<{ classifierItemId: number; amount: string }>;
+};
+
+// ---------- Dashboard ----------
+
 export type DashboardData = {
   role: UserRole;
   tenantIsApprover: boolean;
@@ -357,4 +561,6 @@ export type DashboardData = {
     submitted: number;
     approved: number;
   }>;
+  /** Pjūvis pagal lėšų kategoriją (issue #6). */
+  costCategories: CostCategoryStats[];
 };

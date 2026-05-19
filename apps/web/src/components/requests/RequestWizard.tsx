@@ -28,6 +28,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { requestSubmit, requestUpdate } from '@/lib/api';
 import { fmtEur } from '@/lib/requests';
+import { ClassifierSelect } from '@/components/classifiers/ClassifierSelect';
+import { classifierLabel, useClassifier } from '@/lib/classifiers';
 import { cn } from '@/lib/utils';
 
 interface StepDef {
@@ -44,6 +46,7 @@ const STEPS: StepDef[] = [
 ];
 
 interface FormState {
+  year: string;
   projectName: string;
   systemCode: string;
   projectType: string;
@@ -83,6 +86,7 @@ function s(v: string | number | null | undefined): string {
 
 function fromRequest(r: FinancingRequest): FormState {
   return {
+    year: r.year !== undefined && r.year !== null ? String(r.year) : String(new Date().getFullYear()),
     projectName: r.projectName ?? '',
     systemCode: r.systemCode ?? '',
     projectType: r.projectType ?? '',
@@ -119,7 +123,9 @@ function num(v: string): number {
 }
 
 function toPayload(state: FormState): RequestPayload {
+  const yearNum = Number.parseInt(state.year, 10);
   return {
+    year: Number.isFinite(yearNum) ? yearNum : undefined,
     projectName: state.projectName,
     systemCode: state.systemCode || null,
     projectType: state.projectType || null,
@@ -188,6 +194,9 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
   const totalReq = totalRequestedFrom(state);
   const totalQ = totalQuarterlyFrom(state);
   const quarterlyDiff = totalQ - totalReq;
+
+  const isLookup = useClassifier('is_system');
+  const ptLookup = useClassifier('project_type');
 
   const saveMutation = useMutation({
     mutationFn: (): Promise<FinancingRequest> => requestUpdate(request.id, toPayload(state)),
@@ -323,27 +332,57 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
             {step === 0 && (
               <>
                 <h2 className="text-lg font-semibold">{STEPS[0]?.label}</h2>
-                <div className="space-y-2">
-                  <Label htmlFor="projectName">Projekto pavadinimas *</Label>
-                  <Input
-                    id="projectName"
-                    required
-                    value={state.projectName}
-                    onChange={update('projectName')}
-                  />
+                <div className="grid grid-cols-[160px_1fr] gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="year">Metai *</Label>
+                    <select
+                      id="year"
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      value={state.year}
+                      onChange={update('year')}
+                    >
+                      {Array.from({ length: 6 }).map((_, i) => {
+                        const y = new Date().getFullYear() + i;
+                        return (
+                          <option key={y} value={String(y)}>
+                            {y}
+                            {i === 0 ? ' (einamieji)' : ' (planas)'}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="projectName">Projekto pavadinimas *</Label>
+                    <Input
+                      id="projectName"
+                      required
+                      value={state.projectName}
+                      onChange={update('projectName')}
+                    />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label htmlFor="systemCode">IT sistemos kodas</Label>
-                    <Input id="systemCode" value={state.systemCode} onChange={update('systemCode')} />
+                    <Label htmlFor="systemCode">Informacinė sistema</Label>
+                    <ClassifierSelect
+                      id="systemCode"
+                      groupCode="is_system"
+                      value={state.systemCode}
+                      onChange={(v) => setState((s) => ({ ...s, systemCode: v ?? '' }))}
+                      emptyLabel="— Nepasirinkta —"
+                      placeholder="Pasirinkite IS"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="projectType">Projekto tipas</Label>
-                    <Input
+                    <ClassifierSelect
                       id="projectType"
-                      placeholder="pvz., IT sistema, Licencijos…"
+                      groupCode="project_type"
                       value={state.projectType}
-                      onChange={update('projectType')}
+                      onChange={(v) => setState((s) => ({ ...s, projectType: v ?? '' }))}
+                      emptyLabel="— Nepasirinkta —"
+                      placeholder="Pasirinkite tipą"
                     />
                   </div>
                 </div>
@@ -522,9 +561,10 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
                   Patikrinkite duomenis ir paspauskite „Pateikti". Po pateikimo prašymas keliauja AM tvirtinimui.
                 </p>
                 <ReviewSection title="Pagrindinė informacija">
+                  <KV label="Metai">{state.year}</KV>
                   <KV label="Projektas">{state.projectName || '—'}</KV>
-                  <KV label="IT sistema">{state.systemCode || '—'}</KV>
-                  <KV label="Tipas">{state.projectType || '—'}</KV>
+                  <KV label="IT sistema">{classifierLabel(isLookup, state.systemCode)}</KV>
+                  <KV label="Tipas">{classifierLabel(ptLookup, state.projectType)}</KV>
                   <KV label="Prioritetas">{state.priority || '—'}</KV>
                   <KV label="Pirkimo stadija">{state.procurementStage || '—'}</KV>
                 </ReviewSection>

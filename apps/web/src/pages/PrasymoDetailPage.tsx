@@ -19,6 +19,11 @@ import {
   requestGet,
   requestSubmit,
 } from '@/lib/api';
+import { classifierLabel, useClassifier } from '@/lib/classifiers';
+import { ClassifierSelect } from '@/components/classifiers/ClassifierSelect';
+import { AttachmentList } from '@/components/requests/AttachmentList';
+import { ApprovalStepsList } from '@/components/requests/ApprovalStepsList';
+import { ReportsSection } from '@/components/requests/ReportsSection';
 import {
   canDecide,
   canDelete,
@@ -66,6 +71,19 @@ export default function PrasymoDetailPage(): JSX.Element {
     queryKey: ['requests', requestId],
     queryFn: () => requestGet(requestId),
     enabled: Number.isFinite(requestId) && requestId > 0,
+  });
+
+  const isLookup = useClassifier('is_system');
+  const ptLookup = useClassifier('project_type');
+  const spLookup = useClassifier('source_program');
+
+  const convertMutation = useMutation({
+    mutationFn: () => import('@/lib/api').then((m) => m.requestConvertToCurrentYear(requestId)),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ['requests'] });
+      navigate(`/prasymai/${r.id}/redaguoti`);
+    },
+    onError: (err) => setError(getErrorMessage(err)),
   });
 
   const [commentBody, setCommentBody] = React.useState('');
@@ -202,6 +220,12 @@ export default function PrasymoDetailPage(): JSX.Element {
             </h1>
             <Badge variant={STATUS_VARIANTS[r.status]}>{STATUS_LABELS[r.status]}</Badge>
             <Badge variant="outline">{r.tenantCode}</Badge>
+            <Badge
+              variant={r.year > new Date().getFullYear() ? 'secondary' : 'outline'}
+            >
+              {r.year}
+              {r.year > new Date().getFullYear() ? ' planas' : ''}
+            </Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             Pateikė: {r.createdByName} · {r.tenantName}
@@ -242,6 +266,27 @@ export default function PrasymoDetailPage(): JSX.Element {
               Ištrinti
             </Button>
           )}
+          {(r.status === 'SUBMITTED' || r.status === 'APPROVED') &&
+            r.year > new Date().getFullYear() &&
+            (user?.tenantId === r.tenantId || (user?.tenantIsApprover && user.role === 'admin')) && (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Sukurti einamųjų metų (${new Date().getFullYear()}) juodraštį iš šio plano? Visi laukai bus nukopijuoti, statusas — DRAFT.`,
+                    )
+                  ) {
+                    convertMutation.mutate();
+                  }
+                }}
+                disabled={convertMutation.isPending}
+              >
+                <Send className="h-4 w-4" />
+                Perkelti į {new Date().getFullYear()} m. prašymą
+              </Button>
+            )}
         </div>
       </div>
 
@@ -307,13 +352,16 @@ export default function PrasymoDetailPage(): JSX.Element {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor="d-source">Finansavimo šaltinis</Label>
-                      <Input
+                      <Label htmlFor="d-source">Finansavimo šaltinis (programa)</Label>
+                      <ClassifierSelect
                         id="d-source"
+                        groupCode="source_program"
                         value={decisionForm.fundingSource}
-                        onChange={(e) =>
-                          setDecisionForm((f) => ({ ...f, fundingSource: e.target.value }))
+                        onChange={(v) =>
+                          setDecisionForm((f) => ({ ...f, fundingSource: v ?? '' }))
                         }
+                        emptyLabel="— Nepasirinkta —"
+                        placeholder="Pasirinkite programą"
                       />
                     </div>
                     <div className="space-y-1">
@@ -336,18 +384,35 @@ export default function PrasymoDetailPage(): JSX.Element {
                         }
                       />
                     </div>
+                    <div className="col-span-2 space-y-1">
+                      <Label>Kanclerio potvarkis (PDF)</Label>
+                      <AttachmentList
+                        requestId={requestId}
+                        kind="order_pdf"
+                        canUpload
+                        uploadKind="order_pdf"
+                        uploadLabel="Įkelti potvarkio PDF"
+                        emptyText="Dar neįkeltas potvarkio PDF."
+                        requestStatus={r.status}
+                      />
+                    </div>
                   </div>
                 )}
                 <div className="space-y-1">
                   <Label htmlFor="d-comment">
-                    Komentaras
-                    {(decisionForm.open === 'return' || decisionForm.open === 'reject') && (
+                    {decisionForm.open === 'reject' ? 'Priežastis (neprivaloma)' : 'Komentaras'}
+                    {decisionForm.open === 'return' && (
                       <span className="text-destructive"> *</span>
                     )}
                   </Label>
                   <textarea
                     id="d-comment"
                     className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    placeholder={
+                      decisionForm.open === 'reject'
+                        ? 'Galite nurodyti priežastį, bet nebūtina.'
+                        : ''
+                    }
                     value={decisionForm.comment}
                     onChange={(e) =>
                       setDecisionForm((f) => ({ ...f, comment: e.target.value }))
@@ -382,8 +447,8 @@ export default function PrasymoDetailPage(): JSX.Element {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-4">
           <Section title="Pagrindinė informacija">
-            <KV label="IT sistemos kodas">{r.systemCode ?? '—'}</KV>
-            <KV label="Projekto tipas">{r.projectType ?? '—'}</KV>
+            <KV label="Informacinė sistema">{classifierLabel(isLookup, r.systemCode)}</KV>
+            <KV label="Projekto tipas">{classifierLabel(ptLookup, r.projectType)}</KV>
             <KV label="Prioritetas">{r.priority !== null ? String(r.priority) : '—'}</KV>
             <KV label="Pirkimo stadija">{r.procurementStage ?? '—'}</KV>
             <KV label="Aprašymas" wide>
@@ -433,14 +498,50 @@ export default function PrasymoDetailPage(): JSX.Element {
               <KV label="Sprendė">{r.decidedByName ?? '—'}</KV>
               <KV label="Data">{fmtDateTime(r.decidedAt)}</KV>
               <KV label="Skirta suma" emph>{fmtEur(r.decisionGrantedAmount)}</KV>
-              <KV label="Finansavimo šaltinis">{r.decisionFundingSource ?? '—'}</KV>
+              <KV label="Finansavimo šaltinis (programa)">
+                {classifierLabel(spLookup, r.decisionFundingSource)}
+              </KV>
               <KV label="Protokolas">{r.decisionProtocol ?? '—'}</KV>
               <KV label="Įsakymas">{r.decisionOrder ?? '—'}</KV>
+              <KV label="Potvarkio PDF" wide>
+                <AttachmentList
+                  requestId={requestId}
+                  kind="order_pdf"
+                  canUpload={user?.tenantIsApprover === true && user.role === 'admin'}
+                  uploadKind="order_pdf"
+                  uploadLabel="Įkelti papildomą versiją"
+                  emptyText="Potvarkio PDF nepriklijuotas."
+                  requestStatus={r.status}
+                />
+              </KV>
             </Section>
+          )}
+
+          {r.status === 'APPROVED' && (
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="mb-3 text-sm font-semibold">Atsiskaitymai</h3>
+                <ReportsSection
+                  requestId={requestId}
+                  isApproved={r.status === 'APPROVED'}
+                  isSubmitterSide={user?.tenantId === r.tenantId}
+                />
+              </CardContent>
+            </Card>
           )}
         </div>
 
-        <div>
+        <div className="space-y-4">
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                <CheckCircle2 className="h-4 w-4" />
+                Aprobacijos eiga
+              </h3>
+              <ApprovalStepsList steps={r.approvalSteps ?? []} />
+            </CardContent>
+          </Card>
+
           <Card>
             <CardContent className="p-4">
               <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">

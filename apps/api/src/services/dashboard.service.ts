@@ -12,6 +12,7 @@
 import type { ServiceSchema, Context } from 'moleculer';
 import { Errors } from 'moleculer';
 import type {
+  CostCategoryStats,
   DashboardActivityItem,
   DashboardData,
   DashboardPerTenantStats,
@@ -54,6 +55,7 @@ function toRequestDTO(r: RequestWithRels): RequestDTO {
     createdByUserId: r.createdByUserId,
     createdByName: r.createdByUser.fullName,
     status: r.status,
+    year: r.year,
     projectName: r.projectName,
     systemCode: r.systemCode,
     projectType: r.projectType,
@@ -120,6 +122,10 @@ function scopedRequestQuery(me: NonNullable<AuthMeta['user']>) {
       }
     }
     // admin — visi
+    // Issue/UR: AM nemato pavaldžių institucijų juodraščių — tik savo „on behalf" sukurtus.
+    q.where((qb) => {
+      qb.whereNot('requests.status', 'DRAFT').orWhere('requests.created_by_user_id', me.id);
+    });
   } else {
     if (me.role === 'admin') {
       q.where('requests.tenant_id', me.tenantId);
@@ -142,10 +148,13 @@ const DashboardService: ServiceSchema = {
 
         // ===== Stats =====
         // Visi prašymai scoped — agreguojam per statusą
+        // Pastaba: dashboard statistika apima visus metus + visus statusus (įsk. planus).
         const allRequests = (await scopedRequestQuery(me).select(
           'requests.id',
           'requests.status',
           'requests.tenant_id',
+          'requests.year',
+          'requests.cost_du',
           'requests.cost_equipment',
           'requests.cost_creation',
           'requests.cost_analysis',
@@ -164,16 +173,106 @@ const DashboardService: ServiceSchema = {
           APPROVED: 0,
           REJECTED: 0,
         };
+        const amountsByStatus = {
+          SUBMITTED: 0,
+          RETURNED: 0,
+          APPROVED: 0,
+          REJECTED: 0,
+        };
         let totalRequestedThisYear = 0;
         let totalApprovedThisYear = 0;
+        let totalRejectedThisYear = 0;
+
+        const categoryAccumulator: Record<
+          CostCategoryStats['key'],
+          { label: string; field: keyof Request; requested: number; approved: number; rejected: number; count: number }
+        > = {
+          du: { label: 'DU / Atlyginimai', field: 'costDu', requested: 0, approved: 0, rejected: 0, count: 0 },
+          equipment: {
+            label: 'Įranga / licencijos',
+            field: 'costEquipment',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
+          creation: { label: 'Kūrimas', field: 'costCreation', requested: 0, approved: 0, rejected: 0, count: 0 },
+          analysis: { label: 'Analizė', field: 'costAnalysis', requested: 0, approved: 0, rejected: 0, count: 0 },
+          development: {
+            label: 'Vystymas',
+            field: 'costDevelopment',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
+          maintenance: {
+            label: 'Palaikymas',
+            field: 'costMaintenance',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
+          modernization: {
+            label: 'Modernizavimas',
+            field: 'costModernization',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
+          decommissioning: {
+            label: 'Likvidavimas',
+            field: 'costDecommissioning',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
+        };
 
         for (const r of allRequests) {
           byStatus[r.status]++;
-          const createdYear = new Date(r.createdAt).getFullYear();
-          if (createdYear === year) {
-            totalRequestedThisYear += totalRequestedFromRow(r);
+          const requestedAmt = totalRequestedFromRow(r);
+          // Naudojam paraiškos `year` lauką (kuriai metams skirta), o ne sukūrimo datą.
+          // Audit #8 (2026-05-19) — patikrinta, year filtras veikia teisingai
+          // dėka issue #4 (PR #16): `createdYear` keista į `r.year` ir mainline,
+          // ir per-tenant breakdown'e. Patvirtinti planai iš ateinančių metų
+          // į einamųjų metų stats'ą nepatenka.
+          if (r.year === year) {
+            if (r.status in amountsByStatus) {
+              amountsByStatus[r.status as keyof typeof amountsByStatus] +=
+                r.status === 'APPROVED' && r.decisionGrantedAmount !== null
+                  ? Number(r.decisionGrantedAmount)
+                  : requestedAmt;
+            }
+            totalRequestedThisYear += requestedAmt;
             if (r.status === 'APPROVED' && r.decisionGrantedAmount !== null) {
               totalApprovedThisYear += Number(r.decisionGrantedAmount);
+            }
+            if (r.status === 'REJECTED') {
+              totalRejectedThisYear += requestedAmt;
+            }
+            // Per-category breakdown — naudojam prašytas sumas iš laukų; patvirtintai
+            // sumai naudojam proporciją (jei skirta != prašyta).
+            const approvedRatio =
+              r.status === 'APPROVED' && r.decisionGrantedAmount !== null && requestedAmt > 0
+                ? Number(r.decisionGrantedAmount) / requestedAmt
+                : r.status === 'APPROVED'
+                  ? 1
+                  : 0;
+            for (const key of Object.keys(categoryAccumulator) as CostCategoryStats['key'][]) {
+              const acc = categoryAccumulator[key];
+              const value = Number(r[acc.field] ?? 0);
+              if (value === 0) continue;
+              acc.count += 1;
+              acc.requested += value;
+              if (r.status === 'APPROVED') {
+                acc.approved += value * approvedRatio;
+              } else if (r.status === 'REJECTED') {
+                acc.rejected += value;
+              }
             }
           }
         }
@@ -191,10 +290,28 @@ const DashboardService: ServiceSchema = {
         const stats: DashboardStats = {
           totalRequests: allRequests.length,
           byStatus,
+          amountsByStatus,
           totalRequestedThisYear,
           totalApprovedThisYear,
+          totalRejectedThisYear,
           usersCount,
         };
+
+        const costCategories: CostCategoryStats[] = (
+          Object.keys(categoryAccumulator) as CostCategoryStats['key'][]
+        )
+          .map((key) => {
+            const acc = categoryAccumulator[key];
+            return {
+              key,
+              label: acc.label,
+              requested: Math.round(acc.requested * 100) / 100,
+              approved: Math.round(acc.approved * 100) / 100,
+              rejected: Math.round(acc.rejected * 100) / 100,
+              count: acc.count,
+            };
+          })
+          .filter((c) => c.requested > 0 || c.approved > 0 || c.rejected > 0);
 
         // ===== Actionable (submitter perspektyva) =====
         // RETURNED + DRAFT — top 5 naujausi
@@ -266,9 +383,13 @@ const DashboardService: ServiceSchema = {
             };
             let totalReq = 0;
             let totalApr = 0;
+            // Per-tenant sumos (`totalReq`, `totalApr`) filtruojamos pagal `r.year === year`,
+            // kad ateinančių metų planai nepatektų į einamųjų metų statistikas.
+            // `bs` (byStatus) ir grąžinamas `total` apima visus metus — tai sąmoningai,
+            // kad AM matytų pilną tenant'o veiklos vaizdą per visą gyvavimo laiką.
             for (const r of rowsForT) {
               bs[r.status]++;
-              const y = new Date(r.createdAt).getFullYear();
+              const y = r.year;
               if (y === year) {
                 totalReq += totalRequestedFromRow(r);
                 if (r.status === 'APPROVED' && r.decisionGrantedAmount !== null) {
@@ -338,6 +459,7 @@ const DashboardService: ServiceSchema = {
           recentActivity,
           perTenantBreakdown,
           monthlyTrend,
+          costCategories,
         };
       },
     },

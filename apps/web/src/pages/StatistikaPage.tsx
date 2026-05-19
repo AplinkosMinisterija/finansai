@@ -8,7 +8,7 @@
  *  - Bendros sumos (cards)
  */
 import { useQuery } from '@tanstack/react-query';
-import { Activity, BarChart3, PieChart, TrendingUp } from 'lucide-react';
+import { Activity, BarChart3, Layers, PieChart, TrendingDown, TrendingUp } from 'lucide-react';
 import type { DashboardData } from '@biip-finansai/shared';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -18,6 +18,8 @@ import {
   StatusPieChart,
 } from '@/components/charts/StatusPieChart';
 import { PerTenantBarChart } from '@/components/charts/PerTenantBarChart';
+import { StatusCountAmountChart } from '@/components/charts/StatusCountAmountChart';
+import { CostCategoryChart } from '@/components/charts/CostCategoryChart';
 import { dashboardGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { fmtEur } from '@/lib/requests';
@@ -68,7 +70,7 @@ export default function StatistikaPage(): JSX.Element {
       </div>
 
       {/* Suvestinė — money cards */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <SummaryCard
           icon={<Activity className="h-4 w-4" />}
           label={`Prašymai ${d.year} m.`}
@@ -90,8 +92,15 @@ export default function StatistikaPage(): JSX.Element {
           tone="success"
         />
         <SummaryCard
+          icon={<TrendingDown className="h-4 w-4" />}
+          label="Atmesta"
+          value={fmtEur(s.totalRejectedThisYear)}
+          hint={`${s.byStatus.REJECTED} atmesti`}
+          tone="destructive"
+        />
+        <SummaryCard
           icon={<Activity className="h-4 w-4" />}
-          label="Vidutiniškai per prašymą"
+          label="Vid. per patvirtintą"
           value={fmtEur(
             s.byStatus.APPROVED > 0
               ? s.totalApprovedThisYear / s.byStatus.APPROVED
@@ -100,6 +109,61 @@ export default function StatistikaPage(): JSX.Element {
           hint={s.byStatus.APPROVED > 0 ? 'Patvirtintų' : '—'}
         />
       </div>
+
+      {/* Kiekis + suma per statusą — combo chart (#6) */}
+      <Card>
+        <CardContent className="p-4">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <BarChart3 className="h-4 w-4" />
+            Pagal būseną — kiekiai ir sumos
+          </h2>
+          <StatusCountAmountChart
+            data={[
+              {
+                status: 'SUBMITTED',
+                label: 'Pateikti',
+                count: s.byStatus.SUBMITTED,
+                amount: s.amountsByStatus.SUBMITTED,
+              },
+              {
+                status: 'RETURNED',
+                label: 'Grąžinti',
+                count: s.byStatus.RETURNED,
+                amount: s.amountsByStatus.RETURNED,
+              },
+              {
+                status: 'APPROVED',
+                label: 'Patvirtinti',
+                count: s.byStatus.APPROVED,
+                amount: s.amountsByStatus.APPROVED,
+              },
+              {
+                status: 'REJECTED',
+                label: 'Atmesti',
+                count: s.byStatus.REJECTED,
+                amount: s.amountsByStatus.REJECTED,
+              },
+            ]}
+            height={260}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Pjūvis pagal lėšų kategoriją (#6) */}
+      {d.costCategories.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+              <Layers className="h-4 w-4" />
+              Pagal lėšų kategoriją (€)
+            </h2>
+            <CostCategoryChart
+              data={d.costCategories}
+              height={Math.max(280, d.costCategories.length * 36 + 80)}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Monthly trend full-width */}
       <Card>
@@ -175,7 +239,7 @@ interface SummaryCardProps {
   label: string;
   value: string;
   hint?: string;
-  tone?: 'default' | 'primary' | 'success';
+  tone?: 'default' | 'primary' | 'success' | 'destructive';
 }
 
 function SummaryCard({ icon, label, value, hint, tone = 'default' }: SummaryCardProps): JSX.Element {
@@ -183,6 +247,7 @@ function SummaryCard({ icon, label, value, hint, tone = 'default' }: SummaryCard
     default: '',
     primary: 'border-primary/40',
     success: 'border-emerald-500/40',
+    destructive: 'border-destructive/40',
   }[tone];
 
   return (

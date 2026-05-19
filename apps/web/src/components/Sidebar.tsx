@@ -8,7 +8,9 @@ import {
   FileText,
   LayoutDashboard,
   LogOut,
+  Tags,
   Users,
+  Wallet,
 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -21,7 +23,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
-import { canManageTenants, roleLabel } from '@/lib/roles';
+import { canManageBudget, canManageClassifiers, canManageTenants, roleLabel } from '@/lib/roles';
 
 interface NavItem {
   to: string;
@@ -31,12 +33,19 @@ interface NavItem {
   adminOnly?: boolean;
 }
 
-const PRIMARY_NAV: NavItem[] = [
+interface NavItemEx extends NavItem {
+  budgetAdminOnly?: boolean;
+  classifiersAdminOnly?: boolean;
+}
+
+const PRIMARY_NAV: NavItemEx[] = [
   { to: '/', label: 'Pradžia', icon: LayoutDashboard },
   { to: '/prasymai', label: 'Prašymai', icon: FileText },
   { to: '/statistika', label: 'Statistika', icon: BarChart3 },
+  { to: '/biudzetas', label: 'Biudžetas', icon: Wallet, budgetAdminOnly: true },
   { to: '/vartotojai', label: 'Vartotojai', icon: Users },
   { to: '/organizacijos', label: 'Organizacijos', icon: Building2, adminOnly: true },
+  { to: '/klasifikatoriai', label: 'Klasifikatoriai', icon: Tags, classifiersAdminOnly: true },
 ];
 
 export interface SidebarProps {
@@ -50,7 +59,14 @@ export function Sidebar({ onNavigate }: SidebarProps): JSX.Element {
   const initials = user ? initialsFrom(fullName) : '??';
   const role = user ? roleLabel(user) : '';
   const showTenants = canManageTenants(user);
-  const navItems = PRIMARY_NAV.filter((i) => !i.adminOnly || showTenants);
+  const showBudget = canManageBudget(user);
+  const showClassifiers = canManageClassifiers(user);
+  const navItems = PRIMARY_NAV.filter((i) => {
+    if (i.adminOnly && !showTenants) return false;
+    if (i.budgetAdminOnly && !showBudget) return false;
+    if (i.classifiersAdminOnly && !showClassifiers) return false;
+    return true;
+  });
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-card">

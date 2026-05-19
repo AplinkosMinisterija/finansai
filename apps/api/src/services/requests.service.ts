@@ -24,18 +24,33 @@ import type {
 } from '@biip-finansai/shared';
 import { Request } from '../models/Request';
 import { RequestComment } from '../models/RequestComment';
+import { ApprovalStep } from '../models/ApprovalStep';
+import type { ApprovalStepStatus } from '../models/ApprovalStep';
+import { ClassifierItem } from '../models/ClassifierItem';
+import { ClassifierGroup } from '../models/ClassifierGroup';
 import { Tenant } from '../models/Tenant';
 import { User } from '../models/User';
+import { normalizeAmount } from '../utils/money';
+import { canViewRequest } from '../utils/permissions';
 import type { AuthMeta } from './auth.service';
+
+/**
+ * Default workflow AAD scope'ui (issue #9, „šiame etape biški mažiau, bet
+ * tegul daro normaliai"). AM-wide vėliau bus konfigūruojama per
+ * `approval_workflows` lentelę (TODO atskirai).
+ */
+const DEFAULT_WORKFLOW_LEVELS = ['AM_ADMIN'] as const;
 
 interface RequestWithRels extends Request {
   tenant?: Tenant;
   createdByUser?: User;
   decidedByUser?: User;
   comments?: (RequestComment & { authorUser?: User })[];
+  approvalSteps?: (ApprovalStep & { decidedByUser?: User })[];
 }
 
 const PAYLOAD_FIELDS = [
+  'year',
   'projectName',
   'systemCode',
   'projectType',
@@ -82,15 +97,6 @@ const NUMERIC_FIELDS = new Set([
   'q4Amount',
 ]);
 
-function normalizeAmount(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '0';
-  const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(n) || n < 0) {
-    throw new Errors.MoleculerClientError('Suma turi būti teigiamas skaičius', 400, 'INVALID_AMOUNT');
-  }
-  return n.toFixed(2);
-}
-
 function sanitizePayload(payload: RequestPayload): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of PAYLOAD_FIELDS) {
@@ -124,6 +130,7 @@ function toRequestDTO(r: RequestWithRels): RequestDTO {
     createdByUserId: r.createdByUserId,
     createdByName: r.createdByUser.fullName,
     status: r.status,
+    year: r.year,
     projectName: r.projectName,
     systemCode: r.systemCode,
     projectType: r.projectType,
@@ -192,27 +199,42 @@ async function loadRequest(id: number): Promise<RequestWithRels | undefined> {
 async function loadRequestDetail(id: number): Promise<RequestWithRels | undefined> {
   const r = await Request.query()
     .findById(id)
-    .withGraphFetched('[tenant, createdByUser, decidedByUser, comments.authorUser]')
+    .withGraphFetched(
+      '[tenant, createdByUser, decidedByUser, comments.authorUser, approvalSteps.decidedByUser]',
+    )
     .modifyGraph('comments', (b) => {
       b.orderBy('created_at', 'asc');
+    })
+    .modifyGraph('approvalSteps', (b) => {
+      b.orderBy('sequence', 'asc');
     });
   return r as RequestWithRels | undefined;
 }
 
-function canView(
-  viewer: NonNullable<AuthMeta['user']>,
-  r: { tenantId: number; createdByUserId: number },
-): boolean {
-  if (viewer.tenantIsApprover) {
-    // AM admin = visi; AM user = scope
-    if (viewer.role === 'admin') return true;
-    if (viewer.amScopeOrgIds === null) return true;
-    return viewer.amScopeOrgIds.includes(r.tenantId);
-  }
-  // Pavaldi institucija — tik savo tenant
-  if (r.tenantId !== viewer.tenantId) return false;
-  if (viewer.role === 'admin') return true;
-  return r.createdByUserId === viewer.id;
+async function resolveLevelName(code: string): Promise<string> {
+  // Saugom label'ą snapshot — net jei klasifikatorius pasikeis, istorija lieka.
+  const group = await ClassifierGroup.query().findOne({ code: 'approval_levels' });
+  if (!group) return code;
+  const item = await ClassifierItem.query().findOne({ group_id: group.id, code });
+  return item?.name ?? code;
+}
+
+function approvalStepDTO(
+  s: ApprovalStep & { decidedByUser?: User },
+): import('@biip-finansai/shared').ApprovalStep {
+  return {
+    id: s.id,
+    requestId: s.requestId,
+    sequence: s.sequence,
+    levelCode: s.levelCode,
+    levelName: s.levelName,
+    status: s.status,
+    decidedByUserId: s.decidedByUserId,
+    decidedByName: s.decidedByUser?.fullName ?? null,
+    decidedAt: s.decidedAt,
+    comment: s.comment,
+    createdAt: s.createdAt,
+  };
 }
 
 function canEdit(
@@ -247,14 +269,17 @@ const RequestsService: ServiceSchema = {
         q: { type: 'string', optional: true },
         status: { type: 'enum', optional: true, values: ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REJECTED'] },
         tenantId: { type: 'number', integer: true, optional: true, convert: true },
+        year: { type: 'number', integer: true, optional: true, convert: true },
+        plansOnly: { type: 'boolean', optional: true, convert: true },
         page: { type: 'number', integer: true, optional: true, default: 1, convert: true },
         pageSize: { type: 'number', integer: true, optional: true, default: 50, convert: true },
       },
       async handler(ctx: Context<RequestListQuery, AuthMeta>): Promise<PaginatedResponse<RequestDTO>> {
         const me = requireMe(ctx);
-        const { q, status, tenantId } = ctx.params;
+        const { q, status, tenantId, year, plansOnly } = ctx.params;
         const page = ctx.params.page ?? 1;
         const pageSize = Math.min(ctx.params.pageSize ?? 50, 200);
+        const currentYear = new Date().getFullYear();
 
         const query = Request.query()
           .withGraphFetched('[tenant, createdByUser, decidedByUser]')
@@ -269,8 +294,10 @@ const RequestsService: ServiceSchema = {
             }
             query.whereIn('requests.tenant_id', me.amScopeOrgIds);
           }
-          // Galimybė: AM admin teikia kitų org vardu — toks prašymas turi created_by = me.id.
-          // Šitas atvejis dengiamas automatiškai (matomi visi prašymai AM admin'ui).
+          // AM nemato pavaldžių institucijų juodraščių — tik savo „on behalf" sukurtus.
+          query.where((qb) => {
+            qb.whereNot('requests.status', 'DRAFT').orWhere('requests.created_by_user_id', me.id);
+          });
         } else {
           // Pavaldi institucija
           if (me.role === 'admin') {
@@ -292,6 +319,12 @@ const RequestsService: ServiceSchema = {
         }
         if (tenantId !== undefined) {
           query.where('requests.tenant_id', tenantId);
+        }
+        if (year !== undefined) {
+          query.where('requests.year', year);
+        }
+        if (plansOnly) {
+          query.where('requests.year', '>', currentYear);
         }
 
         const total = await query.clone().resultSize();
@@ -316,18 +349,20 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId })) {
+        if (!canViewRequest(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
           throw new Errors.MoleculerClientError('Neturite teisės matyti šio prašymo', 403, 'FORBIDDEN');
         }
         const dto = toRequestDTO(r);
         const comments = (r.comments ?? []).map(toCommentDTO);
-        return { ...dto, comments };
+        const approvalSteps = (r.approvalSteps ?? []).map(approvalStepDTO);
+        return { ...dto, comments, approvalSteps };
       },
     },
 
     create: {
       params: {
         tenantId: { type: 'number', integer: true, optional: true, convert: true },
+        year: { type: 'number', integer: true, optional: true, convert: true },
         projectName: { type: 'string', optional: true, max: 500 },
       },
       async handler(
@@ -377,10 +412,21 @@ const RequestsService: ServiceSchema = {
         const { tenantId: _tid, ...rest } = ctx.params;
         void _tid;
         const patch = sanitizePayload(rest);
+        const currentYear = new Date().getFullYear();
+        const requestedYear = (patch['year'] as number | undefined) ?? currentYear;
+        // Leidžiame nuo current iki +5 metų (Giedrė: „planavom iki 2029 m. imtinai").
+        if (!Number.isFinite(requestedYear) || requestedYear < currentYear || requestedYear > currentYear + 5) {
+          throw new Errors.MoleculerClientError(
+            `Metai turi būti tarp ${currentYear} ir ${currentYear + 5}`,
+            400,
+            'YEAR_OUT_OF_RANGE',
+          );
+        }
         const inserted = await Request.query().insert({
           tenantId: targetTenantId,
           createdByUserId: me.id,
           status: 'DRAFT',
+          year: requestedYear,
           projectName: (patch['projectName'] as string) ?? 'Naujas prašymas',
           ...patch,
         });
@@ -450,6 +496,25 @@ const RequestsService: ServiceSchema = {
           body: null,
           metadata: { fromStatus: r.status, toStatus: 'SUBMITTED' },
         });
+
+        // Issue #9: sukuriam aprobacijos žingsnius (default workflow).
+        // Resubmit iš RETURNED — sukuriam naują seriją žingsnių (next sequence).
+        const existing = (await ApprovalStep.query()
+          .where('request_id', r.id)
+          .max('sequence as max')) as unknown as Array<{ max: number | null }>;
+        const startSeq = (existing[0]?.max ?? 0) + 1;
+        for (let i = 0; i < DEFAULT_WORKFLOW_LEVELS.length; i++) {
+          const code = DEFAULT_WORKFLOW_LEVELS[i]!;
+          const name = await resolveLevelName(code);
+          await ApprovalStep.query().insert({
+            requestId: r.id,
+            sequence: startSeq + i,
+            levelCode: code,
+            levelName: name,
+            status: 'PENDING',
+          });
+        }
+
         const full = await loadRequest(r.id);
         if (!full) throw new Error('Submitted request not found');
         return toRequestDTO(full);
@@ -479,12 +544,123 @@ const RequestsService: ServiceSchema = {
       },
     },
 
+    /**
+     * Issue #4: konvertuoti planą (year > currentYear, status != DRAFT) į einamųjų
+     * metų prašymą — sukuriama nauja DRAFT kopija su year = currentYear.
+     * Plano įrašas paliekamas kaip istorija.
+     */
+    convertPlanToCurrentYear: {
+      params: { id: { type: 'number', integer: true, convert: true } },
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<RequestDTO> {
+        const me = requireMe(ctx);
+        const src = await Request.query().findById(ctx.params.id);
+        if (!src) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        if (!canViewRequest(me, { tenantId: src.tenantId, createdByUserId: src.createdByUserId, status: src.status })) {
+          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+        // Tik teikėjas iš tos org (arba AM admin „on behalf") gali konvertuoti.
+        if (me.tenantIsApprover) {
+          if (me.role !== 'admin') {
+            throw new Errors.MoleculerClientError('Tik AM admin gali konvertuoti', 403, 'FORBIDDEN');
+          }
+        } else if (src.tenantId !== me.tenantId) {
+          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+
+        const currentYear = new Date().getFullYear();
+        if (src.year <= currentYear) {
+          throw new Errors.MoleculerClientError(
+            'Konvertuoti galima tik ateinančių metų planą',
+            400,
+            'PLAN_NOT_FUTURE',
+          );
+        }
+        if (src.status === 'DRAFT') {
+          throw new Errors.MoleculerClientError(
+            'Juodraščio konvertuoti nereikia — tiesiog atnaujinkite metus',
+            400,
+            'INVALID_STATUS',
+          );
+        }
+
+        // Patikriname ar jau yra einamų metų DRAFT, sukurtas iš to paties tenant'o
+        // su tuo pačiu projektu (paprasta duplikatų prevencija).
+        const dup = await Request.query()
+          .where({ tenant_id: src.tenantId, year: currentYear, project_name: src.projectName, status: 'DRAFT' })
+          .first();
+        if (dup) {
+          throw new Errors.MoleculerClientError(
+            `Einamųjų metų juodraštis tokiu pat pavadinimu jau egzistuoja (#${dup.id})`,
+            409,
+            'DUPLICATE_DRAFT',
+          );
+        }
+
+        // Patikriname, ar planas turi bent vieną įvestą sumą — kitaip neprasminga konvertuoti.
+        const costSum =
+          Number(src.costDu) +
+          Number(src.costEquipment) +
+          Number(src.costCreation) +
+          Number(src.costAnalysis) +
+          Number(src.costDevelopment) +
+          Number(src.costMaintenance) +
+          Number(src.costModernization) +
+          Number(src.costDecommissioning);
+        if (!(costSum > 0)) {
+          throw new Errors.MoleculerClientError(
+            'Planas neturi įvestų sumų — pirma užpildykite finansavimo dalį',
+            400,
+            'PLAN_EMPTY',
+          );
+        }
+
+        const inserted = await Request.query().insert({
+          tenantId: src.tenantId,
+          createdByUserId: me.id,
+          status: 'DRAFT',
+          year: currentYear,
+          projectName: src.projectName,
+          systemCode: src.systemCode,
+          projectType: src.projectType,
+          description: src.description,
+          plannedWorks: src.plannedWorks,
+          priority: src.priority,
+          procurementStage: src.procurementStage,
+          costDu: src.costDu,
+          costEquipment: src.costEquipment,
+          costCreation: src.costCreation,
+          costAnalysis: src.costAnalysis,
+          costDevelopment: src.costDevelopment,
+          costMaintenance: src.costMaintenance,
+          costModernization: src.costModernization,
+          costDecommissioning: src.costDecommissioning,
+          fundingFromIt: src.fundingFromIt,
+          otherFunds: src.otherFunds,
+          otherFundsSource: src.otherFundsSource,
+          q1Amount: src.q1Amount,
+          q2Amount: src.q2Amount,
+          q3Amount: src.q3Amount,
+          q4Amount: src.q4Amount,
+          responsibleInstitution: src.responsibleInstitution,
+          executorName: src.executorName,
+          executorEmail: src.executorEmail,
+          implementationDeadline: src.implementationDeadline,
+          submitterNotes: src.submitterNotes,
+        });
+        const full = await loadRequest(inserted.id);
+        if (!full) throw new Error('Inserted request not found');
+        return toRequestDTO(full);
+      },
+    },
+
     decision: {
       params: {
         id: { type: 'number', integer: true, convert: true },
         decision: { type: 'enum', values: ['approve', 'reject', 'return'] },
         comment: { type: 'string', optional: true, max: 4000 },
-        grantedAmount: { type: 'any', optional: true },
+        grantedAmount: { type: 'number', optional: true, min: 0, convert: true },
         fundingSource: { type: 'string', optional: true, max: 500 },
         protocol: { type: 'string', optional: true, max: 500 },
         order: { type: 'string', optional: true, max: 500 },
@@ -509,10 +685,12 @@ const RequestsService: ServiceSchema = {
         const isReject = p.decision === 'reject';
         const isReturn = p.decision === 'return';
 
-        if (isReject || isReturn) {
+        if (isReturn) {
+          // Grąžinimui komentaras privalomas — teikėjas turi žinoti, ką taisyti.
+          // Atmetimui neprivalomas (pvz. AM nenori paskelbti tikrosios priežasties).
           if (!p.comment || p.comment.trim() === '') {
             throw new Errors.MoleculerClientError(
-              'Atmetimas ir grąžinimas reikalauja komentaro',
+              'Grąžinimas pataisymui reikalauja komentaro',
               400,
               'COMMENT_REQUIRED',
             );
@@ -543,26 +721,79 @@ const RequestsService: ServiceSchema = {
           kind = 'returned';
         }
 
-        patch['status'] = newStatus;
-        await Request.query().findById(r.id).patch(patch);
-        await RequestComment.query().insert({
-          requestId: r.id,
-          authorUserId: me.id,
-          kind,
-          body: p.comment ?? null,
-          metadata: {
-            fromStatus: r.status,
-            toStatus: newStatus,
-            ...(isApprove
-              ? {
-                  grantedAmount: patch['decisionGrantedAmount'],
-                  fundingSource: patch['decisionFundingSource'],
-                  protocol: patch['decisionProtocol'],
-                  order: patch['decisionOrder'],
-                }
-              : {}),
-          },
-        });
+        // Audit #10: visi Request + ApprovalStep + RequestComment rašymai turi
+        // įvykti atominėje transakcijoje. Read'ai po commit'o (loadRequest)
+        // paliekam ne transakcijoje.
+        const knex = Request.knex();
+        const trx = await knex.transaction();
+        try {
+          // Issue #9: pažymim dabartinį PENDING žingsnį.
+          const currentStep = await ApprovalStep.query(trx)
+            .where({ request_id: r.id, status: 'PENDING' })
+            .orderBy('sequence', 'asc')
+            .first();
+
+          let stepStatus: ApprovalStepStatus;
+          if (isApprove) stepStatus = 'APPROVED';
+          else if (isReject) stepStatus = 'REJECTED';
+          else stepStatus = 'RETURNED';
+
+          if (currentStep) {
+            await ApprovalStep.query(trx).findById(currentStep.id).patch({
+              status: stepStatus,
+              decidedByUserId: me.id,
+              decidedAt: now,
+              comment: p.comment ?? null,
+            });
+          }
+
+          // Daugiapakopei aprobacijai (visa AM): jei APPROVED + dar yra PENDING žingsnių
+          // → newStatus = SUBMITTED (toliau eina kitam approver'iui).
+          // Šitam etape (AAD, 1 žingsnis) — neegzistuoja kitas PENDING žingsnis,
+          // todėl pereinam į APPROVED, kaip iki šiol.
+          if (isApprove && currentStep) {
+            const nextPending = await ApprovalStep.query(trx)
+              .where({ request_id: r.id, status: 'PENDING' })
+              .first();
+            if (nextPending) {
+              newStatus = 'SUBMITTED';
+              // Decision metadata einam atsekti tik kai paskutinis žingsnis OK.
+              delete patch['decisionGrantedAmount'];
+              delete patch['decisionFundingSource'];
+              delete patch['decisionProtocol'];
+              delete patch['decisionOrder'];
+              delete patch['decidedAt'];
+              delete patch['decidedByUserId'];
+            }
+          }
+
+          patch['status'] = newStatus;
+          await Request.query(trx).findById(r.id).patch(patch);
+          await RequestComment.query(trx).insert({
+            requestId: r.id,
+            authorUserId: me.id,
+            kind,
+            body: p.comment ?? null,
+            metadata: {
+              fromStatus: r.status,
+              toStatus: newStatus,
+              ...(currentStep ? { stepSequence: currentStep.sequence, stepLevel: currentStep.levelCode } : {}),
+              ...(isApprove
+                ? {
+                    grantedAmount: patch['decisionGrantedAmount'],
+                    fundingSource: patch['decisionFundingSource'],
+                    protocol: patch['decisionProtocol'],
+                    order: patch['decisionOrder'],
+                  }
+                : {}),
+            },
+          });
+
+          await trx.commit();
+        } catch (e) {
+          await trx.rollback();
+          throw e;
+        }
 
         const full = await loadRequest(r.id);
         if (!full) throw new Error('Decided request not found');
@@ -583,7 +814,7 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId })) {
+        if (!canViewRequest(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         const inserted = await RequestComment.query().insert({

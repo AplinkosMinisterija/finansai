@@ -147,6 +147,8 @@ interface RequestSeed {
   tenantCode: string;
   createdByUsername: string;
   status: 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REJECTED';
+  /** Metai prašymui/planui. Default = currentYear. > currentYear = planas. */
+  year?: number;
   projectName: string;
   systemCode?: string;
   projectType?: string;
@@ -187,9 +189,12 @@ interface RequestSeed {
 // ── Helper'iai REQUESTS array kompaktiškumui ──
 
 function approved(amount: number, year: 2025 | 2026, by: string, num: number) {
+  // Šaltinio programa — klasifikatoriaus `source_program` kodas (issue #8).
+  // Mišinio dėl demo įvairovės: didžioji dalis iš IT biudžeto, kelios iš ES.
+  const sources = ['AM_IT_BUDGET', 'AM_IT_BUDGET', 'AM_IT_BUDGET', 'AM_DEVELOPMENT', 'EU_FUNDS'];
   return {
     decisionAmount: amount,
-    decisionSource: `AM IT biudžetas ${year}`,
+    decisionSource: sources[num % sources.length]!,
     decisionProtocol: `AM-FIN-${year}/${String(num).padStart(3, '0')}`,
     decisionOrder: `AM Įsakymas ${year}/A-${100 + num}`,
     decisionByUsername: by,
@@ -241,7 +246,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'lgt-admin', status: 'APPROVED',
     projectName: 'Geofiziniai matavimai 2025', systemCode: 'GELMES',
-    projectType: 'Mokslinis projektas', priority: 2, procurementStage: 'Užbaigta',
+    projectType: 'RESEARCH', priority: 2, procurementStage: 'Užbaigta',
     costAnalysis: 8000, costDevelopment: 14000, fundingFromIt: 22000,
     q2: 11000, q3: 11000,
     responsibleInstitution: 'LGT', executorName: 'Rasa Janušienė', executorEmail: 'rasa.janusiene@lgt.lt',
@@ -253,7 +258,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-admin', status: 'APPROVED',
     projectName: 'AADIS centrinio modulio licencijos 2025', systemCode: 'AADIS',
-    projectType: 'Programinė įranga', priority: 1, procurementStage: 'Sutartis pasirašyta',
+    projectType: 'SOFTWARE', priority: 1, procurementStage: 'Sutartis pasirašyta',
     costEquipment: 28000, fundingFromIt: 28000, q2: 28000,
     responsibleInstitution: 'AAD', executorName: 'Tomas Burba', executorEmail: 'tomas.burba@aad.lt',
     implementationDeadline: '2025-12-31',
@@ -266,7 +271,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'VSTT', createdByUsername: 'vstt-admin', status: 'APPROVED',
     projectName: 'VSTT mokymų platforma', systemCode: null as unknown as string,
-    projectType: 'IT sistema', priority: 3, procurementStage: 'Įdiegta',
+    projectType: 'IT_SYSTEM', priority: 3, procurementStage: 'Įdiegta',
     costDevelopment: 12000, costMaintenance: 3000, fundingFromIt: 15000,
     q3: 8000, q4: 7000,
     responsibleInstitution: 'VSTT', executorName: 'Aušra Petrulienė', executorEmail: 'ausra.petruliene@vstt.lt',
@@ -278,7 +283,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-user', status: 'APPROVED',
     projectName: 'AADIS palaikymas Q3-Q4 2025', systemCode: 'AADIS',
-    projectType: 'IT palaikymas', priority: 1, procurementStage: 'Vykdoma',
+    projectType: 'IT_SUPPORT', priority: 1, procurementStage: 'Vykdoma',
     costMaintenance: 8500, fundingFromIt: 8500,
     q3: 4500, q4: 4000,
     responsibleInstitution: 'AAD', executorName: 'Tomas Burba', executorEmail: 'tomas.burba@aad.lt',
@@ -292,7 +297,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'lgt-user', status: 'APPROVED',
     projectName: 'GELMES vartotojų vadovas', systemCode: 'GELMES',
-    projectType: 'Dokumentacija', priority: 4, procurementStage: 'Užbaigta',
+    projectType: 'DOCUMENTATION', priority: 4, procurementStage: 'Užbaigta',
     costAnalysis: 4000, costDevelopment: 8000, fundingFromIt: 12000,
     q3: 6000, q4: 6000,
     responsibleInstitution: 'LGT', executorName: 'Vilma Klimaitė', executorEmail: 'vilma.klimaite@lgt.lt',
@@ -304,7 +309,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-admin', status: 'APPROVED',
     projectName: 'AADIS API integracija su VATESI', systemCode: 'AADIS',
-    projectType: 'IT integracija', priority: 2, procurementStage: 'Užbaigta',
+    projectType: 'IT_INTEGRATION', priority: 2, procurementStage: 'Užbaigta',
     costAnalysis: 6000, costDevelopment: 22000, costMaintenance: 7000, fundingFromIt: 35000,
     q3: 15000, q4: 20000,
     responsibleInstitution: 'AAD', executorName: 'Mantas Daunoras', executorEmail: 'mantas.daunoras@aad.lt',
@@ -316,7 +321,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'VSTT', createdByUsername: 'vstt-user', status: 'REJECTED',
     projectName: 'Dronų eksperimentinė programa — pirminis bandymas', systemCode: 'GEOSTT',
-    projectType: 'Mokslinis projektas', priority: 4, procurementStage: 'Pradėtas',
+    projectType: 'RESEARCH', priority: 4, procurementStage: 'Pradėtas',
     costEquipment: 12000, costDevelopment: 18000, fundingFromIt: 30000,
     q3: 15000, q4: 15000,
     responsibleInstitution: 'VSTT', executorName: 'Aušra Petrulienė', executorEmail: 'ausra.petruliene@vstt.lt',
@@ -334,7 +339,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'VSTT', createdByUsername: 'vstt-admin', status: 'APPROVED',
     projectName: 'GIS lokacijų atvaizdavimo modulis', systemCode: 'GEOSTT',
-    projectType: 'IT plėtra', priority: 2, procurementStage: 'Įdiegta',
+    projectType: 'NEW_DEVELOPMENT', priority: 2, procurementStage: 'Įdiegta',
     costAnalysis: 4000, costDevelopment: 14000, fundingFromIt: 18000,
     q3: 9000, q4: 9000,
     responsibleInstitution: 'VSTT', executorName: 'Jonas Vaitkus', executorEmail: 'jonas.vaitkus@vstt.lt',
@@ -346,7 +351,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'lgt-admin', status: 'APPROVED',
     projectName: 'Mokslo duomenų portalo plėtra', systemCode: 'GELMES',
-    projectType: 'IT plėtra', priority: 1, procurementStage: 'Užbaigta',
+    projectType: 'NEW_DEVELOPMENT', priority: 1, procurementStage: 'Užbaigta',
     costAnalysis: 10000, costDevelopment: 32000, costMaintenance: 8000, fundingFromIt: 50000,
     q3: 25000, q4: 25000,
     responsibleInstitution: 'LGT', executorName: 'Rasa Janušienė', executorEmail: 'rasa.janusiene@lgt.lt',
@@ -360,7 +365,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-user', status: 'APPROVED',
     projectName: 'AADIS palaikymas Q1-Q2 2026', systemCode: 'AADIS',
-    projectType: 'IT palaikymas', priority: 1, procurementStage: 'Vykdoma',
+    projectType: 'IT_SUPPORT', priority: 1, procurementStage: 'Vykdoma',
     costMaintenance: 28000, fundingFromIt: 28000,
     q1: 14000, q2: 14000,
     responsibleInstitution: 'AAD', executorName: 'Tomas Burba', executorEmail: 'tomas.burba@aad.lt',
@@ -372,7 +377,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'lgt-user', status: 'APPROVED',
     projectName: 'GELMES paieškos optimizacija', systemCode: 'GELMES',
-    projectType: 'IT optimizacija', priority: 3, procurementStage: 'Užbaigta',
+    projectType: 'MODERNIZATION', priority: 3, procurementStage: 'Užbaigta',
     costDevelopment: 7500, fundingFromIt: 9500, costAnalysis: 2000,
     q4: 9500,
     responsibleInstitution: 'LGT', executorName: 'Vilma Klimaitė', executorEmail: 'vilma.klimaite@lgt.lt',
@@ -384,7 +389,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'VSTT', createdByUsername: 'vstt-user', status: 'APPROVED',
     projectName: 'GeoSTT serverio atnaujinimas', systemCode: 'GEOSTT',
-    projectType: 'IT infrastruktūra', priority: 2, procurementStage: 'Įdiegta',
+    projectType: 'INFRASTRUCTURE', priority: 2, procurementStage: 'Įdiegta',
     costEquipment: 25000, fundingFromIt: 25000,
     q4: 25000,
     responsibleInstitution: 'VSTT', executorName: 'Aušra Petrulienė', executorEmail: 'ausra.petruliene@vstt.lt',
@@ -398,7 +403,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-admin', status: 'APPROVED',
     projectName: 'Ugniasienės licencijų atnaujinimas 2025', systemCode: 'AADIS',
-    projectType: 'Programinė įranga', priority: 1, procurementStage: 'Sutartis pasirašyta',
+    projectType: 'SOFTWARE', priority: 1, procurementStage: 'Sutartis pasirašyta',
     costEquipment: 17500, fundingFromIt: 17500,
     q4: 17500,
     responsibleInstitution: 'AAD', executorName: 'Mantas Daunoras', executorEmail: 'mantas.daunoras@aad.lt',
@@ -410,7 +415,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'VSTT', createdByUsername: 'vstt-admin', status: 'APPROVED',
     projectName: 'GeoSTT mobiliosios programėlės plėtra', systemCode: 'GEOSTT',
-    projectType: 'Mobilioji aplikacija', priority: 2, procurementStage: 'Užbaigta',
+    projectType: 'SOFTWARE', priority: 2, procurementStage: 'Užbaigta',
     costAnalysis: 5000, costDevelopment: 35000, fundingFromIt: 40000,
     q4: 15000, q1: 15000, q2: 10000,
     responsibleInstitution: 'VSTT', executorName: 'Aušra Petrulienė', executorEmail: 'ausra.petruliene@vstt.lt',
@@ -422,7 +427,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'lgt-user', status: 'REJECTED',
     projectName: 'Geofiziniai matavimai 2026 — prototipas', systemCode: 'GELMES',
-    projectType: 'Mokslinis projektas', priority: 5, procurementStage: 'Pradėtas',
+    projectType: 'RESEARCH', priority: 5, procurementStage: 'Pradėtas',
     costAnalysis: 3000, costDevelopment: 8000, fundingFromIt: 11000,
     q1: 11000,
     responsibleInstitution: 'LGT', executorName: 'Vilma Klimaitė', executorEmail: 'vilma.klimaite@lgt.lt',
@@ -438,7 +443,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-user', status: 'APPROVED',
     projectName: 'AADIS ataskaitų modulis', systemCode: 'AADIS',
-    projectType: 'IT plėtra', priority: 2, procurementStage: 'Užbaigta',
+    projectType: 'NEW_DEVELOPMENT', priority: 2, procurementStage: 'Užbaigta',
     costAnalysis: 4500, costDevelopment: 18000, fundingFromIt: 22500,
     q4: 8000, q1: 14500,
     responsibleInstitution: 'AAD', executorName: 'Tomas Burba', executorEmail: 'tomas.burba@aad.lt',
@@ -452,7 +457,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'lgt-admin', status: 'APPROVED',
     projectName: 'GELMES integracija su EUR-Lex duomenimis', systemCode: 'GELMES',
-    projectType: 'IT integracija', priority: 2, procurementStage: 'Užbaigta',
+    projectType: 'IT_INTEGRATION', priority: 2, procurementStage: 'Užbaigta',
     costAnalysis: 8000, costDevelopment: 24000, fundingFromIt: 32000,
     q1: 16000, q2: 16000,
     responsibleInstitution: 'LGT', executorName: 'Rasa Janušienė', executorEmail: 'rasa.janusiene@lgt.lt',
@@ -464,7 +469,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-admin', status: 'APPROVED',
     projectName: 'AADIS performance optimizacija', systemCode: 'AADIS',
-    projectType: 'IT optimizacija', priority: 2, procurementStage: 'Vykdoma',
+    projectType: 'MODERNIZATION', priority: 2, procurementStage: 'Vykdoma',
     costAnalysis: 3000, costDevelopment: 15000, fundingFromIt: 18000,
     q1: 9000, q2: 9000,
     responsibleInstitution: 'AAD', executorName: 'Mantas Daunoras', executorEmail: 'mantas.daunoras@aad.lt',
@@ -478,7 +483,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'VSTT', createdByUsername: 'vstt-user', status: 'APPROVED',
     projectName: 'VSTT GIS duomenų bazės modernizavimas', systemCode: 'GEOSTT',
-    projectType: 'IT plėtra', priority: 1, procurementStage: 'Vykdoma',
+    projectType: 'NEW_DEVELOPMENT', priority: 1, procurementStage: 'Vykdoma',
     costAnalysis: 6000, costDevelopment: 26000, costMaintenance: 8000, fundingFromIt: 40000,
     q1: 15000, q2: 15000, q3: 10000,
     responsibleInstitution: 'VSTT', executorName: 'Aušra Petrulienė', executorEmail: 'ausra.petruliene@vstt.lt',
@@ -490,7 +495,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'am-admin', status: 'APPROVED',
     projectName: 'LGT serverio atnaujinimas (AM admin pavedimu)', systemCode: 'GELMES',
-    projectType: 'IT infrastruktūra', priority: 1, procurementStage: 'Įdiegta',
+    projectType: 'INFRASTRUCTURE', priority: 1, procurementStage: 'Įdiegta',
     costEquipment: 15500, fundingFromIt: 15500,
     q1: 15500,
     responsibleInstitution: 'LGT', executorName: 'Rasa Janušienė', executorEmail: 'rasa.janusiene@lgt.lt',
@@ -502,7 +507,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-user', status: 'APPROVED',
     projectName: 'AADIS palaikymas Q3-Q4 2025', systemCode: 'AADIS',
-    projectType: 'IT palaikymas', priority: 1, procurementStage: 'Užbaigta',
+    projectType: 'IT_SUPPORT', priority: 1, procurementStage: 'Užbaigta',
     costMaintenance: 18000, fundingFromIt: 18000,
     q3: 9000, q4: 9000,
     responsibleInstitution: 'AAD', executorName: 'Tomas Burba', executorEmail: 'tomas.burba@aad.lt',
@@ -516,7 +521,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'VSTT', createdByUsername: 'vstt-admin', status: 'APPROVED',
     projectName: 'GeoSTT API plėtra', systemCode: 'GEOSTT',
-    projectType: 'IT integracija', priority: 2, procurementStage: 'Vykdoma',
+    projectType: 'IT_INTEGRATION', priority: 2, procurementStage: 'Vykdoma',
     costAnalysis: 4000, costDevelopment: 18000, fundingFromIt: 22000,
     q2: 11000, q3: 11000,
     responsibleInstitution: 'VSTT', executorName: 'Jonas Vaitkus', executorEmail: 'jonas.vaitkus@vstt.lt',
@@ -528,7 +533,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-user', status: 'REJECTED',
     projectName: 'Stebėjimo įrangos atnaujinimas', systemCode: 'AADIS',
-    projectType: 'Įranga', priority: 4, procurementStage: 'Pradėtas',
+    projectType: 'OTHER', priority: 4, procurementStage: 'Pradėtas',
     costEquipment: 28000, fundingFromIt: 28000,
     q2: 28000,
     responsibleInstitution: 'AAD', executorName: 'Tomas Burba', executorEmail: 'tomas.burba@aad.lt',
@@ -544,7 +549,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'lgt-user', status: 'APPROVED',
     projectName: 'Geologijos atlasas — duomenų konsolidacija', systemCode: 'GELMES',
-    projectType: 'IT projektas', priority: 3, procurementStage: 'Vykdoma',
+    projectType: 'IT_SYSTEM', priority: 3, procurementStage: 'Vykdoma',
     costAnalysis: 3000, costDevelopment: 5000, fundingFromIt: 8000,
     q2: 4000, q3: 4000,
     responsibleInstitution: 'LGT', executorName: 'Vilma Klimaitė', executorEmail: 'vilma.klimaite@lgt.lt',
@@ -556,7 +561,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'VSTT', createdByUsername: 'vstt-user', status: 'APPROVED',
     projectName: 'Saugomų teritorijų ribų atvaizdavimas', systemCode: 'GEOSTT',
-    projectType: 'IT plėtra', priority: 3, procurementStage: 'Vykdoma',
+    projectType: 'NEW_DEVELOPMENT', priority: 3, procurementStage: 'Vykdoma',
     costAnalysis: 3500, costDevelopment: 13000, fundingFromIt: 16500,
     q2: 8000, q3: 8500,
     responsibleInstitution: 'VSTT', executorName: 'Aušra Petrulienė', executorEmail: 'ausra.petruliene@vstt.lt',
@@ -570,7 +575,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-admin', status: 'APPROVED',
     projectName: 'Specialistų mokymai 2026', systemCode: null as unknown as string,
-    projectType: 'Mokymai', priority: 3, procurementStage: 'Vykdoma',
+    projectType: 'TRAINING', priority: 3, procurementStage: 'Vykdoma',
     costAnalysis: 4000, costDevelopment: 20000, fundingFromIt: 24000,
     q3: 12000, q4: 12000,
     responsibleInstitution: 'AAD', executorName: 'Mantas Daunoras', executorEmail: 'mantas.daunoras@aad.lt',
@@ -582,7 +587,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'lgt-admin', status: 'REJECTED',
     projectName: 'Eksperimentinis seizmologinių duomenų modulis', systemCode: 'GELMES',
-    projectType: 'Mokslinis projektas', priority: 5, procurementStage: 'Pradėtas',
+    projectType: 'RESEARCH', priority: 5, procurementStage: 'Pradėtas',
     costAnalysis: 7000, costDevelopment: 25000, fundingFromIt: 32000,
     q3: 16000, q4: 16000,
     responsibleInstitution: 'LGT', executorName: 'Rasa Janušienė', executorEmail: 'rasa.janusiene@lgt.lt',
@@ -598,7 +603,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'am-admin', status: 'APPROVED',
     projectName: 'AAD audito sistemos paslaugos (AM admin pavedimu)', systemCode: 'AADIS',
-    projectType: 'IT paslaugos', priority: 2, procurementStage: 'Vykdoma',
+    projectType: 'IT_SUPPORT', priority: 2, procurementStage: 'Vykdoma',
     costAnalysis: 2500, costMaintenance: 9500, fundingFromIt: 12000,
     q3: 6000, q4: 6000,
     responsibleInstitution: 'AAD', executorName: 'Tomas Burba', executorEmail: 'tomas.burba@aad.lt',
@@ -616,7 +621,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'lgt-user', status: 'SUBMITTED',
     projectName: 'GELMES UX redizainas', systemCode: 'GELMES',
-    projectType: 'UX projektas', priority: 3, procurementStage: 'Pradėtas',
+    projectType: 'OTHER', priority: 3, procurementStage: 'Pradėtas',
     costAnalysis: 6000, costDevelopment: 22000, fundingFromIt: 28000,
     q3: 14000, q4: 14000,
     responsibleInstitution: 'LGT', executorName: 'Vilma Klimaitė', executorEmail: 'vilma.klimaite@lgt.lt',
@@ -627,7 +632,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'VSTT', createdByUsername: 'vstt-admin', status: 'SUBMITTED',
     projectName: 'Lankytojų centrų IT infrastruktūra', systemCode: 'GEOSTT',
-    projectType: 'IT infrastruktūra', priority: 2, procurementStage: 'Pradėtas',
+    projectType: 'INFRASTRUCTURE', priority: 2, procurementStage: 'Pradėtas',
     costEquipment: 32000, costMaintenance: 6000, fundingFromIt: 38000,
     q3: 20000, q4: 18000,
     responsibleInstitution: 'VSTT', executorName: 'Jonas Vaitkus', executorEmail: 'jonas.vaitkus@vstt.lt',
@@ -638,7 +643,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-user', status: 'SUBMITTED',
     projectName: 'AADIS palaikymas Q3-Q4 2026', systemCode: 'AADIS',
-    projectType: 'IT palaikymas', priority: 1, procurementStage: 'Pradėtas',
+    projectType: 'IT_SUPPORT', priority: 1, procurementStage: 'Pradėtas',
     costMaintenance: 18000, fundingFromIt: 18000,
     q3: 9000, q4: 9000,
     responsibleInstitution: 'AAD', executorName: 'Tomas Burba', executorEmail: 'tomas.burba@aad.lt',
@@ -649,7 +654,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-admin', status: 'SUBMITTED',
     projectName: 'AADIS DR (disaster recovery) sprendimas', systemCode: 'AADIS',
-    projectType: 'IT infrastruktūra', priority: 1, procurementStage: 'Pradėtas',
+    projectType: 'INFRASTRUCTURE', priority: 1, procurementStage: 'Pradėtas',
     costAnalysis: 4000, costDevelopment: 12000, costMaintenance: 8000, fundingFromIt: 24000,
     q3: 10000, q4: 14000,
     responsibleInstitution: 'AAD', executorName: 'Mantas Daunoras', executorEmail: 'mantas.daunoras@aad.lt',
@@ -660,7 +665,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'am-admin', status: 'SUBMITTED',
     projectName: 'Geologijos seminarai 2026 (AM admin pavedimu)', systemCode: null as unknown as string,
-    projectType: 'Mokymai', priority: 4, procurementStage: 'Pradėtas',
+    projectType: 'TRAINING', priority: 4, procurementStage: 'Pradėtas',
     costAnalysis: 2000, costDevelopment: 6000, fundingFromIt: 8000,
     q3: 4000, q4: 4000,
     responsibleInstitution: 'LGT', executorName: 'Rasa Janušienė', executorEmail: 'rasa.janusiene@lgt.lt',
@@ -673,7 +678,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'VSTT', createdByUsername: 'vstt-user', status: 'RETURNED',
     projectName: 'Saugomų teritorijų geoportalo plėtra', systemCode: 'GEOSTT',
-    projectType: 'IT plėtra', priority: 2, procurementStage: 'Pradėtas',
+    projectType: 'NEW_DEVELOPMENT', priority: 2, procurementStage: 'Pradėtas',
     costAnalysis: 8000, costDevelopment: 26000, fundingFromIt: 34000,
     q3: 17000, q4: 17000,
     responsibleInstitution: 'VSTT', executorName: 'Aušra Petrulienė', executorEmail: 'ausra.petruliene@vstt.lt',
@@ -689,7 +694,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'lgt-admin', status: 'RETURNED',
     projectName: 'Geologijos duomenų bazės migracija', systemCode: 'GELMES',
-    projectType: 'IT migracija', priority: 1, procurementStage: 'Pradėtas',
+    projectType: 'MODERNIZATION', priority: 1, procurementStage: 'Pradėtas',
     costAnalysis: 5000, costDevelopment: 18000, costMaintenance: 4000, fundingFromIt: 27000,
     q3: 14000, q4: 13000,
     responsibleInstitution: 'LGT', executorName: 'Rasa Janušienė', executorEmail: 'rasa.janusiene@lgt.lt',
@@ -705,7 +710,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-user', status: 'RETURNED',
     projectName: 'AADIS audito paslaugos', systemCode: 'AADIS',
-    projectType: 'IT paslaugos', priority: 2, procurementStage: 'Pradėtas',
+    projectType: 'IT_SUPPORT', priority: 2, procurementStage: 'Pradėtas',
     costAnalysis: 4500, costMaintenance: 5500, fundingFromIt: 10000,
     q3: 5000, q4: 5000,
     responsibleInstitution: 'AAD', executorName: 'Tomas Burba', executorEmail: 'tomas.burba@aad.lt',
@@ -723,7 +728,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-user', status: 'DRAFT',
     projectName: 'AADIS modernizavimas — 2026 etapas', systemCode: 'AADIS',
-    projectType: 'IT plėtra', priority: 1, procurementStage: 'Pradėtas',
+    projectType: 'NEW_DEVELOPMENT', priority: 1, procurementStage: 'Pradėtas',
     costAnalysis: 8000, costDevelopment: 32000, costMaintenance: 12000, fundingFromIt: 52000,
     q3: 26000, q4: 26000,
     responsibleInstitution: 'AAD', executorName: 'Tomas Burba', executorEmail: 'tomas.burba@aad.lt',
@@ -733,7 +738,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'AAD', createdByUsername: 'aad-admin', status: 'DRAFT',
     projectName: 'AADIS naujovės 2026 Q3', systemCode: 'AADIS',
-    projectType: 'IT plėtra', priority: 3, procurementStage: 'Pradėtas',
+    projectType: 'NEW_DEVELOPMENT', priority: 3, procurementStage: 'Pradėtas',
     costAnalysis: 3000, costDevelopment: 11000, fundingFromIt: 14000,
     q3: 7000, q4: 7000,
     responsibleInstitution: 'AAD', executorName: 'Mantas Daunoras', executorEmail: 'mantas.daunoras@aad.lt',
@@ -743,7 +748,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'VSTT', createdByUsername: 'vstt-user', status: 'DRAFT',
     projectName: 'GeoSTT integracija su LANDSAT duomenimis', systemCode: 'GEOSTT',
-    projectType: 'IT integracija', priority: 3, procurementStage: 'Pradėtas',
+    projectType: 'IT_INTEGRATION', priority: 3, procurementStage: 'Pradėtas',
     costAnalysis: 5000, costDevelopment: 14000, fundingFromIt: 19000,
     q4: 19000,
     responsibleInstitution: 'VSTT', executorName: 'Aušra Petrulienė', executorEmail: 'ausra.petruliene@vstt.lt',
@@ -753,7 +758,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'lgt-user', status: 'DRAFT',
     projectName: 'Žemės gelmių stebėsenos sistemos atnaujinimas', systemCode: 'GELMES',
-    projectType: 'IT plėtra', priority: 2, procurementStage: 'Pradėtas',
+    projectType: 'NEW_DEVELOPMENT', priority: 2, procurementStage: 'Pradėtas',
     costAnalysis: 6000, costDevelopment: 22000, fundingFromIt: 28000,
     q3: 14000, q4: 14000,
     responsibleInstitution: 'LGT', executorName: 'Vilma Klimaitė', executorEmail: 'vilma.klimaite@lgt.lt',
@@ -763,7 +768,7 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'LGT', createdByUsername: 'lgt-admin', status: 'DRAFT',
     projectName: 'GELMES analitikos modulis', systemCode: 'GELMES',
-    projectType: 'IT plėtra', priority: 3, procurementStage: 'Pradėtas',
+    projectType: 'NEW_DEVELOPMENT', priority: 3, procurementStage: 'Pradėtas',
     costAnalysis: 4000, costDevelopment: 18000, fundingFromIt: 22000,
     q3: 11000, q4: 11000,
     responsibleInstitution: 'LGT', executorName: 'Rasa Janušienė', executorEmail: 'rasa.janusiene@lgt.lt',
@@ -773,11 +778,82 @@ const REQUESTS: RequestSeed[] = [
   {
     tenantCode: 'VSTT', createdByUsername: 'vstt-admin', status: 'DRAFT',
     projectName: 'VSTT mokymų platformos plėtra 2027', systemCode: null as unknown as string,
-    projectType: 'IT plėtra', priority: 4, procurementStage: 'Pradėtas',
+    projectType: 'NEW_DEVELOPMENT', priority: 4, procurementStage: 'Pradėtas',
     costAnalysis: 2500, costDevelopment: 8500, fundingFromIt: 11000,
     q4: 11000,
     responsibleInstitution: 'VSTT', executorName: 'Jonas Vaitkus', executorEmail: 'jonas.vaitkus@vstt.lt',
     implementationDeadline: '2027-09-30',
+    comments: [],
+  },
+
+  // ╔══════════════════════════════════════════════════════════════╗
+  // ║ MULTI-YEAR PLANAI (issue #4)                                 ║
+  // ║ year > currentYear → planai. Atspindi Giedrės pavyzdį:       ║
+  // ║ „planavom iki 2029 m. imtinai".                              ║
+  // ╚══════════════════════════════════════════════════════════════╝
+
+  // 2027 m. — pateiktas planas (AAD, AADIS DR sprendimas)
+  {
+    tenantCode: 'AAD', createdByUsername: 'aad-admin', status: 'SUBMITTED',
+    year: new Date().getFullYear() + 1,
+    projectName: 'AADIS DR plėtra — 2 etapas (2027 m. planas)', systemCode: 'AADIS',
+    projectType: 'INFRASTRUCTURE', priority: 1, procurementStage: 'Pradėtas',
+    description: 'Pirminis planas 2027 m. — disaster recovery antras etapas: cross-region replikacija.',
+    plannedWorks: 'Tinklo segmentavimas, antras data center, backup procedūrų automatizavimas.',
+    costEquipment: 45000, costDevelopment: 35000, fundingFromIt: 80000,
+    q1: 20000, q2: 25000, q3: 20000, q4: 15000,
+    responsibleInstitution: 'AAD', executorName: 'Tomas Burba', executorEmail: 'tomas.burba@aad.lt',
+    implementationDeadline: '2027-11-30',
+    submittedDaysAgo: 30,
+    comments: [{ authorUsername: 'aad-admin', kind: 'submitted' }],
+  },
+
+  // 2027 m. — DRAFT planas (LGT, paliktas dar pildyti)
+  {
+    tenantCode: 'LGT', createdByUsername: 'lgt-admin', status: 'DRAFT',
+    year: new Date().getFullYear() + 1,
+    projectName: 'GELMES — istorinių duomenų skaitmenizavimo programa (2027 m. planas)',
+    systemCode: 'GELMES',
+    projectType: 'NEW_DEVELOPMENT', priority: 2, procurementStage: 'Pradėtas',
+    description: 'Planuojamas 2027 m. projektas — popierinių žemės gelmių dokumentų skaitmenizavimas.',
+    plannedWorks: 'OCR, metaduomenų extract\'inimas, integracija su GELMES paieška.',
+    costAnalysis: 15000, costDevelopment: 50000, fundingFromIt: 65000,
+    q1: 10000, q2: 25000, q3: 20000, q4: 10000,
+    responsibleInstitution: 'LGT', executorName: 'Rasa Janušienė', executorEmail: 'rasa.janusiene@lgt.lt',
+    implementationDeadline: '2027-12-15',
+    comments: [],
+  },
+
+  // 2028 m. — pateiktas planas (VSTT, GIS modernizavimas)
+  {
+    tenantCode: 'VSTT', createdByUsername: 'vstt-admin', status: 'SUBMITTED',
+    year: new Date().getFullYear() + 2,
+    projectName: 'GEOSTT — pilna platformos modernizavimo programa (2028 m. planas)',
+    systemCode: 'GEOSTT',
+    projectType: 'MODERNIZATION', priority: 1, procurementStage: 'Pradėtas',
+    description: 'Strateginis 2028 m. planas — GEOSTT pereinama į cloud-native architektūrą.',
+    plannedWorks: 'Microservices migracija, OpenLayers atnaujinimas, mobile-first UI.',
+    costAnalysis: 25000, costDevelopment: 95000, costMaintenance: 20000, fundingFromIt: 140000,
+    q1: 30000, q2: 40000, q3: 40000, q4: 30000,
+    responsibleInstitution: 'VSTT', executorName: 'Jonas Vaitkus', executorEmail: 'jonas.vaitkus@vstt.lt',
+    implementationDeadline: '2028-12-31',
+    submittedDaysAgo: 15,
+    comments: [{ authorUsername: 'vstt-admin', kind: 'submitted' }],
+  },
+
+  // 2029 m. — DRAFT planas (AAD, ilgalaikis strateginis)
+  {
+    tenantCode: 'AAD', createdByUsername: 'aad-user', status: 'DRAFT',
+    year: new Date().getFullYear() + 3,
+    projectName: 'AADIS — AI moduliai inspekcijoms (2029 m. ilgalaikis planas)',
+    systemCode: 'AADIS',
+    projectType: 'NEW_DEVELOPMENT', priority: 2, procurementStage: 'Pradėtas',
+    description: 'Ilgalaikis 2029 m. tikslas — AI/ML modeliai aplinkosaugos inspekcijų prioritetams.',
+    plannedWorks: 'Duomenų katalogavimas, ML modelio mokymas, integracija su AADIS workflow.',
+    costAnalysis: 30000, costDevelopment: 70000, fundingFromIt: 100000,
+    q1: 20000, q2: 30000, q3: 30000, q4: 20000,
+    responsibleInstitution: 'AAD', executorName: 'Eglė Petrauskaitė', executorEmail: 'egle.petrauskaite@aad.lt',
+    implementationDeadline: '2029-12-15',
     comments: [],
   },
 ];
@@ -877,6 +953,7 @@ export async function seed(knex: Knex): Promise<void> {
         tenant_id: tenantId,
         created_by_user_id: createdById,
         status: r.status,
+        year: r.year ?? new Date().getFullYear(),
         project_name: r.projectName,
         system_code: r.systemCode ?? null,
         project_type: r.projectType ?? null,
