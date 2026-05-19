@@ -22,6 +22,7 @@ import { Request } from '../models/Request';
 import type { RequestStatus } from '../models/Request';
 import { RequestReport } from '../models/RequestReport';
 import { normalizeAmount } from '../utils/money';
+import { canViewRequest } from '../utils/permissions';
 import type { AuthMeta } from './auth.service';
 import type { User } from '../models/User';
 
@@ -53,21 +54,6 @@ function requireMe(ctx: Context<unknown, AuthMeta>): NonNullable<AuthMeta['user'
   return ctx.meta.user;
 }
 
-function canView(
-  viewer: NonNullable<AuthMeta['user']>,
-  r: { tenantId: number; createdByUserId: number; status: RequestStatus },
-): boolean {
-  if (viewer.tenantIsApprover) {
-    if (r.status === 'DRAFT' && r.createdByUserId !== viewer.id) return false;
-    if (viewer.role === 'admin') return true;
-    if (viewer.amScopeOrgIds === null) return true;
-    return viewer.amScopeOrgIds.includes(r.tenantId);
-  }
-  if (r.tenantId !== viewer.tenantId) return false;
-  if (viewer.role === 'admin') return true;
-  return r.createdByUserId === viewer.id;
-}
-
 function canManageReport(
   viewer: NonNullable<AuthMeta['user']>,
   r: { tenantId: number; createdByUserId: number; status: RequestStatus },
@@ -91,7 +77,7 @@ const RequestReportsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+        if (!canViewRequest(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         const rows = (await RequestReport.query()
