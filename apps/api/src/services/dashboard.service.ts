@@ -12,6 +12,7 @@
 import type { ServiceSchema, Context } from 'moleculer';
 import { Errors } from 'moleculer';
 import type {
+  CostCategoryStats,
   DashboardActivityItem,
   DashboardData,
   DashboardPerTenantStats,
@@ -164,16 +165,102 @@ const DashboardService: ServiceSchema = {
           APPROVED: 0,
           REJECTED: 0,
         };
+        const amountsByStatus = {
+          SUBMITTED: 0,
+          RETURNED: 0,
+          APPROVED: 0,
+          REJECTED: 0,
+        };
         let totalRequestedThisYear = 0;
         let totalApprovedThisYear = 0;
+        let totalRejectedThisYear = 0;
+
+        const categoryAccumulator: Record<
+          CostCategoryStats['key'],
+          { label: string; field: keyof Request; requested: number; approved: number; rejected: number; count: number }
+        > = {
+          du: { label: 'DU / Atlyginimai', field: 'costDu', requested: 0, approved: 0, rejected: 0, count: 0 },
+          equipment: {
+            label: 'Įranga / licencijos',
+            field: 'costEquipment',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
+          creation: { label: 'Kūrimas', field: 'costCreation', requested: 0, approved: 0, rejected: 0, count: 0 },
+          analysis: { label: 'Analizė', field: 'costAnalysis', requested: 0, approved: 0, rejected: 0, count: 0 },
+          development: {
+            label: 'Vystymas',
+            field: 'costDevelopment',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
+          maintenance: {
+            label: 'Palaikymas',
+            field: 'costMaintenance',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
+          modernization: {
+            label: 'Modernizavimas',
+            field: 'costModernization',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
+          decommissioning: {
+            label: 'Likvidavimas',
+            field: 'costDecommissioning',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
+        };
 
         for (const r of allRequests) {
           byStatus[r.status]++;
+          const requestedAmt = totalRequestedFromRow(r);
+          if (r.status in amountsByStatus) {
+            amountsByStatus[r.status as keyof typeof amountsByStatus] +=
+              r.status === 'APPROVED' && r.decisionGrantedAmount !== null
+                ? Number(r.decisionGrantedAmount)
+                : requestedAmt;
+          }
           const createdYear = new Date(r.createdAt).getFullYear();
           if (createdYear === year) {
-            totalRequestedThisYear += totalRequestedFromRow(r);
+            totalRequestedThisYear += requestedAmt;
             if (r.status === 'APPROVED' && r.decisionGrantedAmount !== null) {
               totalApprovedThisYear += Number(r.decisionGrantedAmount);
+            }
+            if (r.status === 'REJECTED') {
+              totalRejectedThisYear += requestedAmt;
+            }
+            // Per-category breakdown — naudojam prašytas sumas iš laukų; patvirtintai
+            // sumai naudojam proporciją (jei skirta != prašyta).
+            const approvedRatio =
+              r.status === 'APPROVED' && r.decisionGrantedAmount !== null && requestedAmt > 0
+                ? Number(r.decisionGrantedAmount) / requestedAmt
+                : r.status === 'APPROVED'
+                  ? 1
+                  : 0;
+            for (const key of Object.keys(categoryAccumulator) as CostCategoryStats['key'][]) {
+              const acc = categoryAccumulator[key];
+              const value = Number(r[acc.field] ?? 0);
+              if (value === 0) continue;
+              acc.count += 1;
+              acc.requested += value;
+              if (r.status === 'APPROVED') {
+                acc.approved += value * approvedRatio;
+              } else if (r.status === 'REJECTED') {
+                acc.rejected += value;
+              }
             }
           }
         }
@@ -191,10 +278,28 @@ const DashboardService: ServiceSchema = {
         const stats: DashboardStats = {
           totalRequests: allRequests.length,
           byStatus,
+          amountsByStatus,
           totalRequestedThisYear,
           totalApprovedThisYear,
+          totalRejectedThisYear,
           usersCount,
         };
+
+        const costCategories: CostCategoryStats[] = (
+          Object.keys(categoryAccumulator) as CostCategoryStats['key'][]
+        )
+          .map((key) => {
+            const acc = categoryAccumulator[key];
+            return {
+              key,
+              label: acc.label,
+              requested: Math.round(acc.requested * 100) / 100,
+              approved: Math.round(acc.approved * 100) / 100,
+              rejected: Math.round(acc.rejected * 100) / 100,
+              count: acc.count,
+            };
+          })
+          .filter((c) => c.requested > 0 || c.approved > 0 || c.rejected > 0);
 
         // ===== Actionable (submitter perspektyva) =====
         // RETURNED + DRAFT — top 5 naujausi
@@ -338,6 +443,7 @@ const DashboardService: ServiceSchema = {
           recentActivity,
           perTenantBreakdown,
           monthlyTrend,
+          costCategories,
         };
       },
     },

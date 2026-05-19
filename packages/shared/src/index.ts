@@ -310,9 +310,40 @@ export type DashboardStats = {
     APPROVED: number;
     REJECTED: number;
   };
+  /** Prašytos sumos pagal statusą (einamiems metams). */
+  amountsByStatus: {
+    SUBMITTED: number;
+    RETURNED: number;
+    APPROVED: number;
+    REJECTED: number;
+  };
   totalRequestedThisYear: number;
   totalApprovedThisYear: number;
+  /** Atmestų prašymų suma einamais metais (pinigų prizmė, issue #6). */
+  totalRejectedThisYear: number;
   usersCount: number;
+};
+
+/** Pjūvis pagal lėšų kategoriją (issue #6). */
+export type CostCategoryStats = {
+  /** Stabilus kodas, atitinkantis lėšų lauką. */
+  key:
+    | 'du'
+    | 'equipment'
+    | 'creation'
+    | 'analysis'
+    | 'development'
+    | 'maintenance'
+    | 'modernization'
+    | 'decommissioning';
+  label: string;
+  /** Prašyta einamais metais (visi statusai). */
+  requested: number;
+  /** Patvirtinta einamais metais (proporcingai pagal patvirtintą sumą). */
+  approved: number;
+  /** Atmesta einamais metais (prašyta atmestose paraiškose). */
+  rejected: number;
+  count: number;
 };
 
 export type DashboardActivityItem = {
@@ -441,4 +472,6 @@ export type DashboardData = {
     submitted: number;
     approved: number;
   }>;
+  /** Pjūvis pagal lėšų kategoriją (issue #6). */
+  costCategories: CostCategoryStats[];
 };
