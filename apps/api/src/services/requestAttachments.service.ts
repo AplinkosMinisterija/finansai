@@ -56,12 +56,15 @@ function canUpload(
   kind: string,
 ): boolean {
   if (!canViewRequest(viewer, r)) return false;
-  // Kanclerio potvarkis — tik AM (sprendimo dalies dokumentas).
+  // Kanclerio potvarkis — tik AM admin (issue #3 + ultrareview bug_014).
   if (kind === 'order_pdf') {
-    return viewer.tenantIsApprover;
+    return viewer.tenantIsApprover && viewer.role === 'admin';
   }
-  // Sąskaitos / kiti — teikėjas arba AM admin.
-  return true;
+  // Sąskaitos / kiti — teikėjo pusė arba AM admin (ne specialistas).
+  if (viewer.tenantIsApprover) return viewer.role === 'admin';
+  if (r.tenantId !== viewer.tenantId) return false;
+  if (viewer.role === 'admin') return true;
+  return r.createdByUserId === viewer.id;
 }
 
 function decodeBase64(s: string): Buffer | null {
