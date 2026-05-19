@@ -27,6 +27,18 @@ import { cn } from '@/lib/utils';
 import { ClassifierGroupDialog } from '@/components/classifiers/ClassifierGroupDialog';
 import { ClassifierItemDialog } from '@/components/classifiers/ClassifierItemDialog';
 
+/**
+ * Sistemos grupių kodai — UI sinchronizuotas su backend'u
+ * (`apps/api/src/services/classifiers.service.ts`). Audit #12.
+ */
+const SYSTEM_GROUP_CODES = new Set<string>([
+  'funding_type',
+  'is_system',
+  'project_type',
+  'source_program',
+  'approval_levels',
+]);
+
 export default function KlasifikatoriaiPage(): JSX.Element {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -94,6 +106,12 @@ export default function KlasifikatoriaiPage(): JSX.Element {
   }
 
   function handleDeleteGroup(g: ClassifierGroup): void {
+    if (SYSTEM_GROUP_CODES.has(g.code)) {
+      window.alert(
+        'Sistemos grupę ištrinti negalima — sistema priklauso nuo šio klasifikatoriaus.',
+      );
+      return;
+    }
     if ((g.itemsCount ?? 0) > 0) {
       if (
         !window.confirm(
@@ -230,6 +248,7 @@ function GroupCard({
   onDeleteItem,
 }: GroupCardProps): JSX.Element {
   const tops = items.filter((i) => i.parentId === null);
+  const isSystem = SYSTEM_GROUP_CODES.has(group.code);
   return (
     <Card className={cn(!group.active && 'opacity-60')}>
       <CardContent className="space-y-3 p-4">
@@ -243,6 +262,11 @@ function GroupCard({
             <Badge variant="secondary" className="text-[10px]">
               {items.length} reikš.
             </Badge>
+            {isSystem && (
+              <Badge variant="outline" className="text-[10px]">
+                Sistemos grupė
+              </Badge>
+            )}
             {!group.active && (
               <Badge variant="destructive" className="text-[10px]">
                 neaktyvi
@@ -262,7 +286,12 @@ function GroupCard({
               size="sm"
               className="text-destructive hover:text-destructive"
               onClick={onDeleteGroup}
-              title="Ištrinti grupę"
+              disabled={isSystem}
+              title={
+                isSystem
+                  ? 'Sistemos grupę ištrinti negalima — sistema priklauso nuo šio klasifikatoriaus'
+                  : 'Ištrinti grupę'
+              }
             >
               <Trash2 className="h-4 w-4" />
             </Button>

@@ -21,6 +21,25 @@ import { ClassifierGroup } from '../models/ClassifierGroup';
 import { ClassifierItem } from '../models/ClassifierItem';
 import type { AuthMeta } from './auth.service';
 
+/**
+ * Sistemos klasifikatorių grupių kodai — šios grupės būtinos sistemos
+ * veikimui (biudžeto skaidymas, IS dropdown, šaltinio programos, tvirtinimo
+ * lygiai). Trinti jas negalima — sulaužytų logiką. Audit #12.
+ */
+const SYSTEM_GROUP_CODES = [
+  'funding_type',
+  'is_system',
+  'project_type',
+  'source_program',
+  'approval_levels',
+] as const;
+
+type SystemGroupCode = (typeof SYSTEM_GROUP_CODES)[number];
+
+function isSystemGroupCode(code: string): code is SystemGroupCode {
+  return (SYSTEM_GROUP_CODES as readonly string[]).includes(code);
+}
+
 function toGroupDTO(g: ClassifierGroup, itemsCount?: number): GroupDTO {
   return {
     id: g.id,
@@ -178,6 +197,13 @@ const ClassifiersService: ServiceSchema = {
         const target = await ClassifierGroup.query().findById(ctx.params.id);
         if (!target) {
           throw new Errors.MoleculerClientError('Grupė nerasta', 404, 'GROUP_NOT_FOUND');
+        }
+        if (isSystemGroupCode(target.code)) {
+          throw new Errors.MoleculerClientError(
+            'Sistemos grupę ištrinti negalima — sistema priklauso nuo šio klasifikatoriaus',
+            400,
+            'SYSTEM_GROUP_LOCKED',
+          );
         }
         await ClassifierGroup.query().deleteById(target.id);
         return { ok: true };
