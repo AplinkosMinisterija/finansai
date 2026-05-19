@@ -342,6 +342,90 @@ export type DashboardPerTenantStats = {
   totalApproved: number;
 };
 
+// ---------- Klasifikatoriai ----------
+
+export type ClassifierGroup = {
+  id: number;
+  code: string;
+  name: string;
+  description: string | null;
+  active: boolean;
+  itemsCount?: number;
+};
+
+export type ClassifierItem = {
+  id: number;
+  groupId: number;
+  groupCode?: string;
+  parentId: number | null;
+  code: string;
+  name: string;
+  sortOrder: number;
+  active: boolean;
+};
+
+export type ClassifierGroupCreateRequest = {
+  code: string;
+  name: string;
+  description?: string | null;
+  active?: boolean;
+};
+
+export type ClassifierGroupUpdateRequest = {
+  code?: string;
+  name?: string;
+  description?: string | null;
+  active?: boolean;
+};
+
+export type ClassifierItemCreateRequest = {
+  groupId: number;
+  parentId?: number | null;
+  code: string;
+  name: string;
+  sortOrder?: number;
+  active?: boolean;
+};
+
+export type ClassifierItemUpdateRequest = {
+  parentId?: number | null;
+  code?: string;
+  name?: string;
+  sortOrder?: number;
+  active?: boolean;
+};
+
+// ---------- Biudžetas ----------
+
+export type BudgetAllocation = {
+  id: number;
+  budgetId: number;
+  classifierItemId: number;
+  classifierItemCode?: string;
+  classifierItemName?: string;
+  classifierItemParentId?: number | null;
+  amount: string;
+};
+
+export type Budget = {
+  id: number;
+  year: number;
+  totalAmount: string;
+  notes: string | null;
+  allocations: BudgetAllocation[];
+  /** Sumažintas allocations.amount; jei < totalAmount — likutis nepaskirstytas. */
+  allocatedAmount?: string;
+};
+
+export type BudgetUpsertRequest = {
+  year: number;
+  totalAmount: string;
+  notes?: string | null;
+  allocations: Array<{ classifierItemId: number; amount: string }>;
+};
+
+// ---------- Dashboard ----------
+
 export type DashboardData = {
   role: UserRole;
   tenantIsApprover: boolean;

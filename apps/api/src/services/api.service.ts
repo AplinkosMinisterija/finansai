@@ -176,7 +176,14 @@ const ApiService: ServiceSchema = {
       {
         name: 'protected',
         path: '/finansai',
-        whitelist: ['tenants.*', 'users.*', 'requests.*', 'dashboard.*'],
+        whitelist: [
+          'tenants.*',
+          'users.*',
+          'requests.*',
+          'dashboard.*',
+          'classifiers.*',
+          'budgets.*',
+        ],
         use: [],
         authentication: true,
         authorization: true,
@@ -205,6 +212,23 @@ const ApiService: ServiceSchema = {
           'POST /requests/:id/comments': 'requests.addComment',
 
           'GET /dashboard': 'dashboard.get',
+
+          'GET /classifiers/groups': 'classifiers.listGroups',
+          'GET /classifiers/groups/:id': 'classifiers.getGroup',
+          'POST /classifiers/groups': 'classifiers.createGroup',
+          'PATCH /classifiers/groups/:id': 'classifiers.updateGroup',
+          'DELETE /classifiers/groups/:id': 'classifiers.deleteGroup',
+          'GET /classifiers/items': 'classifiers.listItems',
+          'GET /classifiers/items/:id': 'classifiers.getItem',
+          'POST /classifiers/items': 'classifiers.createItem',
+          'PATCH /classifiers/items/:id': 'classifiers.updateItem',
+          'DELETE /classifiers/items/:id': 'classifiers.deleteItem',
+
+          'GET /budgets': 'budgets.list',
+          'GET /budgets/year/:year': 'budgets.getByYear',
+          'GET /budgets/:id': 'budgets.get',
+          'POST /budgets': 'budgets.upsert',
+          'DELETE /budgets/:id': 'budgets.delete',
         },
         bodyParsers: {
           json: { strict: false, limit: '1MB' },

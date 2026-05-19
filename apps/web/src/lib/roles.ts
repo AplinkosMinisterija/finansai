@@ -47,3 +47,15 @@ export function canManageTenants(user: AuthUser | null): boolean {
   if (!user) return false;
   return user.tenantIsApprover && user.role === 'admin';
 }
+
+/** AM administratoriai gali valdyti klasifikatorius. */
+export function canManageClassifiers(user: AuthUser | null): boolean {
+  if (!user) return false;
+  return user.tenantIsApprover && user.role === 'admin';
+}
+
+/** AM administratoriai gali valdyti biudžetą. */
+export function canManageBudget(user: AuthUser | null): boolean {
+  if (!user) return false;
+  return user.tenantIsApprover && user.role === 'admin';
+}

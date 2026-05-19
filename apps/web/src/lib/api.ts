@@ -9,6 +9,14 @@ import type {
   AuthLoginRequest,
   AuthLoginResponse,
   AuthMeResponse,
+  Budget,
+  BudgetUpsertRequest,
+  ClassifierGroup,
+  ClassifierGroupCreateRequest,
+  ClassifierGroupUpdateRequest,
+  ClassifierItem,
+  ClassifierItemCreateRequest,
+  ClassifierItemUpdateRequest,
   DashboardData,
   FinancingRequest,
   FinancingRequestDetail,
@@ -198,5 +206,86 @@ export async function requestAddComment(
 
 export async function dashboardGet(): Promise<DashboardData> {
   const { data } = await api.get<DashboardData>('/dashboard');
+  return data;
+}
+
+// ---------- Klasifikatoriai ----------
+
+export async function classifierGroupsList(withCounts = false): Promise<ClassifierGroup[]> {
+  const params = withCounts ? { withCounts: 'true' } : undefined;
+  const { data } = await api.get<ClassifierGroup[]>('/classifiers/groups', { params });
+  return data;
+}
+
+export async function classifierGroupCreate(
+  body: ClassifierGroupCreateRequest,
+): Promise<ClassifierGroup> {
+  const { data } = await api.post<ClassifierGroup>('/classifiers/groups', body);
+  return data;
+}
+
+export async function classifierGroupUpdate(
+  id: number,
+  patch: ClassifierGroupUpdateRequest,
+): Promise<ClassifierGroup> {
+  const { data } = await api.patch<ClassifierGroup>(`/classifiers/groups/${id}`, patch);
+  return data;
+}
+
+export async function classifierGroupDelete(id: number): Promise<{ ok: true }> {
+  const { data } = await api.delete<{ ok: true }>(`/classifiers/groups/${id}`);
+  return data;
+}
+
+export async function classifierItemsList(
+  query: { groupId?: number; groupCode?: string; includeInactive?: boolean } = {},
+): Promise<ClassifierItem[]> {
+  const params: Record<string, string> = {};
+  if (query.groupId !== undefined) params['groupId'] = String(query.groupId);
+  if (query.groupCode !== undefined) params['groupCode'] = query.groupCode;
+  if (query.includeInactive) params['includeInactive'] = 'true';
+  const { data } = await api.get<ClassifierItem[]>('/classifiers/items', { params });
+  return data;
+}
+
+export async function classifierItemCreate(
+  body: ClassifierItemCreateRequest,
+): Promise<ClassifierItem> {
+  const { data } = await api.post<ClassifierItem>('/classifiers/items', body);
+  return data;
+}
+
+export async function classifierItemUpdate(
+  id: number,
+  patch: ClassifierItemUpdateRequest,
+): Promise<ClassifierItem> {
+  const { data } = await api.patch<ClassifierItem>(`/classifiers/items/${id}`, patch);
+  return data;
+}
+
+export async function classifierItemDelete(id: number): Promise<{ ok: true }> {
+  const { data } = await api.delete<{ ok: true }>(`/classifiers/items/${id}`);
+  return data;
+}
+
+// ---------- Biudžetas ----------
+
+export async function budgetsList(): Promise<Budget[]> {
+  const { data } = await api.get<Budget[]>('/budgets');
+  return data;
+}
+
+export async function budgetGetByYear(year: number): Promise<Budget | null> {
+  const { data } = await api.get<Budget | null>(`/budgets/year/${year}`);
+  return data;
+}
+
+export async function budgetUpsert(body: BudgetUpsertRequest): Promise<Budget> {
+  const { data } = await api.post<Budget>('/budgets', body);
+  return data;
+}
+
+export async function budgetDelete(id: number): Promise<{ ok: true }> {
+  const { data } = await api.delete<{ ok: true }>(`/budgets/${id}`);
   return data;
 }
