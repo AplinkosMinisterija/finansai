@@ -238,6 +238,10 @@ const DashboardService: ServiceSchema = {
                 : requestedAmt;
           }
           // Naudojam paraiškos `year` lauką (kuriai metams skirta), o ne sukūrimo datą.
+          // Audit #8 (2026-05-19) — patikrinta, year filtras veikia teisingai
+          // dėka issue #4 (PR #16): `createdYear` keista į `r.year` ir mainline,
+          // ir per-tenant breakdown'e. Patvirtinti planai iš ateinančių metų
+          // į einamųjų metų stats'ą nepatenka.
           if (r.year === year) {
             totalRequestedThisYear += requestedAmt;
             if (r.status === 'APPROVED' && r.decisionGrantedAmount !== null) {
@@ -375,6 +379,10 @@ const DashboardService: ServiceSchema = {
             };
             let totalReq = 0;
             let totalApr = 0;
+            // Per-tenant sumos (`totalReq`, `totalApr`) filtruojamos pagal `r.year === year`,
+            // kad ateinančių metų planai nepatektų į einamųjų metų statistikas.
+            // `bs` (byStatus) ir grąžinamas `total` apima visus metus — tai sąmoningai,
+            // kad AM matytų pilną tenant'o veiklos vaizdą per visą gyvavimo laiką.
             for (const r of rowsForT) {
               bs[r.status]++;
               const y = r.year;
