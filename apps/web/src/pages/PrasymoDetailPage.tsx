@@ -20,6 +20,7 @@ import {
   requestSubmit,
 } from '@/lib/api';
 import { classifierLabel, useClassifier } from '@/lib/classifiers';
+import { ClassifierSelect } from '@/components/classifiers/ClassifierSelect';
 import {
   canDecide,
   canDelete,
@@ -71,6 +72,7 @@ export default function PrasymoDetailPage(): JSX.Element {
 
   const isLookup = useClassifier('is_system');
   const ptLookup = useClassifier('project_type');
+  const spLookup = useClassifier('source_program');
 
   const [commentBody, setCommentBody] = React.useState('');
   const [decisionForm, setDecisionForm] = React.useState<{
@@ -311,13 +313,16 @@ export default function PrasymoDetailPage(): JSX.Element {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor="d-source">Finansavimo šaltinis</Label>
-                      <Input
+                      <Label htmlFor="d-source">Finansavimo šaltinis (programa)</Label>
+                      <ClassifierSelect
                         id="d-source"
+                        groupCode="source_program"
                         value={decisionForm.fundingSource}
-                        onChange={(e) =>
-                          setDecisionForm((f) => ({ ...f, fundingSource: e.target.value }))
+                        onChange={(v) =>
+                          setDecisionForm((f) => ({ ...f, fundingSource: v ?? '' }))
                         }
+                        emptyLabel="— Nepasirinkta —"
+                        placeholder="Pasirinkite programą"
                       />
                     </div>
                     <div className="space-y-1">
@@ -344,14 +349,19 @@ export default function PrasymoDetailPage(): JSX.Element {
                 )}
                 <div className="space-y-1">
                   <Label htmlFor="d-comment">
-                    Komentaras
-                    {(decisionForm.open === 'return' || decisionForm.open === 'reject') && (
+                    {decisionForm.open === 'reject' ? 'Priežastis (neprivaloma)' : 'Komentaras'}
+                    {decisionForm.open === 'return' && (
                       <span className="text-destructive"> *</span>
                     )}
                   </Label>
                   <textarea
                     id="d-comment"
                     className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    placeholder={
+                      decisionForm.open === 'reject'
+                        ? 'Galite nurodyti priežastį, bet nebūtina.'
+                        : ''
+                    }
                     value={decisionForm.comment}
                     onChange={(e) =>
                       setDecisionForm((f) => ({ ...f, comment: e.target.value }))
@@ -437,7 +447,9 @@ export default function PrasymoDetailPage(): JSX.Element {
               <KV label="Sprendė">{r.decidedByName ?? '—'}</KV>
               <KV label="Data">{fmtDateTime(r.decidedAt)}</KV>
               <KV label="Skirta suma" emph>{fmtEur(r.decisionGrantedAmount)}</KV>
-              <KV label="Finansavimo šaltinis">{r.decisionFundingSource ?? '—'}</KV>
+              <KV label="Finansavimo šaltinis (programa)">
+                {classifierLabel(spLookup, r.decisionFundingSource)}
+              </KV>
               <KV label="Protokolas">{r.decisionProtocol ?? '—'}</KV>
               <KV label="Įsakymas">{r.decisionOrder ?? '—'}</KV>
             </Section>

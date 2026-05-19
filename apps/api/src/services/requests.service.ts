@@ -512,10 +512,12 @@ const RequestsService: ServiceSchema = {
         const isReject = p.decision === 'reject';
         const isReturn = p.decision === 'return';
 
-        if (isReject || isReturn) {
+        if (isReturn) {
+          // Grąžinimui komentaras privalomas — teikėjas turi žinoti, ką taisyti.
+          // Atmetimui neprivalomas (pvz. AM nenori paskelbti tikrosios priežasties).
           if (!p.comment || p.comment.trim() === '') {
             throw new Errors.MoleculerClientError(
-              'Atmetimas ir grąžinimas reikalauja komentaro',
+              'Grąžinimas pataisymui reikalauja komentaro',
               400,
               'COMMENT_REQUIRED',
             );
