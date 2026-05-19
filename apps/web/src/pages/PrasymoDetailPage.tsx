@@ -19,6 +19,7 @@ import {
   requestGet,
   requestSubmit,
 } from '@/lib/api';
+import { classifierLabel, useClassifier } from '@/lib/classifiers';
 import {
   canDecide,
   canDelete,
@@ -67,6 +68,9 @@ export default function PrasymoDetailPage(): JSX.Element {
     queryFn: () => requestGet(requestId),
     enabled: Number.isFinite(requestId) && requestId > 0,
   });
+
+  const isLookup = useClassifier('is_system');
+  const ptLookup = useClassifier('project_type');
 
   const [commentBody, setCommentBody] = React.useState('');
   const [decisionForm, setDecisionForm] = React.useState<{
@@ -382,8 +386,8 @@ export default function PrasymoDetailPage(): JSX.Element {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-4">
           <Section title="Pagrindinė informacija">
-            <KV label="IT sistemos kodas">{r.systemCode ?? '—'}</KV>
-            <KV label="Projekto tipas">{r.projectType ?? '—'}</KV>
+            <KV label="Informacinė sistema">{classifierLabel(isLookup, r.systemCode)}</KV>
+            <KV label="Projekto tipas">{classifierLabel(ptLookup, r.projectType)}</KV>
             <KV label="Prioritetas">{r.priority !== null ? String(r.priority) : '—'}</KV>
             <KV label="Pirkimo stadija">{r.procurementStage ?? '—'}</KV>
             <KV label="Aprašymas" wide>

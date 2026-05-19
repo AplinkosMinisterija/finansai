@@ -40,6 +40,7 @@ import {
   STATUS_VARIANTS,
   totalRequested,
 } from '@/lib/requests';
+import { classifierLabel, useClassifier } from '@/lib/classifiers';
 import { cn } from '@/lib/utils';
 
 const STATUSES: { value: 'all' | RequestStatus; label: string }[] = [
@@ -68,6 +69,8 @@ export default function PrasymaiPage(): JSX.Element {
     const t = setTimeout(() => setDebouncedQ(q), 300);
     return () => clearTimeout(t);
   }, [q]);
+
+  const isLookup = useClassifier('is_system');
 
   const tenantsQ = useQuery<Tenant[]>({
     queryKey: ['tenants'],
@@ -259,7 +262,7 @@ export default function PrasymaiPage(): JSX.Element {
                         </Badge>
                       </div>
                       <div className="mt-1 truncate text-xs text-muted-foreground">
-                        {r.systemCode ? `${r.systemCode} · ` : ''}
+                        {r.systemCode ? `${classifierLabel(isLookup, r.systemCode)} · ` : ''}
                         {r.createdByName}
                         {r.implementationDeadline ? ` · iki ${fmtDate(r.implementationDeadline)}` : ''}
                       </div>
