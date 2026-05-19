@@ -18,6 +18,8 @@ export class Request extends BaseModel {
   tenantId!: number;
   createdByUserId!: number;
   status!: RequestStatus;
+  /** Kuriai metams skirtas prašymas/planas (issue #4). */
+  year!: number;
 
   // 1. Pagrindinė info
   projectName!: string;

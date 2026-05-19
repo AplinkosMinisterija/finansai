@@ -54,6 +54,7 @@ function makeRequest(overrides: Partial<FinancingRequest> = {}): FinancingReques
     createdByUserId: 100,
     createdByName: 'Test',
     status: 'DRAFT' as RequestStatus,
+    year: 2026,
     projectName: 'Projektas',
     systemCode: null,
     projectType: null,

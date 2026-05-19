@@ -192,6 +192,12 @@ export type RequestComment = {
   createdAt: string;
 };
 
+/**
+ * Pagal `year` skiriama:
+ *  - year === currentYear → įprastas einamųjų metų prašymas
+ *  - year  >  currentYear → planas (issue #4); pateikiamas paprastai, atėjus
+ *    jo metams gali būti perkeltas į einamųjų metų prašymą per atskirą veiksmą.
+ */
 export type FinancingRequest = {
   id: number;
   tenantId: number;
@@ -200,6 +206,8 @@ export type FinancingRequest = {
   createdByUserId: number;
   createdByName: string;
   status: RequestStatus;
+  /** Kuriai metams skirtas prašymas/planas. */
+  year: number;
 
   projectName: string;
   systemCode: string | null;
@@ -250,6 +258,8 @@ export type FinancingRequestDetail = FinancingRequest & {
 };
 
 export type RequestPayload = {
+  /** Metai, kuriems prašymas/planas (issue #4). Negali būti mažesnis nei current. */
+  year?: number;
   projectName?: string;
   systemCode?: string | null;
   projectType?: string | null;
@@ -286,6 +296,10 @@ export type RequestListQuery = {
   q?: string;
   status?: RequestStatus;
   tenantId?: number;
+  /** Filtras pagal metus. Jei nenurodyta — visi metai. */
+  year?: number;
+  /** Filtruoti tik planus (year > currentYear). */
+  plansOnly?: boolean;
   page?: number;
   pageSize?: number;
 };

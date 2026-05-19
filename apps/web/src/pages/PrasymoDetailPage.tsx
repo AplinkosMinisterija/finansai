@@ -75,6 +75,15 @@ export default function PrasymoDetailPage(): JSX.Element {
   const ptLookup = useClassifier('project_type');
   const spLookup = useClassifier('source_program');
 
+  const convertMutation = useMutation({
+    mutationFn: () => import('@/lib/api').then((m) => m.requestConvertToCurrentYear(requestId)),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ['requests'] });
+      navigate(`/prasymai/${r.id}/redaguoti`);
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
   const [commentBody, setCommentBody] = React.useState('');
   const [decisionForm, setDecisionForm] = React.useState<{
     open: 'approve' | 'reject' | 'return' | null;
@@ -209,6 +218,12 @@ export default function PrasymoDetailPage(): JSX.Element {
             </h1>
             <Badge variant={STATUS_VARIANTS[r.status]}>{STATUS_LABELS[r.status]}</Badge>
             <Badge variant="outline">{r.tenantCode}</Badge>
+            <Badge
+              variant={r.year > new Date().getFullYear() ? 'secondary' : 'outline'}
+            >
+              {r.year}
+              {r.year > new Date().getFullYear() ? ' planas' : ''}
+            </Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             Pateikė: {r.createdByName} · {r.tenantName}
@@ -249,6 +264,27 @@ export default function PrasymoDetailPage(): JSX.Element {
               Ištrinti
             </Button>
           )}
+          {(r.status === 'SUBMITTED' || r.status === 'APPROVED') &&
+            r.year >= new Date().getFullYear() &&
+            (user?.tenantId === r.tenantId || (user?.tenantIsApprover && user.role === 'admin')) && (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Sukurti einamųjų metų (${new Date().getFullYear()}) juodraštį iš šio plano? Visi laukai bus nukopijuoti, statusas — DRAFT.`,
+                    )
+                  ) {
+                    convertMutation.mutate();
+                  }
+                }}
+                disabled={convertMutation.isPending}
+              >
+                <Send className="h-4 w-4" />
+                Perkelti į {new Date().getFullYear()} m. prašymą
+              </Button>
+            )}
         </div>
       </div>
 

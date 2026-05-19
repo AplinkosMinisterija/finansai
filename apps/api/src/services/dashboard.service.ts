@@ -55,6 +55,7 @@ function toRequestDTO(r: RequestWithRels): RequestDTO {
     createdByUserId: r.createdByUserId,
     createdByName: r.createdByUser.fullName,
     status: r.status,
+    year: r.year,
     projectName: r.projectName,
     systemCode: r.systemCode,
     projectType: r.projectType,
@@ -143,10 +144,13 @@ const DashboardService: ServiceSchema = {
 
         // ===== Stats =====
         // Visi prašymai scoped — agreguojam per statusą
+        // Pastaba: dashboard statistika apima visus metus + visus statusus (įsk. planus).
         const allRequests = (await scopedRequestQuery(me).select(
           'requests.id',
           'requests.status',
           'requests.tenant_id',
+          'requests.year',
+          'requests.cost_du',
           'requests.cost_equipment',
           'requests.cost_creation',
           'requests.cost_analysis',
@@ -233,8 +237,8 @@ const DashboardService: ServiceSchema = {
                 ? Number(r.decisionGrantedAmount)
                 : requestedAmt;
           }
-          const createdYear = new Date(r.createdAt).getFullYear();
-          if (createdYear === year) {
+          // Naudojam paraiškos `year` lauką (kuriai metams skirta), o ne sukūrimo datą.
+          if (r.year === year) {
             totalRequestedThisYear += requestedAmt;
             if (r.status === 'APPROVED' && r.decisionGrantedAmount !== null) {
               totalApprovedThisYear += Number(r.decisionGrantedAmount);
@@ -373,7 +377,7 @@ const DashboardService: ServiceSchema = {
             let totalApr = 0;
             for (const r of rowsForT) {
               bs[r.status]++;
-              const y = new Date(r.createdAt).getFullYear();
+              const y = r.year;
               if (y === year) {
                 totalReq += totalRequestedFromRow(r);
                 if (r.status === 'APPROVED' && r.decisionGrantedAmount !== null) {

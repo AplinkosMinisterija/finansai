@@ -61,6 +61,11 @@ export default function PrasymaiPage(): JSX.Element {
   const [debouncedQ, setDebouncedQ] = React.useState('');
   const [status, setStatus] = React.useState<'all' | RequestStatus>('all');
   const [tenantId, setTenantId] = React.useState<number | undefined>(undefined);
+  const currentYear = new Date().getFullYear();
+  /** 'all' — visi metai; 'current' — einamieji; 'plans' — planai (>= current+1); arba konkretūs metai. */
+  const [yearFilter, setYearFilter] = React.useState<'all' | 'current' | 'plans' | number>(
+    'current',
+  );
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [pickerTenant, setPickerTenant] = React.useState<string>('');
   const [pickerError, setPickerError] = React.useState<string | null>(null);
@@ -79,14 +84,22 @@ export default function PrasymaiPage(): JSX.Element {
   });
 
   const listQ = useQuery<PaginatedResponse<FinancingRequest>>({
-    queryKey: ['requests', { q: debouncedQ, status, tenantId }],
-    queryFn: () =>
-      requestsList({
+    queryKey: ['requests', { q: debouncedQ, status, tenantId, yearFilter }],
+    queryFn: () => {
+      let year: number | undefined;
+      let plansOnly = false;
+      if (yearFilter === 'current') year = currentYear;
+      else if (yearFilter === 'plans') plansOnly = true;
+      else if (typeof yearFilter === 'number') year = yearFilter;
+      return requestsList({
         q: debouncedQ || undefined,
         status: status === 'all' ? undefined : status,
         tenantId,
+        year,
+        plansOnly,
         pageSize: 200,
-      }),
+      });
+    },
   });
 
   const createMutation = useMutation({
@@ -155,6 +168,36 @@ export default function PrasymaiPage(): JSX.Element {
             Naujas prašymas
           </Button>
         )}
+      </div>
+
+      {/* Year filter pills */}
+      <div className="mb-2 flex flex-wrap gap-1.5" role="tablist" aria-label="Metai">
+        {(
+          [
+            { value: 'current' as const, label: `${currentYear} m.` },
+            { value: 'plans' as const, label: 'Planai (ateičiai)' },
+            { value: 'all' as const, label: 'Visi metai' },
+          ]
+        ).map((y) => {
+          const active = yearFilter === y.value;
+          return (
+            <button
+              key={y.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setYearFilter(y.value)}
+              className={cn(
+                'inline-flex min-h-[32px] items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                active
+                  ? 'border-transparent bg-primary text-primary-foreground'
+                  : 'border-border bg-background text-muted-foreground hover:bg-muted/60',
+              )}
+            >
+              {y.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Status pills */}
@@ -259,6 +302,13 @@ export default function PrasymaiPage(): JSX.Element {
                         </Badge>
                         <Badge variant="outline" className="text-[10px]">
                           {r.tenantCode}
+                        </Badge>
+                        <Badge
+                          variant={r.year > currentYear ? 'secondary' : 'outline'}
+                          className="text-[10px]"
+                        >
+                          {r.year}
+                          {r.year > currentYear ? ' planas' : ''}
                         </Badge>
                       </div>
                       <div className="mt-1 truncate text-xs text-muted-foreground">

@@ -877,6 +877,7 @@ export async function seed(knex: Knex): Promise<void> {
         tenant_id: tenantId,
         created_by_user_id: createdById,
         status: r.status,
+        year: new Date().getFullYear(),
         project_name: r.projectName,
         system_code: r.systemCode ?? null,
         project_type: r.projectType ?? null,
