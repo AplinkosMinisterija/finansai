@@ -622,6 +622,24 @@ const RequestsService: ServiceSchema = {
           );
         }
 
+        // Patikriname, ar planas turi bent vieną įvestą sumą — kitaip neprasminga konvertuoti.
+        const costSum =
+          Number(src.costDu) +
+          Number(src.costEquipment) +
+          Number(src.costCreation) +
+          Number(src.costAnalysis) +
+          Number(src.costDevelopment) +
+          Number(src.costMaintenance) +
+          Number(src.costModernization) +
+          Number(src.costDecommissioning);
+        if (!(costSum > 0)) {
+          throw new Errors.MoleculerClientError(
+            'Planas neturi įvestų sumų — pirma užpildykite finansavimo dalį',
+            400,
+            'PLAN_EMPTY',
+          );
+        }
+
         const inserted = await Request.query().insert({
           tenantId: src.tenantId,
           createdByUserId: me.id,
