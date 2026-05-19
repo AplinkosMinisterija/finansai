@@ -25,6 +25,29 @@ export interface AttachmentListProps {
   uploadLabel?: string;
   /** Tuščio sąrašo pranešimas. */
   emptyText?: string;
+  /** Prašymo statusas — naudojamas delete pre-check'ui (order_pdf po APPROVED tik AM admin). */
+  requestStatus?: string;
+}
+
+interface DeleteCheckUser {
+  id: number;
+  tenantIsApprover: boolean;
+  role: string;
+}
+
+function canDelete(
+  a: RequestAttachment,
+  user: DeleteCheckUser | null,
+  requestStatus: string | undefined,
+): boolean {
+  if (!user) return false;
+  const isAmAdmin = user.tenantIsApprover && user.role === 'admin';
+  // order_pdf po APPROVED — tik AM admin
+  if (a.kind === 'order_pdf' && requestStatus === 'APPROVED') {
+    return isAmAdmin;
+  }
+  // Kitais atvejais — uploader arba AM admin
+  return a.uploadedByUserId === user.id || isAmAdmin;
 }
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -73,6 +96,7 @@ export function AttachmentList({
   uploadKind = 'other',
   uploadLabel = 'Įkelti dokumentą',
   emptyText = 'Dokumentų dar nėra.',
+  requestStatus,
 }: AttachmentListProps): JSX.Element {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -158,7 +182,7 @@ export function AttachmentList({
       ) : (
         <ul className="space-y-1">
           {items.map((a) => {
-            const canDelete = user !== null && (a.uploadedByUserId === user.id || (user.tenantIsApprover && user.role === 'admin'));
+            const showDelete = canDelete(a, user, requestStatus);
             return (
               <li
                 key={a.id}
@@ -182,7 +206,7 @@ export function AttachmentList({
                 >
                   <Download className="h-4 w-4" />
                 </Button>
-                {canDelete && (
+                {showDelete && (
                   <Button
                     variant="ghost"
                     size="sm"
