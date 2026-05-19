@@ -224,6 +224,16 @@ const RequestAttachmentsService: ServiceSchema = {
             'FORBIDDEN',
           );
         }
+        // order_pdf po APPROVED — gali keisti tik AM admin
+        if (a.kind === 'order_pdf' && r.status === 'APPROVED') {
+          if (!isAmAdmin) {
+            throw new Errors.MoleculerClientError(
+              'Patvirtinto prašymo potvarkio PDF gali ištrinti tik AM admin',
+              403,
+              'FORBIDDEN',
+            );
+          }
+        }
         await RequestAttachment.query().deleteById(a.id);
         return { ok: true };
       },

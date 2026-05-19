@@ -393,6 +393,7 @@ export default function PrasymoDetailPage(): JSX.Element {
                         uploadKind="order_pdf"
                         uploadLabel="Įkelti potvarkio PDF"
                         emptyText="Dar neįkeltas potvarkio PDF."
+                        requestStatus={r.status}
                       />
                     </div>
                   </div>
@@ -510,6 +511,7 @@ export default function PrasymoDetailPage(): JSX.Element {
                   uploadKind="order_pdf"
                   uploadLabel="Įkelti papildomą versiją"
                   emptyText="Potvarkio PDF nepriklijuotas."
+                  requestStatus={r.status}
                 />
               </KV>
             </Section>
