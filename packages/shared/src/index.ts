@@ -255,6 +255,8 @@ export type FinancingRequest = {
 
 export type FinancingRequestDetail = FinancingRequest & {
   comments: RequestComment[];
+  /** Aprobacijos žingsniai (issue #9). AAD scope: 1 žingsnis; visa AM: N žingsnių. */
+  approvalSteps: ApprovalStep[];
 };
 
 export type RequestPayload = {
@@ -385,6 +387,26 @@ export type DashboardPerTenantStats = {
   };
   totalRequested: number;
   totalApproved: number;
+};
+
+// ---------- Aprobacijos workflow (issue #9) ----------
+
+export type ApprovalStepStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED';
+
+export type ApprovalStep = {
+  id: number;
+  requestId: number;
+  sequence: number;
+  /** Klasifikatoriaus item code iš grupės "approval_levels". */
+  levelCode: string;
+  /** Snapshot label'as (lieka net jei klasifikatorius keičiasi). */
+  levelName: string;
+  status: ApprovalStepStatus;
+  decidedByUserId: number | null;
+  decidedByName: string | null;
+  decidedAt: string | null;
+  comment: string | null;
+  createdAt: string;
 };
 
 // ---------- Prašymo prikabinti dokumentai ----------

@@ -24,15 +24,27 @@ import type {
 } from '@biip-finansai/shared';
 import { Request } from '../models/Request';
 import { RequestComment } from '../models/RequestComment';
+import { ApprovalStep } from '../models/ApprovalStep';
+import type { ApprovalStepStatus } from '../models/ApprovalStep';
+import { ClassifierItem } from '../models/ClassifierItem';
+import { ClassifierGroup } from '../models/ClassifierGroup';
 import { Tenant } from '../models/Tenant';
 import { User } from '../models/User';
 import type { AuthMeta } from './auth.service';
+
+/**
+ * Default workflow AAD scope'ui (issue #9, „šiame etape biški mažiau, bet
+ * tegul daro normaliai"). AM-wide vėliau bus konfigūruojama per
+ * `approval_workflows` lentelę (TODO atskirai).
+ */
+const DEFAULT_WORKFLOW_LEVELS = ['AM_ADMIN'] as const;
 
 interface RequestWithRels extends Request {
   tenant?: Tenant;
   createdByUser?: User;
   decidedByUser?: User;
   comments?: (RequestComment & { authorUser?: User })[];
+  approvalSteps?: (ApprovalStep & { decidedByUser?: User })[];
 }
 
 const PAYLOAD_FIELDS = [
@@ -194,11 +206,42 @@ async function loadRequest(id: number): Promise<RequestWithRels | undefined> {
 async function loadRequestDetail(id: number): Promise<RequestWithRels | undefined> {
   const r = await Request.query()
     .findById(id)
-    .withGraphFetched('[tenant, createdByUser, decidedByUser, comments.authorUser]')
+    .withGraphFetched(
+      '[tenant, createdByUser, decidedByUser, comments.authorUser, approvalSteps.decidedByUser]',
+    )
     .modifyGraph('comments', (b) => {
       b.orderBy('created_at', 'asc');
+    })
+    .modifyGraph('approvalSteps', (b) => {
+      b.orderBy('sequence', 'asc');
     });
   return r as RequestWithRels | undefined;
+}
+
+async function resolveLevelName(code: string): Promise<string> {
+  // Saugom label'ą snapshot — net jei klasifikatorius pasikeis, istorija lieka.
+  const group = await ClassifierGroup.query().findOne({ code: 'approval_levels' });
+  if (!group) return code;
+  const item = await ClassifierItem.query().findOne({ group_id: group.id, code });
+  return item?.name ?? code;
+}
+
+function approvalStepDTO(
+  s: ApprovalStep & { decidedByUser?: User },
+): import('@biip-finansai/shared').ApprovalStep {
+  return {
+    id: s.id,
+    requestId: s.requestId,
+    sequence: s.sequence,
+    levelCode: s.levelCode,
+    levelName: s.levelName,
+    status: s.status,
+    decidedByUserId: s.decidedByUserId,
+    decidedByName: s.decidedByUser?.fullName ?? null,
+    decidedAt: s.decidedAt,
+    comment: s.comment,
+    createdAt: s.createdAt,
+  };
 }
 
 function canView(
@@ -335,7 +378,8 @@ const RequestsService: ServiceSchema = {
         }
         const dto = toRequestDTO(r);
         const comments = (r.comments ?? []).map(toCommentDTO);
-        return { ...dto, comments };
+        const approvalSteps = (r.approvalSteps ?? []).map(approvalStepDTO);
+        return { ...dto, comments, approvalSteps };
       },
     },
 
@@ -476,6 +520,25 @@ const RequestsService: ServiceSchema = {
           body: null,
           metadata: { fromStatus: r.status, toStatus: 'SUBMITTED' },
         });
+
+        // Issue #9: sukuriam aprobacijos žingsnius (default workflow).
+        // Resubmit iš RETURNED — sukuriam naują seriją žingsnių (next sequence).
+        const existing = (await ApprovalStep.query()
+          .where('request_id', r.id)
+          .max('sequence as max')) as unknown as Array<{ max: number | null }>;
+        const startSeq = (existing[0]?.max ?? 0) + 1;
+        for (let i = 0; i < DEFAULT_WORKFLOW_LEVELS.length; i++) {
+          const code = DEFAULT_WORKFLOW_LEVELS[i]!;
+          const name = await resolveLevelName(code);
+          await ApprovalStep.query().insert({
+            requestId: r.id,
+            sequence: startSeq + i,
+            levelCode: code,
+            levelName: name,
+            status: 'PENDING',
+          });
+        }
+
         const full = await loadRequest(r.id);
         if (!full) throw new Error('Submitted request not found');
         return toRequestDTO(full);
@@ -664,6 +727,46 @@ const RequestsService: ServiceSchema = {
           kind = 'returned';
         }
 
+        // Issue #9: pažymim dabartinį PENDING žingsnį.
+        const currentStep = await ApprovalStep.query()
+          .where({ request_id: r.id, status: 'PENDING' })
+          .orderBy('sequence', 'asc')
+          .first();
+
+        let stepStatus: ApprovalStepStatus;
+        if (isApprove) stepStatus = 'APPROVED';
+        else if (isReject) stepStatus = 'REJECTED';
+        else stepStatus = 'RETURNED';
+
+        if (currentStep) {
+          await ApprovalStep.query().findById(currentStep.id).patch({
+            status: stepStatus,
+            decidedByUserId: me.id,
+            decidedAt: now,
+            comment: p.comment ?? null,
+          });
+        }
+
+        // Daugiapakopei aprobacijai (visa AM): jei APPROVED + dar yra PENDING žingsnių
+        // → newStatus = SUBMITTED (toliau eina kitam approver'iui).
+        // Šitam etape (AAD, 1 žingsnis) — neegzistuoja kitas PENDING žingsnis,
+        // todėl pereinam į APPROVED, kaip iki šiol.
+        if (isApprove && currentStep) {
+          const nextPending = await ApprovalStep.query()
+            .where({ request_id: r.id, status: 'PENDING' })
+            .first();
+          if (nextPending) {
+            newStatus = 'SUBMITTED';
+            // Decision metadata einam atsekti tik kai paskutinis žingsnis OK.
+            delete patch['decisionGrantedAmount'];
+            delete patch['decisionFundingSource'];
+            delete patch['decisionProtocol'];
+            delete patch['decisionOrder'];
+            delete patch['decidedAt'];
+            delete patch['decidedByUserId'];
+          }
+        }
+
         patch['status'] = newStatus;
         await Request.query().findById(r.id).patch(patch);
         await RequestComment.query().insert({
@@ -674,6 +777,7 @@ const RequestsService: ServiceSchema = {
           metadata: {
             fromStatus: r.status,
             toStatus: newStatus,
+            ...(currentStep ? { stepSequence: currentStep.sequence, stepLevel: currentStep.levelCode } : {}),
             ...(isApprove
               ? {
                   grantedAmount: patch['decisionGrantedAmount'],

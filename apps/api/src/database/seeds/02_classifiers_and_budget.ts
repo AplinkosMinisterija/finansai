@@ -93,6 +93,20 @@ const GROUPS: GroupSeed[] = [
       { code: 'OTHER', name: 'Kita', sortOrder: 99 },
     ],
   },
+  {
+    code: 'approval_levels',
+    name: 'Aprobacijos lygiai',
+    description:
+      'Daugiapakopės aprobacijos žingsniai (issue #9). AAD scope: 1 žingsnis (am_admin). ' +
+      'Vėliau pridedami: skyrius → departamentas → kancleris.',
+    items: [
+      { code: 'AM_ADMIN', name: 'AM administratorius', sortOrder: 1 },
+      { code: 'DEPARTMENT', name: 'Departamentas', sortOrder: 2 },
+      { code: 'DIVISION', name: 'Skyrius', sortOrder: 3 },
+      { code: 'CHANCELLOR', name: 'Kancleris', sortOrder: 4 },
+      { code: 'DBSIS', name: 'DBSIS sistema', sortOrder: 5 },
+    ],
+  },
 ];
 
 interface BudgetAllocationSeed {

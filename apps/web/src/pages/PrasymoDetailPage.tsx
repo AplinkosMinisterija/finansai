@@ -22,6 +22,7 @@ import {
 import { classifierLabel, useClassifier } from '@/lib/classifiers';
 import { ClassifierSelect } from '@/components/classifiers/ClassifierSelect';
 import { AttachmentList } from '@/components/requests/AttachmentList';
+import { ApprovalStepsList } from '@/components/requests/ApprovalStepsList';
 import {
   canDecide,
   canDelete,
@@ -514,7 +515,17 @@ export default function PrasymoDetailPage(): JSX.Element {
           )}
         </div>
 
-        <div>
+        <div className="space-y-4">
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                <CheckCircle2 className="h-4 w-4" />
+                Aprobacijos eiga
+              </h3>
+              <ApprovalStepsList steps={r.approvalSteps ?? []} />
+            </CardContent>
+          </Card>
+
           <Card>
             <CardContent className="p-4">
               <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
