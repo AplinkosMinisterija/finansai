@@ -533,6 +533,8 @@ export type Budget = {
   allocations: BudgetAllocation[];
   /** Sumažintas allocations.amount; jei < totalAmount — likutis nepaskirstytas. */
   allocatedAmount?: string;
+  /** Patvirtinta suma šio metų prašymuose (status='APPROVED', decisionGrantedAmount). */
+  approvedAmount?: string;
 };
 
 export type BudgetUpsertRequest = {

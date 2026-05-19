@@ -288,9 +288,13 @@ export default function BiudzetasPage(): JSX.Element {
           </Card>
 
           <Card>
-            <CardContent className="grid gap-4 p-4 sm:grid-cols-3">
+            <CardContent className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
               <Stat label="Biudžetas" value={formatEur(totalAmountNum)} />
               <Stat label="Paskirstyta" value={formatEur(totalAllocated)} />
+              <Stat
+                label="Patvirtinta prašymuose"
+                value={formatEur(budgetQ.data?.approvedAmount ?? '0')}
+              />
               <Stat
                 label={overspent ? 'Viršyta' : 'Likutis'}
                 value={formatEur(Math.abs(remaining))}
