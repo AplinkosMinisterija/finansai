@@ -208,6 +208,7 @@ const ApiService: ServiceSchema = {
           'POST /requests': 'requests.create',
           'PATCH /requests/:id': 'requests.update',
           'POST /requests/:id/submit': 'requests.submit',
+          'POST /requests/:id/convert-to-current-year': 'requests.convertPlanToCurrentYear',
           'DELETE /requests/:id': 'requests.delete',
           'POST /requests/:id/decision': 'requests.decision',
           'POST /requests/:id/comments': 'requests.addComment',

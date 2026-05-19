@@ -36,6 +36,7 @@ interface RequestWithRels extends Request {
 }
 
 const PAYLOAD_FIELDS = [
+  'year',
   'projectName',
   'systemCode',
   'projectType',
@@ -124,6 +125,7 @@ function toRequestDTO(r: RequestWithRels): RequestDTO {
     createdByUserId: r.createdByUserId,
     createdByName: r.createdByUser.fullName,
     status: r.status,
+    year: r.year,
     projectName: r.projectName,
     systemCode: r.systemCode,
     projectType: r.projectType,
@@ -248,14 +250,17 @@ const RequestsService: ServiceSchema = {
         q: { type: 'string', optional: true },
         status: { type: 'enum', optional: true, values: ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REJECTED'] },
         tenantId: { type: 'number', integer: true, optional: true, convert: true },
+        year: { type: 'number', integer: true, optional: true, convert: true },
+        plansOnly: { type: 'boolean', optional: true, convert: true },
         page: { type: 'number', integer: true, optional: true, default: 1, convert: true },
         pageSize: { type: 'number', integer: true, optional: true, default: 50, convert: true },
       },
       async handler(ctx: Context<RequestListQuery, AuthMeta>): Promise<PaginatedResponse<RequestDTO>> {
         const me = requireMe(ctx);
-        const { q, status, tenantId } = ctx.params;
+        const { q, status, tenantId, year, plansOnly } = ctx.params;
         const page = ctx.params.page ?? 1;
         const pageSize = Math.min(ctx.params.pageSize ?? 50, 200);
+        const currentYear = new Date().getFullYear();
 
         const query = Request.query()
           .withGraphFetched('[tenant, createdByUser, decidedByUser]')
@@ -296,6 +301,12 @@ const RequestsService: ServiceSchema = {
         if (tenantId !== undefined) {
           query.where('requests.tenant_id', tenantId);
         }
+        if (year !== undefined) {
+          query.where('requests.year', year);
+        }
+        if (plansOnly) {
+          query.where('requests.year', '>', currentYear);
+        }
 
         const total = await query.clone().resultSize();
         const items = (await query
@@ -331,6 +342,7 @@ const RequestsService: ServiceSchema = {
     create: {
       params: {
         tenantId: { type: 'number', integer: true, optional: true, convert: true },
+        year: { type: 'number', integer: true, optional: true, convert: true },
         projectName: { type: 'string', optional: true, max: 500 },
       },
       async handler(
@@ -380,10 +392,21 @@ const RequestsService: ServiceSchema = {
         const { tenantId: _tid, ...rest } = ctx.params;
         void _tid;
         const patch = sanitizePayload(rest);
+        const currentYear = new Date().getFullYear();
+        const requestedYear = (patch['year'] as number | undefined) ?? currentYear;
+        // Leidžiame nuo current iki +5 metų (Giedrė: „planavom iki 2029 m. imtinai").
+        if (!Number.isFinite(requestedYear) || requestedYear < currentYear || requestedYear > currentYear + 5) {
+          throw new Errors.MoleculerClientError(
+            `Metai turi būti tarp ${currentYear} ir ${currentYear + 5}`,
+            400,
+            'YEAR_OUT_OF_RANGE',
+          );
+        }
         const inserted = await Request.query().insert({
           tenantId: targetTenantId,
           createdByUserId: me.id,
           status: 'DRAFT',
+          year: requestedYear,
           projectName: (patch['projectName'] as string) ?? 'Naujas prašymas',
           ...patch,
         });
@@ -479,6 +502,99 @@ const RequestsService: ServiceSchema = {
         }
         await Request.query().deleteById(r.id);
         return { ok: true };
+      },
+    },
+
+    /**
+     * Issue #4: konvertuoti planą (year >= currentYear, status != DRAFT) į einamųjų
+     * metų prašymą — sukuriama nauja DRAFT kopija su year = currentYear.
+     * Plano įrašas paliekamas kaip istorija.
+     */
+    convertPlanToCurrentYear: {
+      params: { id: { type: 'number', integer: true, convert: true } },
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<RequestDTO> {
+        const me = requireMe(ctx);
+        const src = await Request.query().findById(ctx.params.id);
+        if (!src) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        if (!canView(me, { tenantId: src.tenantId, createdByUserId: src.createdByUserId, status: src.status })) {
+          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+        // Tik teikėjas iš tos org (arba AM admin „on behalf") gali konvertuoti.
+        if (me.tenantIsApprover) {
+          if (me.role !== 'admin') {
+            throw new Errors.MoleculerClientError('Tik AM admin gali konvertuoti', 403, 'FORBIDDEN');
+          }
+        } else if (src.tenantId !== me.tenantId) {
+          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+
+        const currentYear = new Date().getFullYear();
+        if (src.year < currentYear) {
+          throw new Errors.MoleculerClientError(
+            'Negalima konvertuoti praėjusių metų plano',
+            400,
+            'PLAN_PAST',
+          );
+        }
+        if (src.status === 'DRAFT') {
+          throw new Errors.MoleculerClientError(
+            'Juodraščio konvertuoti nereikia — tiesiog atnaujinkite metus',
+            400,
+            'INVALID_STATUS',
+          );
+        }
+
+        // Patikriname ar jau yra einamų metų DRAFT, sukurtas iš to paties tenant'o
+        // su tuo pačiu projektu (paprasta duplikatų prevencija).
+        const dup = await Request.query()
+          .where({ tenant_id: src.tenantId, year: currentYear, project_name: src.projectName, status: 'DRAFT' })
+          .first();
+        if (dup) {
+          throw new Errors.MoleculerClientError(
+            `Einamųjų metų juodraštis tokiu pat pavadinimu jau egzistuoja (#${dup.id})`,
+            409,
+            'DUPLICATE_DRAFT',
+          );
+        }
+
+        const inserted = await Request.query().insert({
+          tenantId: src.tenantId,
+          createdByUserId: me.id,
+          status: 'DRAFT',
+          year: currentYear,
+          projectName: src.projectName,
+          systemCode: src.systemCode,
+          projectType: src.projectType,
+          description: src.description,
+          plannedWorks: src.plannedWorks,
+          priority: src.priority,
+          procurementStage: src.procurementStage,
+          costDu: src.costDu,
+          costEquipment: src.costEquipment,
+          costCreation: src.costCreation,
+          costAnalysis: src.costAnalysis,
+          costDevelopment: src.costDevelopment,
+          costMaintenance: src.costMaintenance,
+          costModernization: src.costModernization,
+          costDecommissioning: src.costDecommissioning,
+          fundingFromIt: src.fundingFromIt,
+          otherFunds: src.otherFunds,
+          otherFundsSource: src.otherFundsSource,
+          q1Amount: src.q1Amount,
+          q2Amount: src.q2Amount,
+          q3Amount: src.q3Amount,
+          q4Amount: src.q4Amount,
+          responsibleInstitution: src.responsibleInstitution,
+          executorName: src.executorName,
+          executorEmail: src.executorEmail,
+          implementationDeadline: src.implementationDeadline,
+          submitterNotes: src.submitterNotes,
+        });
+        const full = await loadRequest(inserted.id);
+        if (!full) throw new Error('Inserted request not found');
+        return toRequestDTO(full);
       },
     },
 

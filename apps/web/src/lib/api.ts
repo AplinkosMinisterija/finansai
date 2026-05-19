@@ -152,6 +152,8 @@ export async function requestsList(
   if (query.q !== undefined && query.q !== '') params.q = query.q;
   if (query.status !== undefined) params.status = query.status;
   if (query.tenantId !== undefined) params.tenantId = query.tenantId;
+  if (query.year !== undefined) params.year = query.year;
+  if (query.plansOnly !== undefined) params.plansOnly = query.plansOnly ? 'true' : 'false';
   if (query.page !== undefined) params.page = query.page;
   if (query.pageSize !== undefined) params.pageSize = query.pageSize;
   const { data } = await api.get<PaginatedResponse<FinancingRequest>>('/requests', { params });
@@ -175,6 +177,13 @@ export async function requestUpdate(
   patch: RequestPayload,
 ): Promise<FinancingRequest> {
   const { data } = await api.patch<FinancingRequest>(`/requests/${id}`, patch);
+  return data;
+}
+
+export async function requestConvertToCurrentYear(id: number): Promise<FinancingRequest> {
+  const { data } = await api.post<FinancingRequest>(
+    `/requests/${id}/convert-to-current-year`,
+  );
   return data;
 }
 
