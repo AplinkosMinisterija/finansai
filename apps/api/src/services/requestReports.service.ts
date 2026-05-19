@@ -208,19 +208,19 @@ const RequestReportsService: ServiceSchema = {
         if (!report) {
           throw new Errors.MoleculerClientError('Atsiskaitymas nerastas', 404, 'REPORT_NOT_FOUND');
         }
-        if (report.status === 'SUBMITTED') {
-          throw new Errors.MoleculerClientError(
-            'Pateiktas atsiskaitymas neištrinamas',
-            400,
-            'ALREADY_SUBMITTED',
-          );
-        }
         const r = await Request.query().findById(report.requestId);
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
         if (!canManageReport(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+        if (report.status === 'SUBMITTED') {
+          throw new Errors.MoleculerClientError(
+            'Pateiktas atsiskaitymas neištrinamas',
+            400,
+            'ALREADY_SUBMITTED',
+          );
         }
         await RequestReport.query().deleteById(report.id);
         return { ok: true };
