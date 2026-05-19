@@ -73,6 +73,7 @@ export class Request extends BaseModel {
   createdByUser?: import('./User').User;
   decidedByUser?: import('./User').User;
   comments?: import('./RequestComment').RequestComment[];
+  approvalSteps?: import('./ApprovalStep').ApprovalStep[];
 
   static override get relationMappings(): RelationMappings {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -81,6 +82,8 @@ export class Request extends BaseModel {
     const { User } = require('./User') as typeof import('./User');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { RequestComment } = require('./RequestComment') as typeof import('./RequestComment');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ApprovalStep } = require('./ApprovalStep') as typeof import('./ApprovalStep');
 
     return {
       tenant: {
@@ -102,6 +105,11 @@ export class Request extends BaseModel {
         relation: BaseModel.HasManyRelation,
         modelClass: RequestComment,
         join: { from: 'requests.id', to: 'request_comments.request_id' },
+      },
+      approvalSteps: {
+        relation: BaseModel.HasManyRelation,
+        modelClass: ApprovalStep,
+        join: { from: 'requests.id', to: 'approval_steps.request_id' },
       },
     };
   }
