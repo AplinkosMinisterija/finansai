@@ -235,18 +235,18 @@ const DashboardService: ServiceSchema = {
         for (const r of allRequests) {
           byStatus[r.status]++;
           const requestedAmt = totalRequestedFromRow(r);
-          if (r.status in amountsByStatus) {
-            amountsByStatus[r.status as keyof typeof amountsByStatus] +=
-              r.status === 'APPROVED' && r.decisionGrantedAmount !== null
-                ? Number(r.decisionGrantedAmount)
-                : requestedAmt;
-          }
           // Naudojam paraiškos `year` lauką (kuriai metams skirta), o ne sukūrimo datą.
           // Audit #8 (2026-05-19) — patikrinta, year filtras veikia teisingai
           // dėka issue #4 (PR #16): `createdYear` keista į `r.year` ir mainline,
           // ir per-tenant breakdown'e. Patvirtinti planai iš ateinančių metų
           // į einamųjų metų stats'ą nepatenka.
           if (r.year === year) {
+            if (r.status in amountsByStatus) {
+              amountsByStatus[r.status as keyof typeof amountsByStatus] +=
+                r.status === 'APPROVED' && r.decisionGrantedAmount !== null
+                  ? Number(r.decisionGrantedAmount)
+                  : requestedAmt;
+            }
             totalRequestedThisYear += requestedAmt;
             if (r.status === 'APPROVED' && r.decisionGrantedAmount !== null) {
               totalApprovedThisYear += Number(r.decisionGrantedAmount);
