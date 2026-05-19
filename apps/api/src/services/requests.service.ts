@@ -684,7 +684,7 @@ const RequestsService: ServiceSchema = {
         id: { type: 'number', integer: true, convert: true },
         decision: { type: 'enum', values: ['approve', 'reject', 'return'] },
         comment: { type: 'string', optional: true, max: 4000 },
-        grantedAmount: { type: 'any', optional: true },
+        grantedAmount: { type: 'number', optional: true, min: 0, convert: true },
         fundingSource: { type: 'string', optional: true, max: 500 },
         protocol: { type: 'string', optional: true, max: 500 },
         order: { type: 'string', optional: true, max: 500 },
