@@ -16,20 +16,12 @@ import type {
 import { Budget } from '../models/Budget';
 import { BudgetAllocation } from '../models/BudgetAllocation';
 import { ClassifierItem } from '../models/ClassifierItem';
+import { centsToAmount, sumAmounts, toCents } from '../utils/money';
 import type { AuthMeta } from './auth.service';
 
 type BudgetWithRels = Budget & {
   allocations?: Array<BudgetAllocation & { classifierItem?: ClassifierItem }>;
 };
-
-function sumDecimal(values: string[]): string {
-  // Sumuojam kaip integer cents, kad išvengtume float klaidų.
-  const totalCents = values.reduce((acc, v) => {
-    const n = Math.round(parseFloat(v || '0') * 100);
-    return acc + (Number.isFinite(n) ? n : 0);
-  }, 0);
-  return (totalCents / 100).toFixed(2);
-}
 
 function toAllocationDTO(a: BudgetAllocation & { classifierItem?: ClassifierItem }): AllocationDTO {
   return {
@@ -45,7 +37,7 @@ function toAllocationDTO(a: BudgetAllocation & { classifierItem?: ClassifierItem
 
 function toBudgetDTO(b: BudgetWithRels): BudgetDTO {
   const allocations = (b.allocations ?? []).map(toAllocationDTO);
-  const allocatedAmount = sumDecimal(allocations.map((a) => a.amount));
+  const allocatedAmount = sumAmounts(allocations.map((a) => a.amount));
   return {
     id: b.id,
     year: b.year,
@@ -155,11 +147,11 @@ const BudgetsService: ServiceSchema = {
 
         // Validacija: paskirstymų suma negali viršyti bendro biudžeto.
         // Sumuojam cents'ais, kad išvengtume float klaidų.
-        const totalCents = Math.round(parseFloat(p.totalAmount || '0') * 100);
-        const allocatedCents = p.allocations.reduce((acc, a) => {
-          const n = Math.round(parseFloat(a.amount || '0') * 100);
-          return acc + (Number.isFinite(n) ? n : 0);
-        }, 0);
+        const totalCents = toCents(p.totalAmount);
+        const allocatedCents = p.allocations.reduce(
+          (acc, a) => acc + toCents(a.amount),
+          0,
+        );
         if (allocatedCents > totalCents) {
           throw new Errors.MoleculerClientError(
             'Allocations suma viršija bendrą biudžetą',
@@ -190,16 +182,15 @@ const BudgetsService: ServiceSchema = {
             // Deduplikuojam pagal classifier_item_id (sumuojam, jei dublikuojama).
             const merged = new Map<number, number>();
             for (const a of p.allocations) {
-              const cents = Math.round(parseFloat(a.amount || '0') * 100);
               merged.set(
                 a.classifierItemId,
-                (merged.get(a.classifierItemId) ?? 0) + cents,
+                (merged.get(a.classifierItemId) ?? 0) + toCents(a.amount),
               );
             }
             const rows = Array.from(merged.entries()).map(([cid, cents]) => ({
               budgetId: budget!.id,
               classifierItemId: cid,
-              amount: (cents / 100).toFixed(2),
+              amount: centsToAmount(cents),
             }));
             await BudgetAllocation.query(trx).insert(rows);
           }

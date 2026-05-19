@@ -30,6 +30,7 @@ import { ClassifierItem } from '../models/ClassifierItem';
 import { ClassifierGroup } from '../models/ClassifierGroup';
 import { Tenant } from '../models/Tenant';
 import { User } from '../models/User';
+import { normalizeAmount } from '../utils/money';
 import type { AuthMeta } from './auth.service';
 
 /**
@@ -94,15 +95,6 @@ const NUMERIC_FIELDS = new Set([
   'q3Amount',
   'q4Amount',
 ]);
-
-function normalizeAmount(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '0';
-  const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(n) || n < 0) {
-    throw new Errors.MoleculerClientError('Suma turi būti teigiamas skaičius', 400, 'INVALID_AMOUNT');
-  }
-  return n.toFixed(2);
-}
 
 function sanitizePayload(payload: RequestPayload): Record<string, unknown> {
   const out: Record<string, unknown> = {};

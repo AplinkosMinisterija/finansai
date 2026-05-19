@@ -21,6 +21,7 @@ import type {
 import { Request } from '../models/Request';
 import type { RequestStatus } from '../models/Request';
 import { RequestReport } from '../models/RequestReport';
+import { normalizeAmount } from '../utils/money';
 import type { AuthMeta } from './auth.service';
 import type { User } from '../models/User';
 
@@ -76,15 +77,6 @@ function canManageReport(
   if (r.tenantId !== viewer.tenantId) return false;
   if (viewer.role === 'admin') return true;
   return r.createdByUserId === viewer.id;
-}
-
-function normalizeAmount(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '0';
-  const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(n) || n < 0) {
-    throw new Errors.MoleculerClientError('Suma turi būti teigiamas skaičius', 400, 'INVALID_AMOUNT');
-  }
-  return n.toFixed(2);
 }
 
 const RequestReportsService: ServiceSchema = {
