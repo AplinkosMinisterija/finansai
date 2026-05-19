@@ -23,6 +23,7 @@ import { classifierLabel, useClassifier } from '@/lib/classifiers';
 import { ClassifierSelect } from '@/components/classifiers/ClassifierSelect';
 import { AttachmentList } from '@/components/requests/AttachmentList';
 import { ApprovalStepsList } from '@/components/requests/ApprovalStepsList';
+import { ReportsSection } from '@/components/requests/ReportsSection';
 import {
   canDecide,
   canDelete,
@@ -512,6 +513,19 @@ export default function PrasymoDetailPage(): JSX.Element {
                 />
               </KV>
             </Section>
+          )}
+
+          {r.status === 'APPROVED' && (
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="mb-3 text-sm font-semibold">Atsiskaitymai</h3>
+                <ReportsSection
+                  requestId={requestId}
+                  isApproved={r.status === 'APPROVED'}
+                  isSubmitterSide={user?.tenantId === r.tenantId}
+                />
+              </CardContent>
+            </Card>
           )}
         </div>
 
