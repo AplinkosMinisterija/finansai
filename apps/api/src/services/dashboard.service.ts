@@ -122,6 +122,10 @@ function scopedRequestQuery(me: NonNullable<AuthMeta['user']>) {
       }
     }
     // admin — visi
+    // Issue/UR: AM nemato pavaldžių institucijų juodraščių — tik savo „on behalf" sukurtus.
+    q.where((qb) => {
+      qb.whereNot('requests.status', 'DRAFT').orWhere('requests.created_by_user_id', me.id);
+    });
   } else {
     if (me.role === 'admin') {
       q.where('requests.tenant_id', me.tenantId);
