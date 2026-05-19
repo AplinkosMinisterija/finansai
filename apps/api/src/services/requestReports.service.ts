@@ -190,6 +190,7 @@ const RequestReportsService: ServiceSchema = {
         await RequestReport.query().findById(report.id).patch({
           status: 'SUBMITTED',
           submittedAt: new Date().toISOString(),
+          submittedByUserId: me.id,
         });
         const full = (await RequestReport.query()
           .findById(report.id)
