@@ -201,10 +201,11 @@ async function loadRequestDetail(id: number): Promise<RequestWithRels | undefine
 
 function canView(
   viewer: NonNullable<AuthMeta['user']>,
-  r: { tenantId: number; createdByUserId: number },
+  r: { tenantId: number; createdByUserId: number; status?: RequestStatus },
 ): boolean {
   if (viewer.tenantIsApprover) {
-    // AM admin = visi; AM user = scope
+    // AM nemato pavaldžių institucijų juodraščių — tik savo „on behalf" sukurtus.
+    if (r.status === 'DRAFT' && r.createdByUserId !== viewer.id) return false;
     if (viewer.role === 'admin') return true;
     if (viewer.amScopeOrgIds === null) return true;
     return viewer.amScopeOrgIds.includes(r.tenantId);
@@ -269,8 +270,10 @@ const RequestsService: ServiceSchema = {
             }
             query.whereIn('requests.tenant_id', me.amScopeOrgIds);
           }
-          // Galimybė: AM admin teikia kitų org vardu — toks prašymas turi created_by = me.id.
-          // Šitas atvejis dengiamas automatiškai (matomi visi prašymai AM admin'ui).
+          // AM nemato pavaldžių institucijų juodraščių — tik savo „on behalf" sukurtus.
+          query.where((qb) => {
+            qb.whereNot('requests.status', 'DRAFT').orWhere('requests.created_by_user_id', me.id);
+          });
         } else {
           // Pavaldi institucija
           if (me.role === 'admin') {
@@ -316,7 +319,7 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId })) {
+        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
           throw new Errors.MoleculerClientError('Neturite teisės matyti šio prašymo', 403, 'FORBIDDEN');
         }
         const dto = toRequestDTO(r);
@@ -583,7 +586,7 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId })) {
+        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         const inserted = await RequestComment.query().insert({
