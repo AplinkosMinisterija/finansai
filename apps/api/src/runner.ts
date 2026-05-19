@@ -38,9 +38,26 @@ async function maybeSeed(): Promise<void> {
       if (count === 0) {
         console.log('Requests table empty — running seeds');
         await runSeeds();
-      } else {
-        console.log(`Seeds already complete (${count} requests) — skipping`);
+        return;
       }
+      // Antra-fazė check'as: jei pridėta nauja seed-lentelė (approval_steps po
+      // issue #9) bet ji tuščia esant senų požymių (>0 prašymų), tai dev seed'as
+      // sename DB ir reikia reseed'inti su naujais demo duomenimis.
+      const hasApprovalSteps = await knex.schema.hasTable('approval_steps');
+      if (hasApprovalSteps) {
+        const stepRows = await knex.raw<{ rows: { count: string }[] }>(
+          'SELECT COUNT(*)::text AS count FROM approval_steps',
+        );
+        const stepCount = stepRows.rows[0] ? Number(stepRows.rows[0].count) : 0;
+        if (stepCount === 0) {
+          console.log(
+            `Approval steps empty but ${count} requests exist — re-seeding for new demo data`,
+          );
+          await runSeeds();
+          return;
+        }
+      }
+      console.log(`Seeds already complete (${count} requests) — skipping`);
       return;
     }
     // Fallback (Iter 0 deploy be requests migracijos)
