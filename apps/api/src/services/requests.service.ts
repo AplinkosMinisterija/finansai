@@ -745,67 +745,79 @@ const RequestsService: ServiceSchema = {
           kind = 'returned';
         }
 
-        // Issue #9: pažymim dabartinį PENDING žingsnį.
-        const currentStep = await ApprovalStep.query()
-          .where({ request_id: r.id, status: 'PENDING' })
-          .orderBy('sequence', 'asc')
-          .first();
-
-        let stepStatus: ApprovalStepStatus;
-        if (isApprove) stepStatus = 'APPROVED';
-        else if (isReject) stepStatus = 'REJECTED';
-        else stepStatus = 'RETURNED';
-
-        if (currentStep) {
-          await ApprovalStep.query().findById(currentStep.id).patch({
-            status: stepStatus,
-            decidedByUserId: me.id,
-            decidedAt: now,
-            comment: p.comment ?? null,
-          });
-        }
-
-        // Daugiapakopei aprobacijai (visa AM): jei APPROVED + dar yra PENDING žingsnių
-        // → newStatus = SUBMITTED (toliau eina kitam approver'iui).
-        // Šitam etape (AAD, 1 žingsnis) — neegzistuoja kitas PENDING žingsnis,
-        // todėl pereinam į APPROVED, kaip iki šiol.
-        if (isApprove && currentStep) {
-          const nextPending = await ApprovalStep.query()
+        // Audit #10: visi Request + ApprovalStep + RequestComment rašymai turi
+        // įvykti atominėje transakcijoje. Read'ai po commit'o (loadRequest)
+        // paliekam ne transakcijoje.
+        const knex = Request.knex();
+        const trx = await knex.transaction();
+        try {
+          // Issue #9: pažymim dabartinį PENDING žingsnį.
+          const currentStep = await ApprovalStep.query(trx)
             .where({ request_id: r.id, status: 'PENDING' })
+            .orderBy('sequence', 'asc')
             .first();
-          if (nextPending) {
-            newStatus = 'SUBMITTED';
-            // Decision metadata einam atsekti tik kai paskutinis žingsnis OK.
-            delete patch['decisionGrantedAmount'];
-            delete patch['decisionFundingSource'];
-            delete patch['decisionProtocol'];
-            delete patch['decisionOrder'];
-            delete patch['decidedAt'];
-            delete patch['decidedByUserId'];
-          }
-        }
 
-        patch['status'] = newStatus;
-        await Request.query().findById(r.id).patch(patch);
-        await RequestComment.query().insert({
-          requestId: r.id,
-          authorUserId: me.id,
-          kind,
-          body: p.comment ?? null,
-          metadata: {
-            fromStatus: r.status,
-            toStatus: newStatus,
-            ...(currentStep ? { stepSequence: currentStep.sequence, stepLevel: currentStep.levelCode } : {}),
-            ...(isApprove
-              ? {
-                  grantedAmount: patch['decisionGrantedAmount'],
-                  fundingSource: patch['decisionFundingSource'],
-                  protocol: patch['decisionProtocol'],
-                  order: patch['decisionOrder'],
-                }
-              : {}),
-          },
-        });
+          let stepStatus: ApprovalStepStatus;
+          if (isApprove) stepStatus = 'APPROVED';
+          else if (isReject) stepStatus = 'REJECTED';
+          else stepStatus = 'RETURNED';
+
+          if (currentStep) {
+            await ApprovalStep.query(trx).findById(currentStep.id).patch({
+              status: stepStatus,
+              decidedByUserId: me.id,
+              decidedAt: now,
+              comment: p.comment ?? null,
+            });
+          }
+
+          // Daugiapakopei aprobacijai (visa AM): jei APPROVED + dar yra PENDING žingsnių
+          // → newStatus = SUBMITTED (toliau eina kitam approver'iui).
+          // Šitam etape (AAD, 1 žingsnis) — neegzistuoja kitas PENDING žingsnis,
+          // todėl pereinam į APPROVED, kaip iki šiol.
+          if (isApprove && currentStep) {
+            const nextPending = await ApprovalStep.query(trx)
+              .where({ request_id: r.id, status: 'PENDING' })
+              .first();
+            if (nextPending) {
+              newStatus = 'SUBMITTED';
+              // Decision metadata einam atsekti tik kai paskutinis žingsnis OK.
+              delete patch['decisionGrantedAmount'];
+              delete patch['decisionFundingSource'];
+              delete patch['decisionProtocol'];
+              delete patch['decisionOrder'];
+              delete patch['decidedAt'];
+              delete patch['decidedByUserId'];
+            }
+          }
+
+          patch['status'] = newStatus;
+          await Request.query(trx).findById(r.id).patch(patch);
+          await RequestComment.query(trx).insert({
+            requestId: r.id,
+            authorUserId: me.id,
+            kind,
+            body: p.comment ?? null,
+            metadata: {
+              fromStatus: r.status,
+              toStatus: newStatus,
+              ...(currentStep ? { stepSequence: currentStep.sequence, stepLevel: currentStep.levelCode } : {}),
+              ...(isApprove
+                ? {
+                    grantedAmount: patch['decisionGrantedAmount'],
+                    fundingSource: patch['decisionFundingSource'],
+                    protocol: patch['decisionProtocol'],
+                    order: patch['decisionOrder'],
+                  }
+                : {}),
+            },
+          });
+
+          await trx.commit();
+        } catch (e) {
+          await trx.rollback();
+          throw e;
+        }
 
         const full = await loadRequest(r.id);
         if (!full) throw new Error('Decided request not found');
