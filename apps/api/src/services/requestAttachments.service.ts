@@ -78,9 +78,18 @@ function canUpload(
   return true;
 }
 
-function isValidBase64(s: string): boolean {
-  // Bendras base64 alphabet check; nepilna validacija, bet pakanka.
-  return /^[A-Za-z0-9+/]+={0,2}$/.test(s);
+function decodeBase64(s: string): Buffer | null {
+  try {
+    const buf = Buffer.from(s, 'base64');
+    // Buffer.from leniencijiškas: jei input'e netinkamų simbolių, jis praleidžia.
+    // Patikrinam round-trip: ar re-encode'intas atitinka įvestį (ignoruojant whitespace).
+    const reencoded = buf.toString('base64');
+    const cleaned = s.replace(/\s/g, '');
+    if (reencoded !== cleaned) return null;
+    return buf;
+  } catch {
+    return null;
+  }
 }
 
 const RequestAttachmentsService: ServiceSchema = {
@@ -147,17 +156,17 @@ const RequestAttachmentsService: ServiceSchema = {
           ? (dataBase64.split(',', 2)[1] ?? '')
           : dataBase64;
 
-        if (!isValidBase64(cleanBase64)) {
+        const buf = decodeBase64(cleanBase64);
+        if (!buf) {
           throw new Errors.MoleculerClientError(
-            'Neteisingas failo turinys (laukiamas base64)',
+            'Neteisingas failo turinys (base64 dekodavimas nepavyko)',
             400,
             'INVALID_BASE64',
           );
         }
 
-        // Apskaičiuojam baitų dydį iš base64 ilgio (apytikslis).
-        const padCount = (cleanBase64.match(/=+$/) ?? [''])[0]!.length;
-        const sizeBytes = Math.floor((cleanBase64.length * 3) / 4) - padCount;
+        // Tikslus baitų dydis iš dekoduoto buferio.
+        const sizeBytes = buf.length;
         if (sizeBytes > MAX_FILE_BYTES) {
           throw new Errors.MoleculerClientError(
             `Failas per didelis (max ${MAX_FILE_BYTES / 1024 / 1024} MB)`,
