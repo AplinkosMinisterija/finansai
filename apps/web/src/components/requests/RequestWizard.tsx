@@ -28,6 +28,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { requestSubmit, requestUpdate } from '@/lib/api';
 import { fmtEur } from '@/lib/requests';
+import { ClassifierSelect } from '@/components/classifiers/ClassifierSelect';
+import { classifierLabel, useClassifier } from '@/lib/classifiers';
 import { cn } from '@/lib/utils';
 
 interface StepDef {
@@ -189,6 +191,9 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
   const totalQ = totalQuarterlyFrom(state);
   const quarterlyDiff = totalQ - totalReq;
 
+  const isLookup = useClassifier('is_system');
+  const ptLookup = useClassifier('project_type');
+
   const saveMutation = useMutation({
     mutationFn: (): Promise<FinancingRequest> => requestUpdate(request.id, toPayload(state)),
     onSuccess: (r) => onSaved(r),
@@ -334,16 +339,25 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label htmlFor="systemCode">IT sistemos kodas</Label>
-                    <Input id="systemCode" value={state.systemCode} onChange={update('systemCode')} />
+                    <Label htmlFor="systemCode">Informacinė sistema</Label>
+                    <ClassifierSelect
+                      id="systemCode"
+                      groupCode="is_system"
+                      value={state.systemCode}
+                      onChange={(v) => setState((s) => ({ ...s, systemCode: v ?? '' }))}
+                      emptyLabel="— Nepasirinkta —"
+                      placeholder="Pasirinkite IS"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="projectType">Projekto tipas</Label>
-                    <Input
+                    <ClassifierSelect
                       id="projectType"
-                      placeholder="pvz., IT sistema, Licencijos…"
+                      groupCode="project_type"
                       value={state.projectType}
-                      onChange={update('projectType')}
+                      onChange={(v) => setState((s) => ({ ...s, projectType: v ?? '' }))}
+                      emptyLabel="— Nepasirinkta —"
+                      placeholder="Pasirinkite tipą"
                     />
                   </div>
                 </div>
@@ -523,8 +537,8 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
                 </p>
                 <ReviewSection title="Pagrindinė informacija">
                   <KV label="Projektas">{state.projectName || '—'}</KV>
-                  <KV label="IT sistema">{state.systemCode || '—'}</KV>
-                  <KV label="Tipas">{state.projectType || '—'}</KV>
+                  <KV label="IT sistema">{classifierLabel(isLookup, state.systemCode)}</KV>
+                  <KV label="Tipas">{classifierLabel(ptLookup, state.projectType)}</KV>
                   <KV label="Prioritetas">{state.priority || '—'}</KV>
                   <KV label="Pirkimo stadija">{state.procurementStage || '—'}</KV>
                 </ReviewSection>
