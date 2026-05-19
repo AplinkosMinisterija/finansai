@@ -153,6 +153,21 @@ const BudgetsService: ServiceSchema = {
           }
         }
 
+        // Validacija: paskirstymų suma negali viršyti bendro biudžeto.
+        // Sumuojam cents'ais, kad išvengtume float klaidų.
+        const totalCents = Math.round(parseFloat(p.totalAmount || '0') * 100);
+        const allocatedCents = p.allocations.reduce((acc, a) => {
+          const n = Math.round(parseFloat(a.amount || '0') * 100);
+          return acc + (Number.isFinite(n) ? n : 0);
+        }, 0);
+        if (allocatedCents > totalCents) {
+          throw new Errors.MoleculerClientError(
+            'Allocations suma viršija bendrą biudžetą',
+            400,
+            'BUDGET_OVERFLOW',
+          );
+        }
+
         const knex = Budget.knex();
         const trx = await knex.transaction();
         try {
