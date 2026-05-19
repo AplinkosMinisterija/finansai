@@ -157,13 +157,15 @@ const BudgetsService: ServiceSchema = {
         requireSuperAdmin(me);
         const p = ctx.params;
 
-        // Validacija: visi allocation classifier item'ai egzistuoja.
+        // Validacija: visi allocation classifier item'ai egzistuoja ir yra aktyvūs.
         if (p.allocations.length > 0) {
           const ids = p.allocations.map((a) => a.classifierItemId);
-          const items = await ClassifierItem.query().whereIn('id', ids);
+          const items = await ClassifierItem.query()
+            .whereIn('id', ids)
+            .andWhere('active', true);
           if (items.length !== new Set(ids).size) {
             throw new Errors.MoleculerClientError(
-              'Vienas ar daugiau klasifikatoriaus reikšmių neegzistuoja',
+              'Vienas ar daugiau klasifikatoriaus reikšmių neegzistuoja arba yra neaktyvios',
               400,
               'INVALID_CLASSIFIER',
             );
