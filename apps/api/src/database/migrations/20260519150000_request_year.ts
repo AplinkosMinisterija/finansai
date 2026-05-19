@@ -4,7 +4,7 @@
  * - year === currentYear → einamųjų metų prašymas
  * - year  >  currentYear → planas (iki 5 m. priekį)
  *
- * Esami prašymai gauna current year (2026) per backfill.
+ * Esami prašymai per backfill gauna metus iš `created_at` (immutable).
  */
 import type { Knex } from 'knex';
 
@@ -13,8 +13,10 @@ export async function up(knex: Knex): Promise<void> {
     t.integer('year').nullable();
   });
 
-  const currentYear = new Date().getFullYear();
-  await knex('requests').update({ year: currentYear }).whereNull('year');
+  // Backfill: esami prašymai gauna metus iš jų sukūrimo datos (immutable).
+  await knex.raw(
+    "UPDATE requests SET year = EXTRACT(YEAR FROM created_at)::int WHERE year IS NULL",
+  );
 
   await knex.schema.alterTable('requests', (t) => {
     t.integer('year').notNullable().alter();
