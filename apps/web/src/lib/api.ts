@@ -21,6 +21,8 @@ import type {
   FinancingRequest,
   FinancingRequestDetail,
   PaginatedResponse,
+  RequestAttachment,
+  RequestAttachmentUploadRequest,
   RequestComment,
   RequestDecisionPayload,
   RequestListQuery,
@@ -206,6 +208,40 @@ export async function requestAddComment(
 
 export async function dashboardGet(): Promise<DashboardData> {
   const { data } = await api.get<DashboardData>('/dashboard');
+  return data;
+}
+
+// ---------- Prikabinti dokumentai ----------
+
+export async function attachmentsList(requestId: number): Promise<RequestAttachment[]> {
+  const { data } = await api.get<RequestAttachment[]>(
+    `/requests/${requestId}/attachments`,
+  );
+  return data;
+}
+
+export async function attachmentUpload(
+  requestId: number,
+  body: RequestAttachmentUploadRequest,
+): Promise<RequestAttachment> {
+  const { data } = await api.post<RequestAttachment>(
+    `/requests/${requestId}/attachments`,
+    body,
+  );
+  return data;
+}
+
+export async function attachmentDownload(
+  id: number,
+): Promise<{ fileName: string; mimeType: string; dataBase64: string }> {
+  const { data } = await api.get<{ fileName: string; mimeType: string; dataBase64: string }>(
+    `/attachments/${id}/download`,
+  );
+  return data;
+}
+
+export async function attachmentDelete(id: number): Promise<{ ok: true }> {
+  const { data } = await api.delete<{ ok: true }>(`/attachments/${id}`);
   return data;
 }
 
