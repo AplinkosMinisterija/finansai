@@ -267,7 +267,7 @@ export default function PrasymoDetailPage(): JSX.Element {
             </Button>
           )}
           {(r.status === 'SUBMITTED' || r.status === 'APPROVED') &&
-            r.year >= new Date().getFullYear() &&
+            r.year > new Date().getFullYear() &&
             (user?.tenantId === r.tenantId || (user?.tenantIsApprover && user.role === 'admin')) && (
               <Button
                 size="sm"

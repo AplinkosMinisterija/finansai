@@ -545,7 +545,7 @@ const RequestsService: ServiceSchema = {
     },
 
     /**
-     * Issue #4: konvertuoti planą (year >= currentYear, status != DRAFT) į einamųjų
+     * Issue #4: konvertuoti planą (year > currentYear, status != DRAFT) į einamųjų
      * metų prašymą — sukuriama nauja DRAFT kopija su year = currentYear.
      * Plano įrašas paliekamas kaip istorija.
      */
@@ -570,11 +570,11 @@ const RequestsService: ServiceSchema = {
         }
 
         const currentYear = new Date().getFullYear();
-        if (src.year < currentYear) {
+        if (src.year <= currentYear) {
           throw new Errors.MoleculerClientError(
-            'Negalima konvertuoti praėjusių metų plano',
+            'Konvertuoti galima tik ateinančių metų planą',
             400,
-            'PLAN_PAST',
+            'PLAN_NOT_FUTURE',
           );
         }
         if (src.status === 'DRAFT') {
