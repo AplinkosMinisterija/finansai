@@ -31,6 +31,7 @@ import { ClassifierGroup } from '../models/ClassifierGroup';
 import { Tenant } from '../models/Tenant';
 import { User } from '../models/User';
 import { normalizeAmount } from '../utils/money';
+import { canViewRequest } from '../utils/permissions';
 import type { AuthMeta } from './auth.service';
 
 /**
@@ -236,23 +237,6 @@ function approvalStepDTO(
   };
 }
 
-function canView(
-  viewer: NonNullable<AuthMeta['user']>,
-  r: { tenantId: number; createdByUserId: number; status?: RequestStatus },
-): boolean {
-  if (viewer.tenantIsApprover) {
-    // AM nemato pavaldžių institucijų juodraščių — tik savo „on behalf" sukurtus.
-    if (r.status === 'DRAFT' && r.createdByUserId !== viewer.id) return false;
-    if (viewer.role === 'admin') return true;
-    if (viewer.amScopeOrgIds === null) return true;
-    return viewer.amScopeOrgIds.includes(r.tenantId);
-  }
-  // Pavaldi institucija — tik savo tenant
-  if (r.tenantId !== viewer.tenantId) return false;
-  if (viewer.role === 'admin') return true;
-  return r.createdByUserId === viewer.id;
-}
-
 function canEdit(
   viewer: NonNullable<AuthMeta['user']>,
   r: { tenantId: number; createdByUserId: number; status: RequestStatus },
@@ -365,7 +349,7 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+        if (!canViewRequest(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
           throw new Errors.MoleculerClientError('Neturite teisės matyti šio prašymo', 403, 'FORBIDDEN');
         }
         const dto = toRequestDTO(r);
@@ -573,7 +557,7 @@ const RequestsService: ServiceSchema = {
         if (!src) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canView(me, { tenantId: src.tenantId, createdByUserId: src.createdByUserId, status: src.status })) {
+        if (!canViewRequest(me, { tenantId: src.tenantId, createdByUserId: src.createdByUserId, status: src.status })) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         // Tik teikėjas iš tos org (arba AM admin „on behalf") gali konvertuoti.
@@ -830,7 +814,7 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canView(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+        if (!canViewRequest(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         const inserted = await RequestComment.query().insert({
