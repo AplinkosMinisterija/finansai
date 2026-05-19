@@ -302,7 +302,7 @@ export default function BiudzetasPage(): JSX.Element {
           <div className="flex justify-end">
             <Button
               size="lg"
-              disabled={upsertMutation.isPending}
+              disabled={upsertMutation.isPending || overspent}
               onClick={() => upsertMutation.mutate()}
             >
               {upsertMutation.isPending ? (
