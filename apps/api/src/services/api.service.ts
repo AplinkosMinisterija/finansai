@@ -184,6 +184,7 @@ const ApiService: ServiceSchema = {
           'classifiers.*',
           'budgets.*',
           'requestAttachments.*',
+          'requestReports.*',
         ],
         use: [],
         authentication: true,
@@ -236,6 +237,11 @@ const ApiService: ServiceSchema = {
           'POST /requests/:requestId/attachments': 'requestAttachments.upload',
           'GET /attachments/:id/download': 'requestAttachments.download',
           'DELETE /attachments/:id': 'requestAttachments.delete',
+
+          'GET /requests/:requestId/reports': 'requestReports.list',
+          'POST /requests/:requestId/reports': 'requestReports.upsert',
+          'POST /reports/:id/submit': 'requestReports.submit',
+          'DELETE /reports/:id': 'requestReports.delete',
         },
         bodyParsers: {
           // 10MB JSON — leidžia įkelti ~5MB failus base64 enkoduotame payload'e.

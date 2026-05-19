@@ -24,6 +24,8 @@ import type {
   RequestAttachment,
   RequestAttachmentUploadRequest,
   RequestComment,
+  RequestReport,
+  RequestReportUpsertRequest,
   RequestDecisionPayload,
   RequestListQuery,
   RequestPayload,
@@ -251,6 +253,31 @@ export async function attachmentDownload(
 
 export async function attachmentDelete(id: number): Promise<{ ok: true }> {
   const { data } = await api.delete<{ ok: true }>(`/attachments/${id}`);
+  return data;
+}
+
+// ---------- Atsiskaitymai ----------
+
+export async function reportsList(requestId: number): Promise<RequestReport[]> {
+  const { data } = await api.get<RequestReport[]>(`/requests/${requestId}/reports`);
+  return data;
+}
+
+export async function reportUpsert(
+  requestId: number,
+  body: RequestReportUpsertRequest,
+): Promise<RequestReport> {
+  const { data } = await api.post<RequestReport>(`/requests/${requestId}/reports`, body);
+  return data;
+}
+
+export async function reportSubmit(id: number): Promise<RequestReport> {
+  const { data } = await api.post<RequestReport>(`/reports/${id}/submit`);
+  return data;
+}
+
+export async function reportDelete(id: number): Promise<{ ok: true }> {
+  const { data } = await api.delete<{ ok: true }>(`/reports/${id}`);
   return data;
 }
 

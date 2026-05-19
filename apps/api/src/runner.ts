@@ -18,6 +18,7 @@ import dashboardService from './services/dashboard.service';
 import classifiersService from './services/classifiers.service';
 import budgetsService from './services/budgets.service';
 import requestAttachmentsService from './services/requestAttachments.service';
+import requestReportsService from './services/requestReports.service';
 import { initDb, runMigrations, runSeeds, getKnex, closeDb } from './database/db';
 import { closeRedis } from './utils/redis';
 
@@ -78,6 +79,7 @@ async function main(): Promise<void> {
   broker.createService(classifiersService);
   broker.createService(budgetsService);
   broker.createService(requestAttachmentsService);
+  broker.createService(requestReportsService);
   broker.createService(apiService);
 
   await broker.start();

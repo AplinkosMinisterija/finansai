@@ -389,6 +389,33 @@ export type DashboardPerTenantStats = {
   totalApproved: number;
 };
 
+// ---------- Atsiskaitymai (issue #2) ----------
+
+export type ReportStatus = 'DRAFT' | 'SUBMITTED';
+
+export type RequestReport = {
+  id: number;
+  requestId: number;
+  periodYear: number;
+  /** 1-4 = ketvirtis; null = metinis. */
+  periodQuarter: number | null;
+  amountUsed: string;
+  description: string | null;
+  status: ReportStatus;
+  submittedByUserId: number;
+  submittedByName?: string;
+  submittedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RequestReportUpsertRequest = {
+  periodYear: number;
+  periodQuarter: number | null;
+  amountUsed: string;
+  description?: string | null;
+};
+
 // ---------- Aprobacijos workflow (issue #9) ----------
 
 export type ApprovalStepStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED';
