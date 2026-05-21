@@ -6,7 +6,7 @@ module.exports = {
   roots: ['<rootDir>/test'],
   testMatch: ['**/*.spec.ts'],
   moduleNameMapper: {
-    '^@biip-hr/shared$': '<rootDir>/../../packages/shared/src/index.ts',
+    '^@biip-finansai/shared$': '<rootDir>/../../packages/shared/src/index.ts',
   },
   transform: {
     '^.+\\.ts$': [
