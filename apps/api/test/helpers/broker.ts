@@ -31,6 +31,8 @@ import requestsService from '../../src/services/requests.service';
 import dashboardService from '../../src/services/dashboard.service';
 import classifiersService from '../../src/services/classifiers.service';
 import budgetsService from '../../src/services/budgets.service';
+import fundingSourcesService from '../../src/services/fundingSources.service';
+import budgetAllocationsService from '../../src/services/budgetAllocations.service';
 import requestAttachmentsService from '../../src/services/requestAttachments.service';
 import requestReportsService from '../../src/services/requestReports.service';
 import { getTestKnex } from './db';
@@ -44,6 +46,8 @@ export const ALL_SERVICES: readonly ServiceSchema[] = [
   dashboardService,
   classifiersService,
   budgetsService,
+  fundingSourcesService,
+  budgetAllocationsService,
   requestAttachmentsService,
   requestReportsService,
 ];

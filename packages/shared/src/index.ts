@@ -513,9 +513,19 @@ export type ClassifierItemUpdateRequest = {
   active?: boolean;
 };
 
-// ---------- Biudžetas ----------
+// ---------- Biudžetas (LEGACY — iki Iter 16) ----------
+//
+// Šios `Budget` / `LegacyBudgetAllocation` / `BudgetUpsertRequest` tipos
+// aprašo SENĄJĮ vieno-lygio biudžeto modelį (`budgets` + `budget_allocations`
+// lentelės). Nuo Iter 9 (FVM-1) jas pakeičia 2-lygio FVM modelis
+// (`FundingSource` + `BudgetAllocation` iš `./fvm`). Senasis modelis lieka
+// read-only su deprecated marker'iais iki Iter 16 (žr. `02-migration-strategy.md`).
+//
+// `LegacyBudgetAllocation` pervardytas iš `BudgetAllocation` Iter 9 metu,
+// kad nesidubliuotų su nauju FVM `BudgetAllocation` (`./fvm`).
 
-export type BudgetAllocation = {
+/** @deprecated Naudoti `BudgetAllocation` iš `@biip-finansai/shared/fvm` (Iter 9+). */
+export type LegacyBudgetAllocation = {
   id: number;
   budgetId: number;
   classifierItemId: number;
@@ -525,24 +535,43 @@ export type BudgetAllocation = {
   amount: string;
 };
 
+/** @deprecated Naudoti `FundingSource` + `BudgetAllocation` iš FVM modelio (Iter 9+). */
 export type Budget = {
   id: number;
   year: number;
   totalAmount: string;
   notes: string | null;
-  allocations: BudgetAllocation[];
+  allocations: LegacyBudgetAllocation[];
   /** Sumažintas allocations.amount; jei < totalAmount — likutis nepaskirstytas. */
   allocatedAmount?: string;
   /** Patvirtinta suma šio metų prašymuose (status='APPROVED', decisionGrantedAmount). */
   approvedAmount?: string;
 };
 
+/** @deprecated Naudoti `FundingSource` / `BudgetAllocation` CRUD endpoint'us (Iter 9+). */
 export type BudgetUpsertRequest = {
   year: number;
   totalAmount: string;
   notes?: string | null;
   allocations: Array<{ classifierItemId: number; amount: string }>;
 };
+
+// ---------- FVM (Iter 9+) ----------
+// Naujasis 2-lygio FVM modelis: 1) funding_sources (Iš kur pinigai?),
+// 2) budget_allocations (Kam skiriama?). Detali architektūra — `docs/fvm/01-architecture.md`.
+
+export type {
+  FundingSource,
+  FundingSourceCreateDTO,
+  FundingSourceUpdateDTO,
+  FundingSourceListQuery,
+  BudgetAllocation,
+  BudgetAllocationCreateDTO,
+  BudgetAllocationUpdateDTO,
+  BudgetAllocationListQuery,
+  BudgetAllocationSummary,
+  SpecProgTipas,
+} from './fvm';
 
 // ---------- Dashboard ----------
 

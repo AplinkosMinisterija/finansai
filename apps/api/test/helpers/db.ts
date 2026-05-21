@@ -124,3 +124,203 @@ export async function seedBaseFixtures(knex: Knex): Promise<BaseFixtures> {
 
   return { amTenantId, amAdminUserId };
 }
+
+export interface OrgTenantFixtures {
+  orgTenantId: number;
+  orgAdminUserId: number;
+  orgUserId: number;
+}
+
+/**
+ * Sukuria papildomą organizacijos tenant'ą (NE-AM, ne-approver) su admin ir
+ * paprastu user'iu. Naudojama permission test'ams (kad galima būtų patikrinti
+ * 403 atsakymus, kai ne-AM admin bando kurti/keisti FVM duomenis).
+ *
+ * Default'iniai kodai/usernames pasirinkti, kad nesidubliuotų su
+ * `seedBaseFixtures`'o AM tenant'o user'iais.
+ */
+export async function seedOrgTenant(
+  knex: Knex,
+  opts: { code?: string; name?: string } = {},
+): Promise<OrgTenantFixtures> {
+  const code = opts.code ?? 'AAD';
+  const name = opts.name ?? 'Aplinkos apsaugos departamentas';
+  const tenantRows = (await knex('tenants')
+    .insert({
+      code,
+      name,
+      description: 'Test fixture — org tenant',
+      is_approver: false,
+      active: true,
+    })
+    .returning('id')) as Array<{ id: number }>;
+  const orgTenantId = tenantRows[0]?.id;
+  if (orgTenantId === undefined) {
+    throw new Error('Test fixture: nepavyko sukurti org tenant');
+  }
+
+  const passwordHash = await bcrypt.hash('test', 10);
+  const adminRows = (await knex('users')
+    .insert({
+      username: `test-${code.toLowerCase()}-admin`,
+      password_hash: passwordHash,
+      full_name: `Test ${code} Admin`,
+      email: `test-${code.toLowerCase()}-admin@example.com`,
+      role: 'admin',
+      tenant_id: orgTenantId,
+      am_scope_org_ids: null,
+      active: true,
+    })
+    .returning('id')) as Array<{ id: number }>;
+  const orgAdminUserId = adminRows[0]?.id;
+  if (orgAdminUserId === undefined) {
+    throw new Error('Test fixture: nepavyko sukurti org admin user');
+  }
+
+  const userRows = (await knex('users')
+    .insert({
+      username: `test-${code.toLowerCase()}-user`,
+      password_hash: passwordHash,
+      full_name: `Test ${code} User`,
+      email: `test-${code.toLowerCase()}-user@example.com`,
+      role: 'user',
+      tenant_id: orgTenantId,
+      am_scope_org_ids: null,
+      active: true,
+    })
+    .returning('id')) as Array<{ id: number }>;
+  const orgUserId = userRows[0]?.id;
+  if (orgUserId === undefined) {
+    throw new Error('Test fixture: nepavyko sukurti org user');
+  }
+
+  return { orgTenantId, orgAdminUserId, orgUserId };
+}
+
+export interface FvmClassifierFixtures {
+  fundingSourceTypeGroupId: number;
+  fundingSourceTypeItemIds: {
+    biudzetas: number;
+    es: number;
+    kita: number;
+  };
+  budgetCategoryGroupId: number;
+  budgetCategoryItemIds: {
+    du: number;
+    spec_programa: number;
+    prekes_paslaugos: number;
+    investicijos: number;
+    kita: number;
+  };
+}
+
+interface ClassifierItemSeed {
+  code: string;
+  name: string;
+  sortOrder: number;
+}
+
+async function ensureGroup(
+  knex: Knex,
+  code: string,
+  name: string,
+  description: string,
+  items: ClassifierItemSeed[],
+): Promise<{ groupId: number; itemIdsByCode: Record<string, number> }> {
+  const existing = (await knex('classifier_groups')
+    .where({ code })
+    .first<{ id: number }>()) as { id: number } | undefined;
+  let groupId: number;
+  if (existing) {
+    groupId = existing.id;
+  } else {
+    const inserted = (await knex('classifier_groups')
+      .insert({ code, name, description, active: true })
+      .returning('id')) as Array<{ id: number }>;
+    const newId = inserted[0]?.id;
+    if (newId === undefined) {
+      throw new Error(`Test fixture: nepavyko sukurti grupės ${code}`);
+    }
+    groupId = newId;
+  }
+  const itemIdsByCode: Record<string, number> = {};
+  for (const item of items) {
+    const existingItem = (await knex('classifier_items')
+      .where({ group_id: groupId, code: item.code })
+      .first<{ id: number }>()) as { id: number } | undefined;
+    if (existingItem) {
+      itemIdsByCode[item.code] = existingItem.id;
+      continue;
+    }
+    const inserted = (await knex('classifier_items')
+      .insert({
+        group_id: groupId,
+        parent_id: null,
+        code: item.code,
+        name: item.name,
+        sort_order: item.sortOrder,
+        active: true,
+      })
+      .returning('id')) as Array<{ id: number }>;
+    const id = inserted[0]?.id;
+    if (id === undefined) {
+      throw new Error(`Test fixture: nepavyko sukurti item ${code}:${item.code}`);
+    }
+    itemIdsByCode[item.code] = id;
+  }
+  return { groupId, itemIdsByCode };
+}
+
+/**
+ * Įdeda FVM klasifikatorius (`funding_source_type` ir `budget_category` grupės
+ * + jų default items). Atitinka tai, ką daro
+ * `20260522100000_create_fvm_foundation.ts` migracija production'e — bet šiame
+ * test setup'e duomenys įdedami po `truncateAll`'o, tad reikia seedinti
+ * iš naujo per kiekvieną test'ą.
+ *
+ * Idempotent — jei grupė ar item'as jau yra, naudoja esamą ID.
+ */
+export async function seedFvmClassifiers(
+  knex: Knex,
+): Promise<FvmClassifierFixtures> {
+  const fundingSourceType = await ensureGroup(
+    knex,
+    'funding_source_type',
+    'Finansavimo šaltinio tipas',
+    'Test fixture — funding_source_type group',
+    [
+      { code: 'biudzetas', name: 'Valstybės biudžetas', sortOrder: 10 },
+      { code: 'es', name: 'ES fondai', sortOrder: 20 },
+      { code: 'kita', name: 'Kiti', sortOrder: 99 },
+    ],
+  );
+  const budgetCategory = await ensureGroup(
+    knex,
+    'budget_category',
+    'Biudžeto kategorija',
+    'Test fixture — budget_category group',
+    [
+      { code: 'du', name: 'Darbo užmokestis', sortOrder: 10 },
+      { code: 'spec_programa', name: 'Specialioji programa', sortOrder: 20 },
+      { code: 'prekes_paslaugos', name: 'Prekės ir paslaugos', sortOrder: 30 },
+      { code: 'investicijos', name: 'Investicijos', sortOrder: 40 },
+      { code: 'kita', name: 'Kita', sortOrder: 99 },
+    ],
+  );
+  return {
+    fundingSourceTypeGroupId: fundingSourceType.groupId,
+    fundingSourceTypeItemIds: {
+      biudzetas: fundingSourceType.itemIdsByCode['biudzetas']!,
+      es: fundingSourceType.itemIdsByCode['es']!,
+      kita: fundingSourceType.itemIdsByCode['kita']!,
+    },
+    budgetCategoryGroupId: budgetCategory.groupId,
+    budgetCategoryItemIds: {
+      du: budgetCategory.itemIdsByCode['du']!,
+      spec_programa: budgetCategory.itemIdsByCode['spec_programa']!,
+      prekes_paslaugos: budgetCategory.itemIdsByCode['prekes_paslaugos']!,
+      investicijos: budgetCategory.itemIdsByCode['investicijos']!,
+      kita: budgetCategory.itemIdsByCode['kita']!,
+    },
+  };
+}

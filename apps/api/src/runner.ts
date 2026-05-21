@@ -17,6 +17,8 @@ import requestsService from './services/requests.service';
 import dashboardService from './services/dashboard.service';
 import classifiersService from './services/classifiers.service';
 import budgetsService from './services/budgets.service';
+import fundingSourcesService from './services/fundingSources.service';
+import budgetAllocationsService from './services/budgetAllocations.service';
 import requestAttachmentsService from './services/requestAttachments.service';
 import requestReportsService from './services/requestReports.service';
 import { initDb, runMigrations, runSeeds, getKnex, closeDb } from './database/db';
@@ -95,6 +97,8 @@ async function main(): Promise<void> {
   broker.createService(dashboardService);
   broker.createService(classifiersService);
   broker.createService(budgetsService);
+  broker.createService(fundingSourcesService);
+  broker.createService(budgetAllocationsService);
   broker.createService(requestAttachmentsService);
   broker.createService(requestReportsService);
   broker.createService(apiService);

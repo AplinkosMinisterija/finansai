@@ -1,16 +1,27 @@
 /**
- * Biudžetų servisas (issue #1).
+ * Biudžetų servisas (issue #1) — DEPRECATED nuo Iter 9 (FVM-1).
  *
- * - list/get: visi autentifikuoti.
- * - upsert/delete: tik aprover tenant'o `admin` (AM admin).
+ * @deprecated
+ * Šis servisas operuoja SENĄJĄ vieno-lygio biudžeto schemą (`budgets` +
+ * `budget_allocations`). Iter 9 metu pakeičia 2-lygis FVM modelis:
  *
- * Upsert per metus: vienu kartu sukuria/atnaujina biudžetą + visus allocations.
+ *  - `fundingSources.service.ts` — 1 lygis (finansavimo šaltiniai)
+ *  - `budgetAllocations.service.ts` — 2 lygis (biudžeto paskirstymas)
+ *
+ * Šis servisas lieka aktyvus tik backward compat'ui (read-only `list`/`get`/
+ * `getByYear` per senas lenteles) iki Iter 16. Tada `budgets` +
+ * `budget_allocations` lentelės bus pašalintos, o `budget_allocations_v2`
+ * bus pervadinta į `budget_allocations` (be `_v2` suffix'o).
+ *
+ * Iter 9 metu funkcijų NEKEITĖM — tik pridėjom deprecated marker'į.
+ *
+ * Detali migration strategy — `docs/fvm/02-migration-strategy.md`.
  */
 import type { ServiceSchema, Context } from 'moleculer';
 import { Errors } from 'moleculer';
 import type {
   Budget as BudgetDTO,
-  BudgetAllocation as AllocationDTO,
+  LegacyBudgetAllocation as AllocationDTO,
   BudgetUpsertRequest,
 } from '@biip-finansai/shared';
 import { Budget } from '../models/Budget';

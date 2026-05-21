@@ -183,6 +183,8 @@ const ApiService: ServiceSchema = {
           'dashboard.*',
           'classifiers.*',
           'budgets.*',
+          'fundingSources.*',
+          'budgetAllocations.*',
           'requestAttachments.*',
           'requestReports.*',
         ],
@@ -232,6 +234,19 @@ const ApiService: ServiceSchema = {
           'GET /budgets/:id': 'budgets.get',
           'POST /budgets': 'budgets.upsert',
           'DELETE /budgets/:id': 'budgets.delete',
+
+          'GET /funding-sources': 'fundingSources.list',
+          'GET /funding-sources/:id': 'fundingSources.get',
+          'POST /funding-sources': 'fundingSources.create',
+          'PATCH /funding-sources/:id': 'fundingSources.update',
+          'DELETE /funding-sources/:id': 'fundingSources.delete',
+
+          'GET /budget-allocations': 'budgetAllocations.list',
+          'GET /budget-allocations/:id': 'budgetAllocations.get',
+          'GET /budget-allocations/:id/summary': 'budgetAllocations.summary',
+          'POST /budget-allocations': 'budgetAllocations.create',
+          'PATCH /budget-allocations/:id': 'budgetAllocations.update',
+          'DELETE /budget-allocations/:id': 'budgetAllocations.delete',
 
           'GET /requests/:requestId/attachments': 'requestAttachments.list',
           'POST /requests/:requestId/attachments': 'requestAttachments.upload',
