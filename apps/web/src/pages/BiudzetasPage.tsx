@@ -1,5 +1,5 @@
 /**
- * Biudžeto paskirstymų puslapis (Iter 9, FVM-1 refactor).
+ * Biudžeto paskirstymų puslapis (Iter 9, FVM-1 refactor + Iter 12, FVM-4).
  *
  * Pervadintas iš senojo 1-lygio biudžeto modelio į naują 2-lygio FVM modelį
  * (žr. `docs/fvm/01-architecture.md`). Senasis `Budget` + `LegacyBudgetAllocation`
@@ -10,15 +10,30 @@
  *  - šaltinis (dropdown su funding sources)
  *  - kategorija (klasifikatorius `budget_category`)
  *
+ * Iter 12: kiekviena eilutė papildyta faktinė / likutis / % panaudota
+ * kolonomis su warning badge'ais (≥80% — geltonas; >100% — raudonas).
+ * Suvestinė per `expenses.budgetSummary` (bulk endpoint) — vienas užklausimas
+ * vietoj N+1 per row. Po sekcijos rodomas „Įspėjimai" sąrašas su visomis
+ * warning eilutėmis tiems patiems metams.
+ *
  * AM administratoriai mato „Naujas paskirstymas" mygtuką ir edit/delete eilutės
  * veiksmus. Klikinti eilutę — atveria BudgetAllocationDialog edit režime.
  */
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { Pencil, Plus, Trash2, Wallet } from 'lucide-react';
+import {
+  AlertTriangle,
+  Pencil,
+  Plus,
+  Trash2,
+  TriangleAlert,
+  Wallet,
+} from 'lucide-react';
 import type {
   BudgetAllocation,
+  BudgetWarningItem,
+  BudgetWarningsResponse,
   ClassifierItem,
   FundingSource,
 } from '@biip-finansai/shared';
@@ -34,11 +49,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { BudgetWarningsList } from '@/components/charts/BudgetWarningsList';
 import { BudgetAllocationDialog } from '@/components/budget-allocations/BudgetAllocationDialog';
 import { useAuth } from '@/lib/auth';
 import { canManageBudget } from '@/lib/roles';
 import { classifierItemsList } from '@/lib/api';
-import { budgetAllocationsApi, fundingSourcesApi } from '@/lib/api/fvm';
+import {
+  budgetAllocationsApi,
+  expensesApi,
+  fundingSourcesApi,
+} from '@/lib/api/fvm';
+import { cn } from '@/lib/utils';
 
 const ALL_VALUE = '__all__';
 
@@ -88,11 +109,20 @@ export default function BiudzetasPage(): JSX.Element {
       }),
   });
 
+  // Iter 12 — biudžeto suvestinė per bulk endpoint'ą. Aktyvi tik kai year
+  // pasirinktas (tikslinga konkretiems metams). Jei „Visi metai" — neužkraunam.
+  const summaryQ = useQuery<BudgetWarningsResponse>({
+    queryKey: ['budgetWarnings', { year }],
+    queryFn: () => expensesApi.budgetSummary({ year: year! }),
+    enabled: year !== null,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => budgetAllocationsApi.remove(id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['budgetAllocations'] });
       void qc.invalidateQueries({ queryKey: ['fundingSources'] });
+      void qc.invalidateQueries({ queryKey: ['budgetWarnings'] });
     },
     onError: (err: unknown) => {
       let msg = 'Nepavyko ištrinti paskirstymo.';
@@ -115,10 +145,24 @@ export default function BiudzetasPage(): JSX.Element {
   const categories = (categoriesQ.data ?? []).filter((c) => c.active);
   const items = listQ.data ?? [];
 
+  // Suvestinė per allocationId — Map'as quick lookup'ui.
+  const summaryByAllocation = React.useMemo<Map<number, BudgetWarningItem>>(() => {
+    const m = new Map<number, BudgetWarningItem>();
+    for (const w of summaryQ.data?.items ?? []) {
+      m.set(w.allocationId, w);
+    }
+    return m;
+  }, [summaryQ.data]);
+
   const totalPlanuota = items.reduce(
     (acc, a) => acc + (Number.parseFloat(a.planuotaSuma) || 0),
     0,
   );
+  const totalFaktine = items.reduce((acc, a) => {
+    const s = summaryByAllocation.get(a.id);
+    return acc + (s ? Number.parseFloat(s.faktine) || 0 : 0);
+  }, 0);
+  const totalLikutis = totalPlanuota - totalFaktine;
 
   const years: number[] = [];
   for (let y = now.getFullYear() - 1; y <= now.getFullYear() + 5; y += 1) {
@@ -259,96 +303,187 @@ export default function BiudzetasPage(): JSX.Element {
                     <th className="px-3 py-2 font-semibold">Kategorija</th>
                     <th className="px-3 py-2 font-semibold">Pavadinimas</th>
                     <th className="px-3 py-2 text-right font-semibold">Planuota</th>
-                    <th className="px-3 py-2 font-semibold">Spec.prog. tipas</th>
+                    <th className="px-3 py-2 text-right font-semibold">Faktinė</th>
+                    <th className="px-3 py-2 text-right font-semibold">Likutis</th>
+                    <th className="px-3 py-2 text-right font-semibold">% panaud.</th>
                     <th className="px-3 py-2 text-right font-semibold">Veiksmai</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {items.map((a) => (
-                    <tr
-                      key={a.id}
-                      className="cursor-pointer hover:bg-muted/40"
-                      data-testid={`budget-allocation-row-${a.id}`}
-                      onClick={() => {
-                        if (canEdit) setDialog({ mode: 'edit', allocation: a });
-                      }}
-                    >
-                      <td className="px-3 py-2">
-                        <div className="flex flex-col">
-                          <span className="text-xs text-muted-foreground">
-                            {a.fundingSourceCode ?? `#${a.fundingSourceId}`}
-                          </span>
-                          <span>{a.fundingSourceName ?? '—'}</span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2">
-                        {a.categoryName ? (
-                          <Badge variant="secondary" className="text-[10px]">
-                            {a.categoryName}
-                          </Badge>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className="px-3 py-2 font-medium">{a.pavadinimas}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {formatEur(a.planuotaSuma)}
-                      </td>
-                      <td className="px-3 py-2 text-xs">
-                        {a.specProgTipas === 'atskiras'
-                          ? 'Atskiras'
-                          : a.specProgTipas === 'biudzeto_dalis'
-                            ? 'Biudžeto dalis'
-                            : '—'}
-                      </td>
-                      <td
-                        className="px-3 py-2 text-right"
-                        onClick={(e) => e.stopPropagation()}
+                  {items.map((a) => {
+                    const s = summaryByAllocation.get(a.id);
+                    const tone = s?.isOver
+                      ? 'destructive'
+                      : s?.isWarning
+                        ? 'warning'
+                        : 'default';
+                    return (
+                      <tr
+                        key={a.id}
+                        className="cursor-pointer hover:bg-muted/40"
+                        data-testid={`budget-allocation-row-${a.id}`}
+                        data-tone={tone}
+                        onClick={() => {
+                          if (canEdit) setDialog({ mode: 'edit', allocation: a });
+                        }}
                       >
-                        {canEdit ? (
-                          <div className="inline-flex gap-1">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={() =>
-                                setDialog({ mode: 'edit', allocation: a })
-                              }
-                              title="Redaguoti"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => handleDelete(a)}
-                              title="Ištrinti"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-col">
+                            <span className="text-xs text-muted-foreground">
+                              {a.fundingSourceCode ?? `#${a.fundingSourceId}`}
+                            </span>
+                            <span>{a.fundingSourceName ?? '—'}</span>
                           </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-3 py-2">
+                          {a.categoryName ? (
+                            <Badge variant="secondary" className="text-[10px]">
+                              {a.categoryName}
+                            </Badge>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-medium">
+                          <div className="flex flex-col gap-1">
+                            <span>{a.pavadinimas}</span>
+                            {a.specProgTipas && (
+                              <span className="text-[10px] text-muted-foreground">
+                                {a.specProgTipas === 'atskiras'
+                                  ? 'Atskiras finansavimas'
+                                  : 'Biudžeto dalis'}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatEur(a.planuotaSuma)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {s ? (
+                            formatEur(s.faktine)
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {year === null ? '—' : '…'}
+                            </span>
+                          )}
+                        </td>
+                        <td
+                          className={cn(
+                            'px-3 py-2 text-right tabular-nums',
+                            s?.isOver && 'text-destructive font-medium',
+                          )}
+                        >
+                          {s ? formatEur(s.likutis) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          {s ? (
+                            <div className="flex items-center justify-end gap-1.5">
+                              {s.isOver ? (
+                                <Badge
+                                  variant="destructive"
+                                  className="text-[10px]"
+                                  data-testid={`budget-warning-badge-${a.id}`}
+                                >
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Viršyta
+                                </Badge>
+                              ) : s.isWarning ? (
+                                <Badge
+                                  variant="warning"
+                                  className="text-[10px]"
+                                  data-testid={`budget-warning-badge-${a.id}`}
+                                >
+                                  <TriangleAlert className="h-3 w-3" />
+                                  {s.percentUsed.toFixed(1)}%
+                                </Badge>
+                              ) : (
+                                <span className="tabular-nums text-xs text-muted-foreground">
+                                  {s.percentUsed.toFixed(1)}%
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td
+                          className="px-3 py-2 text-right"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {canEdit ? (
+                            <div className="inline-flex gap-1">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  setDialog({ mode: 'edit', allocation: a })
+                                }
+                                title="Redaguoti"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => handleDelete(a)}
+                                title="Ištrinti"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot className="border-t border-border bg-muted/30">
                   <tr>
                     <td colSpan={3} className="px-3 py-2 text-right font-semibold">
-                      Viso planuojama:
+                      Iš viso:
                     </td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums">
                       {formatEur(totalPlanuota)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                      {summaryQ.data ? formatEur(totalFaktine) : '—'}
+                    </td>
+                    <td
+                      className={cn(
+                        'px-3 py-2 text-right font-semibold tabular-nums',
+                        summaryQ.data && totalLikutis < 0 && 'text-destructive',
+                      )}
+                    >
+                      {summaryQ.data ? formatEur(totalLikutis) : '—'}
                     </td>
                     <td colSpan={2} />
                   </tr>
                 </tfoot>
               </table>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Įspėjimai — visi allocations su isWarning=true tiems metams. */}
+      {year !== null && (
+        <Card className="mt-4">
+          <CardContent className="p-4">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+              <AlertTriangle className="h-4 w-4 text-orange-600" />
+              Įspėjimai ({year} m.)
+            </h2>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Biudžeto paskirstymai, kurių panaudojimas siekia 80% arba viršija
+              planuotą sumą.
+            </p>
+            <BudgetWarningsList year={year} topN={50} onlyWarnings={true} />
           </CardContent>
         </Card>
       )}
@@ -366,6 +501,7 @@ export default function BiudzetasPage(): JSX.Element {
           onSuccess={() => {
             void qc.invalidateQueries({ queryKey: ['budgetAllocations'] });
             void qc.invalidateQueries({ queryKey: ['fundingSources'] });
+            void qc.invalidateQueries({ queryKey: ['budgetWarnings'] });
             setDialog(null);
           }}
         />

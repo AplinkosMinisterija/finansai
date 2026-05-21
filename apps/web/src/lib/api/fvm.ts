@@ -1,10 +1,12 @@
 /**
- * FVM (Finansų valdymo modelio) API klientas — Iter 9 (FVM-1) + Iter 11 (FVM-3).
+ * FVM (Finansų valdymo modelio) API klientas — Iter 9 (FVM-1) + Iter 11 (FVM-3) +
+ * Iter 12 (FVM-4).
  *
- * Apima 1, 2 ir 3 FVM lygius:
+ * Apima 1, 2 ir 3 FVM lygius bei faktines išlaidas:
  *  - `fundingSourcesApi` — finansavimo šaltiniai („Iš kur pinigai?")
  *  - `budgetAllocationsApi` — biudžeto paskirstymai („Kam skiriama?")
  *  - `projectsApi` — projektai / spec.programos / veiklos („Kas konkrečiai išleidžia?")
+ *  - `expensesApi` — faktinės išlaidos su multi-source split (Iter 12)
  *
  * Backend route'ai (žr. `apps/api/src/services/api.service.ts`):
  *  - /api/funding-sources
@@ -13,6 +15,9 @@
  *  - /api/projects
  *  - /api/projects/:id/status
  *  - /api/projects/:id/summary
+ *  - /api/expenses
+ *  - /api/expenses/:id
+ *  - /api/expenses/budget-summary
  *
  * Tipai — `@biip-finansai/shared` (`fvm.ts`).
  */
@@ -22,6 +27,11 @@ import type {
   BudgetAllocationListQuery,
   BudgetAllocationSummary,
   BudgetAllocationUpdateDTO,
+  BudgetWarningsResponse,
+  Expense,
+  ExpenseCreateDTO,
+  ExpenseListQuery,
+  ExpenseUpdateDTO,
   FundingSource,
   FundingSourceCreateDTO,
   FundingSourceListQuery,
@@ -189,4 +199,67 @@ export const projectsApi = {
   update: projectUpdate,
   remove: projectRemove,
   changeStatus: projectChangeStatus,
+};
+
+// ---------- Išlaidos (Iter 12, FVM-4) ----------
+
+async function expensesList(query: ExpenseListQuery = {}): Promise<Expense[]> {
+  const params: Record<string, string | number> = {};
+  if (query.projectId !== undefined) params.projectId = query.projectId;
+  if (query.allocationId !== undefined) params.allocationId = query.allocationId;
+  if (query.year !== undefined) params.year = query.year;
+  if (query.type !== undefined) params.type = query.type;
+  if (query.dateFrom !== undefined && query.dateFrom !== '')
+    params.dateFrom = query.dateFrom;
+  if (query.dateTo !== undefined && query.dateTo !== '')
+    params.dateTo = query.dateTo;
+  if (query.fundingSourceId !== undefined)
+    params.fundingSourceId = query.fundingSourceId;
+  const { data } = await api.get<Expense[]>('/expenses', { params });
+  return data;
+}
+
+async function expenseGet(id: number): Promise<Expense> {
+  const { data } = await api.get<Expense>(`/expenses/${id}`);
+  return data;
+}
+
+async function expenseCreate(body: ExpenseCreateDTO): Promise<Expense> {
+  const { data } = await api.post<Expense>('/expenses', body);
+  return data;
+}
+
+async function expenseUpdate(
+  id: number,
+  patch: ExpenseUpdateDTO,
+): Promise<Expense> {
+  const { data } = await api.patch<Expense>(`/expenses/${id}`, patch);
+  return data;
+}
+
+async function expenseRemove(id: number): Promise<{ ok: true }> {
+  const { data } = await api.delete<{ ok: true }>(`/expenses/${id}`);
+  return data;
+}
+
+async function expensesBudgetSummary(query: {
+  year: number;
+  projectId?: number;
+}): Promise<BudgetWarningsResponse> {
+  const params: Record<string, string | number> = { year: query.year };
+  if (query.projectId !== undefined) params.projectId = query.projectId;
+  const { data } = await api.get<BudgetWarningsResponse>(
+    '/expenses/budget-summary',
+    { params },
+  );
+  return data;
+}
+
+export const expensesApi = {
+  list: expensesList,
+  get: expenseGet,
+  create: expenseCreate,
+  update: expenseUpdate,
+  remove: expenseRemove,
+  budgetSummary: expensesBudgetSummary,
 };

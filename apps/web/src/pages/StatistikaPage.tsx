@@ -8,7 +8,15 @@
  *  - Bendros sumos (cards)
  */
 import { useQuery } from '@tanstack/react-query';
-import { Activity, BarChart3, Layers, PieChart, TrendingDown, TrendingUp } from 'lucide-react';
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  Layers,
+  PieChart,
+  TrendingDown,
+  TrendingUp,
+} from 'lucide-react';
 import type { DashboardData } from '@biip-finansai/shared';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -21,6 +29,7 @@ import { PerTenantBarChart } from '@/components/charts/PerTenantBarChart';
 import { StatusCountAmountChart } from '@/components/charts/StatusCountAmountChart';
 import { CostCategoryChart } from '@/components/charts/CostCategoryChart';
 import { BudgetCategoryChart } from '@/components/charts/BudgetCategoryChart';
+import { BudgetWarningsList } from '@/components/charts/BudgetWarningsList';
 import { dashboardGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { fmtEur } from '@/lib/requests';
@@ -165,6 +174,21 @@ export default function StatistikaPage(): JSX.Element {
           </CardContent>
         </Card>
       )}
+
+      {/* Biudžeto įspėjimai (Iter 12, F11) — top 5 allocations su didžiausiu panaudojimu */}
+      <Card>
+        <CardContent className="p-4">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <AlertTriangle className="h-4 w-4 text-orange-600" />
+            Biudžeto įspėjimai ({d.year} m.)
+          </h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Biudžeto paskirstymai, pasiekę 80% ar daugiau panaudojimo. Rikiavimas
+            pagal panaudojimo procentą — pirmieji svarbiausi.
+          </p>
+          <BudgetWarningsList year={d.year} topN={5} onlyWarnings={true} />
+        </CardContent>
+      </Card>
 
       {/* Pjūvis pagal FVM biudžeto kategoriją (Iter 10, P06 docx §3.4) */}
       <Card>

@@ -1,5 +1,5 @@
 /**
- * Projekto detalės puslapis (Iter 11, FVM-3).
+ * Projekto detalės puslapis (Iter 11, FVM-3 + Iter 12, FVM-4).
  *
  * Rodo:
  *  - antraštę su pavadinimu + tipo + statuso badge'us
@@ -7,8 +7,9 @@
  *  - susietą prašymą (jei spec_programa)
  *  - susietą biudžeto paskirstymą (su nuoroda į /biudzetas su filtru)
  *  - aprašymą
- *  - biudžeto suvestinę (planuota / panaudota / likutis) — kviečia summary endpoint
- *  - placeholder „Išlaidos" — pažymėta Iter 12
+ *  - biudžeto suvestinę (planuota / panaudota / likutis) su progress bar'u ir
+ *    isWarning / isOver flag'ais — kviečia `projects.summary` endpoint
+ *  - „Išlaidos" sąrašas (Iter 12) — pridėti / redaguoti / ištrinti
  *
  * Veiksmai:
  *  - „Redaguoti" — AM admin + org_admin → atveria ProjectDialog
@@ -34,6 +35,8 @@ import { useAuth } from '@/lib/auth';
 import { projectsApi } from '@/lib/api/fvm';
 import { toast } from '@/lib/use-toast';
 import { cn } from '@/lib/utils';
+import { BudgetWarningBanner } from '@/components/expenses/BudgetWarningBanner';
+import { ExpensesSection } from '@/components/expenses/ExpensesSection';
 import { ProjectDialog } from '@/components/projects/ProjectDialog';
 import { ProjectStatusBadge } from '@/components/projects/ProjectStatusBadge';
 import { ProjectStatusChangeDialog } from '@/components/projects/ProjectStatusChangeDialog';
@@ -272,14 +275,11 @@ export default function ProjektoDetailPage(): JSX.Element {
             </Card>
           )}
 
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="mb-3 text-sm font-semibold">Išlaidos</h3>
-              <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">
-                Išlaidos rodomos po Iter 12 įgyvendinimo.
-              </p>
-            </CardContent>
-          </Card>
+          <ExpensesSection
+            projectId={projectId}
+            defaultAllocationId={p.budgetAllocationId}
+            projectTenantId={p.tenantId}
+          />
         </div>
 
         <div className="space-y-4">
@@ -311,6 +311,9 @@ export default function ProjektoDetailPage(): JSX.Element {
           }}
           onSuccess={() => {
             void qc.invalidateQueries({ queryKey: ['projects'] });
+            void qc.invalidateQueries({
+              queryKey: ['projects', projectId, 'summary'],
+            });
             toast({ title: 'Projektas atnaujintas', variant: 'success' });
             setEditing(false);
           }}
@@ -326,6 +329,9 @@ export default function ProjektoDetailPage(): JSX.Element {
           }}
           onSuccess={() => {
             void qc.invalidateQueries({ queryKey: ['projects'] });
+            void qc.invalidateQueries({
+              queryKey: ['projects', projectId, 'summary'],
+            });
             toast({ title: 'Statusas atnaujintas', variant: 'success' });
             setStatusChanging(false);
           }}
@@ -345,42 +351,17 @@ function SummaryBox({ summary }: SummaryBoxProps): JSX.Element {
       <p className="text-sm text-muted-foreground">Nėra suvestinės duomenų.</p>
     );
   }
-  const likutisNum = Number.parseFloat(summary.likutis) || 0;
   return (
-    <div className="space-y-2 text-sm">
-      <Stat label="Biudžetas" value={formatEur(summary.biudzetas)} />
-      <Stat label="Panaudota" value={formatEur(summary.panaudota)} />
-      <Stat
-        label={likutisNum < -0.005 ? 'Viršyta' : 'Likutis'}
-        value={formatEur(Math.abs(likutisNum))}
-        tone={likutisNum < -0.005 ? 'destructive' : 'default'}
-      />
-      <p className="text-[11px] text-muted-foreground">
-        Panaudota = 0 iki Iter 12 (išlaidų sluoksnio) įgyvendinimo.
-      </p>
-    </div>
-  );
-}
-
-interface StatProps {
-  label: string;
-  value: string;
-  tone?: 'default' | 'destructive';
-}
-
-function Stat({ label, value, tone = 'default' }: StatProps): JSX.Element {
-  return (
-    <div
-      className={cn(
-        'flex items-center justify-between rounded-md border border-border px-3 py-2',
-        tone === 'destructive' && 'border-destructive/30 bg-destructive/5 text-destructive',
-      )}
-    >
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      <span className="font-semibold tabular-nums">{value}</span>
-    </div>
+    <BudgetWarningBanner
+      planuotaLabel="Biudžetas"
+      panaudotaLabel="Panaudota"
+      planuota={summary.biudzetas}
+      panaudota={summary.panaudota}
+      likutis={summary.likutis}
+      percentUsed={summary.percentUsed}
+      isWarning={summary.isWarning}
+      isOver={summary.isOver}
+    />
   );
 }
 
