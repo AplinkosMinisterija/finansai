@@ -34,6 +34,7 @@ import type {
   BudgetAllocationListQuery,
   BudgetAllocationSummary,
   BudgetAllocationUpdateDTO,
+  BudgetExecutionReport,
   BudgetWarningsResponse,
   ComputeMonthResponse,
   Expense,
@@ -47,6 +48,7 @@ import type {
   PayrollDistribution,
   PayrollDistributionCreateDTO,
   PayrollDistributionListQuery,
+  PayrollDistributionReport,
   PayrollDistributionUpdateDTO,
   PayrollProfile,
   PayrollProfileCreateDTO,
@@ -58,6 +60,7 @@ import type {
   ProjectListQuery,
   ProjectSummary,
   ProjectUpdateDTO,
+  SpecProgramReport,
 } from '@biip-finansai/shared';
 import { api } from '@/lib/api';
 
@@ -386,4 +389,181 @@ export const payrollApi = {
   updateDistribution: payrollDistributionUpdate,
   removeDistribution: payrollDistributionRemove,
   computeMonth: payrollComputeMonth,
+};
+
+// ---------- Ataskaitos (Iter 14, FVM-6) ----------
+//
+// 3 ataskaitos su 3 eksporto formatais:
+//  - JSON: struktūruoti duomenys lentelės renderavimui (BudgetExecutionReport etc.)
+//  - xlsx | pdf: binary Buffer per server → klientui pasiūlome failo download'ą
+//
+// SAUGUMAS: backend per `requireDuAccess` 403'ina specialistų payroll distribution
+// užklausas; UI papildomai paslepia DU tab'ą per `canViewPayroll`.
+
+/** Biudžeto vykdymo ataskaita JSON formatu (F12). */
+async function reportsBudgetExecution(query: {
+  year: number;
+  tenantId?: number;
+}): Promise<BudgetExecutionReport> {
+  const params: Record<string, string | number> = { year: query.year };
+  if (query.tenantId !== undefined) params.tenantId = query.tenantId;
+  const { data } = await api.get<BudgetExecutionReport>(
+    '/reports/budget-execution',
+    { params },
+  );
+  return data;
+}
+
+/** Spec. programų ataskaita JSON formatu (F13). */
+async function reportsSpecProgramExecution(query: {
+  year: number;
+  tenantId?: number;
+}): Promise<SpecProgramReport> {
+  const params: Record<string, string | number> = { year: query.year };
+  if (query.tenantId !== undefined) params.tenantId = query.tenantId;
+  const { data } = await api.get<SpecProgramReport>(
+    '/reports/spec-program-execution',
+    { params },
+  );
+  return data;
+}
+
+/** DU paskirstymo ataskaita JSON formatu (F14, permission-gated). */
+async function reportsPayrollDistribution(query: {
+  from: string;
+  to: string;
+  tenantId?: number;
+}): Promise<PayrollDistributionReport> {
+  const params: Record<string, string | number> = {
+    from: query.from,
+    to: query.to,
+  };
+  if (query.tenantId !== undefined) params.tenantId = query.tenantId;
+  const { data } = await api.get<PayrollDistributionReport>(
+    '/reports/payroll-distribution',
+    { params },
+  );
+  return data;
+}
+
+/**
+ * Binary blob atsisiuntimas — naudoja browser native fetch
+ * (axios serializuoja binarius keistai per JSON Content-Type interceptor'ą,
+ * todėl čia einame tiesiai į `fetch` su `credentials: 'include'`, kad
+ * session cookie eitų į /api).
+ *
+ * Backend prie xlsx/pdf prideda `Content-Disposition: attachment; filename=...`
+ * header'į; client'as parsina jį `Content-Disposition` parser'iu, jei `fallback'as`
+ * niekur kitur nepateiktas.
+ */
+async function downloadBlob(url: string, fallbackFileName: string): Promise<void> {
+  const response = await fetch(url, { credentials: 'include' });
+  if (!response.ok) {
+    throw new Error(
+      `Nepavyko parsisiųsti failo (HTTP ${response.status}).`,
+    );
+  }
+  const disposition = response.headers.get('content-disposition') ?? '';
+  const fileName = extractFileName(disposition) ?? fallbackFileName;
+  const blob = await response.blob();
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objUrl;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objUrl);
+}
+
+/**
+ * Parsina filename iš `Content-Disposition` header'io
+ * (palaiko RFC 5987 `filename*=UTF-8''encoded` formą — backend taip kuria).
+ */
+function extractFileName(disposition: string): string | null {
+  // filename*=UTF-8''encoded
+  const utf8Match = disposition.match(
+    /filename\*=UTF-8''([^;]+)/i,
+  );
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      // ignoruoti
+    }
+  }
+  // filename="..."
+  const plainMatch = disposition.match(/filename="([^"]+)"/i);
+  if (plainMatch?.[1]) return plainMatch[1];
+  return null;
+}
+
+function buildExportUrl(
+  path: string,
+  params: Record<string, string | number>,
+): string {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    search.append(k, String(v));
+  }
+  return `/api${path}?${search.toString()}`;
+}
+
+/** F12 — Biudžeto vykdymo Excel/PDF eksportas (Blob → file download). */
+async function reportsBudgetExecutionDownload(args: {
+  year: number;
+  tenantId?: number;
+  format: 'xlsx' | 'pdf';
+}): Promise<void> {
+  const params: Record<string, string | number> = {
+    year: args.year,
+    format: args.format,
+  };
+  if (args.tenantId !== undefined) params.tenantId = args.tenantId;
+  const url = buildExportUrl('/reports/budget-execution', params);
+  const fallback = `biudzeto-vykdymas-${args.year}.${args.format}`;
+  await downloadBlob(url, fallback);
+}
+
+/** F13 — Spec. programų ataskaitos Excel/PDF eksportas. */
+async function reportsSpecProgramExecutionDownload(args: {
+  year: number;
+  tenantId?: number;
+  format: 'xlsx' | 'pdf';
+}): Promise<void> {
+  const params: Record<string, string | number> = {
+    year: args.year,
+    format: args.format,
+  };
+  if (args.tenantId !== undefined) params.tenantId = args.tenantId;
+  const url = buildExportUrl('/reports/spec-program-execution', params);
+  const fallback = `spec-programos-${args.year}.${args.format}`;
+  await downloadBlob(url, fallback);
+}
+
+/** F14 — DU paskirstymo Excel/PDF eksportas (permission-gated). */
+async function reportsPayrollDistributionDownload(args: {
+  from: string;
+  to: string;
+  tenantId?: number;
+  format: 'xlsx' | 'pdf';
+}): Promise<void> {
+  const params: Record<string, string | number> = {
+    from: args.from,
+    to: args.to,
+    format: args.format,
+  };
+  if (args.tenantId !== undefined) params.tenantId = args.tenantId;
+  const url = buildExportUrl('/reports/payroll-distribution', params);
+  const fallback = `du-paskirstymas-${args.from}-${args.to}.${args.format}`;
+  await downloadBlob(url, fallback);
+}
+
+export const reportsApi = {
+  budgetExecution: reportsBudgetExecution,
+  budgetExecutionDownload: reportsBudgetExecutionDownload,
+  specProgramExecution: reportsSpecProgramExecution,
+  specProgramExecutionDownload: reportsSpecProgramExecutionDownload,
+  payrollDistribution: reportsPayrollDistribution,
+  payrollDistributionDownload: reportsPayrollDistributionDownload,
 };

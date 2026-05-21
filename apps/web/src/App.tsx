@@ -18,6 +18,7 @@ const FinansavimoSaltiniaiPage = lazy(() => import('@/pages/FinansavimoSaltiniai
 const ProjektaiPage = lazy(() => import('@/pages/ProjektaiPage'));
 const ProjektoDetailPage = lazy(() => import('@/pages/ProjektoDetailPage'));
 const DuPage = lazy(() => import('@/pages/DuPage'));
+const AtaskaitosPage = lazy(() => import('@/pages/AtaskaitosPage'));
 
 function RouteFallback(): JSX.Element {
   return (
@@ -56,6 +57,7 @@ export default function App(): JSX.Element {
           <Route path="/projektai" element={<ProjektaiPage />} />
           <Route path="/projektai/:id" element={<ProjektoDetailPage />} />
           <Route path="/du" element={<DuPage />} />
+          <Route path="/ataskaitos" element={<AtaskaitosPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
