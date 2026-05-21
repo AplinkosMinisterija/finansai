@@ -146,6 +146,24 @@ describe('FVM foundation migration', () => {
 
       // Rollback FVM migration only (nepaliekam senųjų po setup'o).
       // currentVersion turi būti FVM — global-setup paleido latest.
+      //
+      // PASTABA (Iter 11): nuo Iter 11 yra `projects` lentelė su FK į
+      // `budget_allocations_v2`. Norint rollback'inti Iter 9 (foundation),
+      // pirma reikia rollback'inti vėlesnes migracijas. Patikimiausias kelias —
+      // eksplicitiškai drop'inti `projects` lentelę jei ji egzistuoja
+      // (Iter 11 down'as) ir `fvm_project_id` FK iš requests, paskui
+      // rollback'inti Iter 10 ir Iter 9 per `migrate.down`.
+      const hasProjects = await knex.schema.hasTable('projects');
+      if (hasProjects) {
+        await knex.migrate.down({ name: '20260524100000_create_projects.ts' });
+      }
+      const hasFvmFields = await knex.schema.hasColumn('requests', 'fvm_project_id');
+      if (hasFvmFields) {
+        await knex.migrate.down({
+          name: '20260523100000_add_fvm_fields_to_requests.ts',
+        });
+      }
+      // Dabar likę paleistos tik iki Iter 9 imtinai — rollback'inam pačią Iter 9.
       await knex.migrate.down({ name: FVM_MIGRATION });
 
       // Seed AM tenant + admin user.
@@ -287,6 +305,23 @@ describe('FVM foundation migration', () => {
       expect(hasBav2).toBe(true);
 
       // Roll'inam migraciją down.
+      // PASTABA (Iter 11): nuo Iter 11 yra `projects` lentelė su FK į
+      // `budget_allocations_v2`. Pirma rollback'inam vėlesnes migracijas
+      // (Iter 10, Iter 11), tada pačią Iter 9 (foundation). Žr. analogišką
+      // paaiškinimą Test 1.
+      const hasProjectsHere = await knex.schema.hasTable('projects');
+      if (hasProjectsHere) {
+        await knex.migrate.down({ name: '20260524100000_create_projects.ts' });
+      }
+      const hasFvmFieldsHere = await knex.schema.hasColumn(
+        'requests',
+        'fvm_project_id',
+      );
+      if (hasFvmFieldsHere) {
+        await knex.migrate.down({
+          name: '20260523100000_add_fvm_fields_to_requests.ts',
+        });
+      }
       await knex.migrate.down({ name: FVM_MIGRATION });
     });
 

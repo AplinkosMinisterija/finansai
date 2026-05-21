@@ -275,6 +275,19 @@ describe('FVM request fields migration (Iter 10)', () => {
       legacyRequestId = id;
 
       // Roll'inam šią migraciją down.
+      //
+      // PASTABA (Iter 11): Iter 11 sukūrė FK `requests.fvm_project_id ->
+      // projects.id`. Drop'inant Iter 10 (kuri sukūrė `fvm_project_id`
+      // koloną), kartu drop'inasi ir Iter 11 sukurtas FK. Tai būtų pažeidė
+      // Iter 11 schema konsistencija. Todėl pirma rollback'inam Iter 11
+      // (`projects` + FK), tik paskui Iter 10. Po `afterAll` `migrate.latest()`
+      // abi atstatomos.
+      const hasProjects = await knex.schema.hasTable('projects');
+      if (hasProjects) {
+        await knex.migrate.down({
+          name: '20260524100000_create_projects.ts',
+        });
+      }
       await knex.migrate.down({ name: FVM_REQUESTS_MIGRATION });
     });
 
