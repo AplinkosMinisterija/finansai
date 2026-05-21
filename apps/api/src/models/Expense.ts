@@ -64,6 +64,17 @@ export class Expense extends BaseModel {
    * NULL — single-source (default per `budget_allocation.funding_source_id`).
    */
   saltinioDalis!: ExpenseSourceDistributionRow[] | null;
+  /**
+   * Tiesioginė nuoroda į `payroll_profiles` (Iter 14 — FVM-6 reports).
+   *
+   * NULL visiems ne-DU expense'ams. DU expense'ams set'ina
+   * `payroll.computeMonth` — naudojama `reports.payrollDistribution` per
+   * profile agregavimui (vietoj trapus `aprasymas` parse'o).
+   *
+   * FK ON DELETE SET NULL: jei profilis ištrinamas, expense'as išlieka
+   * audit trail'ui, bet susiejimas pranyksta.
+   */
+  payrollProfileId!: number | null;
   createdByUserId!: number;
   createdAt!: string;
   updatedAt!: string;
@@ -72,6 +83,7 @@ export class Expense extends BaseModel {
   project?: import('./Project').Project;
   budgetAllocation?: import('./BudgetAllocationV2').BudgetAllocationV2;
   createdByUser?: import('./User').User;
+  payrollProfile?: import('./PayrollProfile').PayrollProfile;
 
   static override get jsonSchema(): JSONSchema {
     return {
@@ -108,6 +120,7 @@ export class Expense extends BaseModel {
             additionalProperties: false,
           },
         },
+        payrollProfileId: { type: ['integer', 'null'] },
         createdByUserId: { type: 'integer' },
         createdAt: { type: 'string' },
         updatedAt: { type: 'string' },
@@ -123,6 +136,9 @@ export class Expense extends BaseModel {
       require('./BudgetAllocationV2') as typeof import('./BudgetAllocationV2');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { User } = require('./User') as typeof import('./User');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PayrollProfile } =
+      require('./PayrollProfile') as typeof import('./PayrollProfile');
 
     return {
       project: {
@@ -142,6 +158,14 @@ export class Expense extends BaseModel {
         relation: BaseModel.BelongsToOneRelation,
         modelClass: User,
         join: { from: 'expenses.created_by_user_id', to: 'users.id' },
+      },
+      payrollProfile: {
+        relation: BaseModel.BelongsToOneRelation,
+        modelClass: PayrollProfile,
+        join: {
+          from: 'expenses.payroll_profile_id',
+          to: 'payroll_profiles.id',
+        },
       },
     };
   }

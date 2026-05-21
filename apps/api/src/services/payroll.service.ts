@@ -1150,6 +1150,9 @@ const PayrollService: ServiceSchema = {
                     suma: sumaStr,
                   },
                 ],
+                // Iter 14 (FVM-6): tiesioginė nuoroda į profilį (vietoj
+                // trapus `aprasymas` parse'o per reports endpoint'us).
+                payrollProfileId: profile.id,
                 createdByUserId: me.id,
               });
               expensesCreated += 1;

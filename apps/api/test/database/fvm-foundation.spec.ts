@@ -147,16 +147,46 @@ describe('FVM foundation migration', () => {
       // Rollback FVM migration only (nepaliekam senųjų po setup'o).
       // currentVersion turi būti FVM — global-setup paleido latest.
       //
-      // PASTABA (Iter 11+12+13+13.x): nuo Iter 13.x yra `projects.is_du_system`
-      // migracija (ALTER'inanti projects); nuo Iter 13 yra `payroll_distributions`
-      // su FK į `funding_sources`. Nuo Iter 12 yra `expenses` lentelė su FK į
-      // `projects` ir `budget_allocations_v2`. Nuo Iter 11 yra `projects`
-      // lentelė su FK į `budget_allocations_v2`. Norint rollback'inti Iter 9
-      // (foundation), pirma reikia rollback'inti vėlesnes migracijas —
-      // pradėdami nuo naujausios (is_du_system → payroll), kitaip
-      // FK constraint'ai užkirs kelią DROP TABLE komandoms, o pasiekti
-      // migracijos liks completed'ų sąraše ir migrate.latest jų atstatyti
-      // nebevykdys.
+      // PASTABA (Iter 11+12+13+13.x+14): nuo Iter 14 yra
+      // `add_payroll_profile_to_expenses` migracija — pridėjusi FK iš
+      // `expenses` į `payroll_profiles`. Nuo Iter 13.x yra
+      // `projects.is_du_system` migracija (ALTER'inanti projects); nuo Iter 13
+      // yra `payroll_distributions` su FK į `funding_sources`. Nuo Iter 12 yra
+      // `expenses` lentelė su FK į `projects` ir `budget_allocations_v2`.
+      // Nuo Iter 11 yra `projects` lentelė su FK į `budget_allocations_v2`.
+      // Norint rollback'inti Iter 9 (foundation), pirma reikia rollback'inti
+      // vėlesnes migracijas — pradėdami nuo naujausios (payroll_profile_id →
+      // is_du_system → payroll), kitaip FK constraint'ai užkirs kelią DROP
+      // TABLE komandoms, o pasiekti migracijos liks completed'ų sąraše ir
+      // migrate.latest jų atstatyti nebevykdys.
+      //
+      // Defensyvi patikra: jei knex_migrations turi įrašą bet schema'oje
+      // kolonos nėra (stale state nuo prieš tai vykdytų testų), ištrinam
+      // įrašą ir paleidžiam migrate.latest iš naujo.
+      const hasPayrollProfileColAfterLatest = await knex.schema.hasColumn(
+        'expenses',
+        'payroll_profile_id',
+      );
+      if (!hasPayrollProfileColAfterLatest) {
+        const stale = await knex('knex_migrations')
+          .where({ name: '20260527100000_add_payroll_profile_to_expenses.ts' })
+          .first();
+        if (stale) {
+          await knex('knex_migrations')
+            .where({ name: '20260527100000_add_payroll_profile_to_expenses.ts' })
+            .del();
+          await knex.migrate.latest();
+        }
+      }
+      const hasPayrollProfileCol = await knex.schema.hasColumn(
+        'expenses',
+        'payroll_profile_id',
+      );
+      if (hasPayrollProfileCol) {
+        await knex.migrate.down({
+          name: '20260527100000_add_payroll_profile_to_expenses.ts',
+        });
+      }
       const hasIsDuSystem = await knex.schema.hasColumn(
         'projects',
         'is_du_system',
@@ -326,11 +356,39 @@ describe('FVM foundation migration', () => {
       expect(hasBav2).toBe(true);
 
       // Roll'inam migraciją down.
-      // PASTABA (Iter 11+12+13+13.x): nuo Iter 13.x yra `projects.is_du_system`
-      // ALTER migracija. Pirma rollback'inam vėlesnes migracijas (nuo
-      // naujausios atgal: is_du_system → payroll → expenses → projects →
-      // fvm_fields), tada pačią Iter 9 (foundation). Žr. analogišką
-      // paaiškinimą Test 1.
+      // PASTABA (Iter 11+12+13+13.x+14): nuo Iter 14 yra
+      // `add_payroll_profile_to_expenses` migracija — pridėjusi FK iš
+      // `expenses` į `payroll_profiles`. Pirma rollback'inam vėlesnes
+      // migracijas (nuo naujausios atgal: payroll_profile_id → is_du_system →
+      // payroll → expenses → projects → fvm_fields), tada pačią Iter 9
+      // (foundation). Žr. analogišką paaiškinimą Test 1.
+      //
+      // Defensyvi patikra: jei knex_migrations turi įrašą bet schema'oje
+      // kolonos nėra (stale state), ištrinam ir re-apply.
+      const initialPpCol = await knex.schema.hasColumn(
+        'expenses',
+        'payroll_profile_id',
+      );
+      if (!initialPpCol) {
+        const stale = await knex('knex_migrations')
+          .where({ name: '20260527100000_add_payroll_profile_to_expenses.ts' })
+          .first();
+        if (stale) {
+          await knex('knex_migrations')
+            .where({ name: '20260527100000_add_payroll_profile_to_expenses.ts' })
+            .del();
+          await knex.migrate.latest();
+        }
+      }
+      const hasPayrollProfileColHere = await knex.schema.hasColumn(
+        'expenses',
+        'payroll_profile_id',
+      );
+      if (hasPayrollProfileColHere) {
+        await knex.migrate.down({
+          name: '20260527100000_add_payroll_profile_to_expenses.ts',
+        });
+      }
       const hasIsDuSystemHere = await knex.schema.hasColumn(
         'projects',
         'is_du_system',

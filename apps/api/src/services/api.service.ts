@@ -188,6 +188,7 @@ const ApiService: ServiceSchema = {
           'projects.*',
           'expenses.*',
           'payroll.*',
+          'reports.*',
           'requestAttachments.*',
           'requestReports.*',
         ],
@@ -291,6 +292,24 @@ const ApiService: ServiceSchema = {
 
           'GET /requests/:requestId/reports': 'requestReports.list',
           'POST /requests/:requestId/reports': 'requestReports.upsert',
+
+          // Ataskaitos (Iter 14, FVM-6). Tikslūs path'ai PIRMI — Moleculer.web
+          // maršrutizatorius parsina aliases iš viršaus į apačią, todėl
+          // konkretūs `/reports/budget-execution` ir kt. neturi kolidiuoti
+          // su `/reports/:id` (requestReports submit/delete). Kadangi
+          // requestReports route'ai naudoja POST/DELETE su `:id` param'u
+          // (skirtingas method'as nei mūsų `GET`), kolizijos nėra, bet
+          // dėl aiškumo laikom šitas eilutes virš.
+          //
+          // F12 — Biudžeto vykdymas
+          'GET /reports/budget-execution': 'reports.budgetExecution',
+          // F13 — Spec. programų ataskaita
+          'GET /reports/spec-program-execution':
+            'reports.specProgramExecution',
+          // F14 — DU paskirstymas (SAUGUMO PRIORITETINĖ — `requireDuAccess`
+          // pirmasis guard'as servise).
+          'GET /reports/payroll-distribution': 'reports.payrollDistribution',
+
           'POST /reports/:id/submit': 'requestReports.submit',
           'DELETE /reports/:id': 'requestReports.delete',
         },

@@ -747,8 +747,22 @@ describe('FVM payroll migration (Iter 13)', () => {
 
   describe('Test 8: rollback (down) — abi lentelės dingo', () => {
     beforeAll(async () => {
-      // Įsitikinam, kad startuojam iš latest.
+      // Įsitikinam, kad startuojam iš latest. Defensyvi patikra (žr.
+      // expenses-foundation Test 8 komentarą): jei knex_migrations turi
+      // later'inį įrašą bet schema'oje kolonos nėra, force re-apply.
       await knex.migrate.latest();
+      const hasPayrollProfileCol = await knex.schema.hasColumn(
+        'expenses',
+        'payroll_profile_id',
+      );
+      if (!hasPayrollProfileCol) {
+        await knex('knex_migrations')
+          .where({
+            name: '20260527100000_add_payroll_profile_to_expenses.ts',
+          })
+          .del();
+        await knex.migrate.latest();
+      }
       const hasProfiles = await knex.schema.hasTable('payroll_profiles');
       const hasDistributions = await knex.schema.hasTable(
         'payroll_distributions',
@@ -756,9 +770,14 @@ describe('FVM payroll migration (Iter 13)', () => {
       expect(hasProfiles).toBe(true);
       expect(hasDistributions).toBe(true);
 
-      // Roll'inam šią migraciją down. Iter 13 lentelės NĖRA reference'inamos
-      // iš jokios kitos lentelės — todėl jokio papildomo migracijos atsukimo
-      // nereikia.
+      // Iter 14 update: `expenses.payroll_profile_id` FK į `payroll_profiles`
+      // padaro Iter 13 lenteles reference'inamas iš `expenses`. Reikia
+      // pirma rollback'inti Iter 14 migraciją, kad payroll_profiles lentelė
+      // galėtų būti drop'inta be FK violation. Tvarka: down naujausias migracijas
+      // first → down PAYROLL_MIGRATION.
+      await knex.migrate.down({
+        name: '20260527100000_add_payroll_profile_to_expenses.ts',
+      });
       await knex.migrate.down({ name: PAYROLL_MIGRATION });
     });
 

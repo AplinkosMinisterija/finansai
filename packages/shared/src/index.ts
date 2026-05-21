@@ -675,6 +675,24 @@ export type {
   ComputeMonthResponse,
 } from './fvm';
 
+// ---------- Reports (Iter 14, FVM-6) ----------
+
+export type {
+  ReportFormat,
+  BudgetExecutionCategoryRow,
+  BudgetExecutionSourceSection,
+  BudgetExecutionReport,
+  BudgetExecutionReportQuery,
+  SpecProgramItem,
+  SpecProgramReport,
+  SpecProgramReportQuery,
+  PayrollDistributionSourceRow,
+  PayrollDistributionProfileSection,
+  PayrollDistributionSourceTotal,
+  PayrollDistributionReport,
+  PayrollDistributionReportQuery,
+} from './reports';
+
 // ---------- Dashboard ----------
 
 export type DashboardData = {

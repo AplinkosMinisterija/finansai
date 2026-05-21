@@ -563,6 +563,39 @@ describe('FVM projects migration (Iter 11)', () => {
       const hasProjects = await knex.schema.hasTable('projects');
       expect(hasProjects).toBe(true);
 
+      // PASTABA (Iter 14): nuo Iter 14 yra
+      // `20260527100000_add_payroll_profile_to_expenses` migracija, kuri
+      // prideda koloną į `expenses`. Jei nerollback'insim, knex pažymės ją
+      // kaip paleistą, ir `migrate.latest()` po test'o iš naujo jos
+      // NEpaleis — expenses bus su trūkstama kolona. Drop'inam pirma.
+      //
+      // Defensyvi patikra: jei knex_migrations turi įrašą bet schema'oje
+      // kolonos nėra (stale state), ištrinam ir re-apply.
+      const initialHasCol = await knex.schema.hasColumn(
+        'expenses',
+        'payroll_profile_id',
+      );
+      if (!initialHasCol) {
+        const stale = await knex('knex_migrations')
+          .where({ name: '20260527100000_add_payroll_profile_to_expenses.ts' })
+          .first();
+        if (stale) {
+          await knex('knex_migrations')
+            .where({ name: '20260527100000_add_payroll_profile_to_expenses.ts' })
+            .del();
+          await knex.migrate.latest();
+        }
+      }
+      const hasPayrollProfileCol = await knex.schema.hasColumn(
+        'expenses',
+        'payroll_profile_id',
+      );
+      if (hasPayrollProfileCol) {
+        await knex.migrate.down({
+          name: '20260527100000_add_payroll_profile_to_expenses.ts',
+        });
+      }
+
       // PASTABA (Iter 13.x): nuo Iter 13.x yra `20260526200000_add_is_du_system`
       // migracija, kuri ALTER'ina `projects.is_du_system`. Jei nerollback'insim
       // jos prieš `PROJECTS_MIGRATION`, knex pažymės šitą migraciją kaip

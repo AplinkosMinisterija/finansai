@@ -199,13 +199,16 @@ describe('FVM expenses migration (Iter 12)', () => {
       await knex.migrate.latest();
     });
 
-    it('po migracijos expenses turi visus 11 kolonų pagal §6.4', async () => {
+    it('po migracijos expenses turi visus 11 (Iter 12) + 1 (Iter 14) kolonų pagal §6.4', async () => {
       const columns = await getExpensesColumnSet(knex);
       for (const col of EXPECTED_COLUMNS) {
         expect(columns.has(col)).toBe(true);
       }
-      // Patikrinam, kad būtent 11 (jokio papildomo lauko nesusitalpino).
-      expect(columns.size).toBe(EXPECTED_COLUMNS.length);
+      // Iter 14 (FVM-6) pridėjo `payroll_profile_id` koloną — tikrinam, kad ir
+      // ji yra (vienas papildomas laukas virš §6.4 pradinių 11).
+      expect(columns.has('payroll_profile_id')).toBe(true);
+      // Patikrinam, kad būtent 12 (Iter 12 — 11 + Iter 14 — 1).
+      expect(columns.size).toBe(EXPECTED_COLUMNS.length + 1);
     });
 
     it('saltinio_dalis kolona yra jsonb tipo ir nullable', async () => {
@@ -610,12 +613,41 @@ describe('FVM expenses migration (Iter 12)', () => {
 
   describe('Test 8: rollback (down) — expenses + GIN dingo', () => {
     beforeAll(async () => {
-      // Įsitikinam, kad startuojam iš latest.
+      // Įsitikinam, kad startuojam iš latest. Defensyvi patikra: jei
+      // knex_migrations turi later'inį migracijos įrašą bet schema'oje
+      // tos kolonos nėra (gali nutikti, kai priešesnis test'as rollback'ino
+      // expenses tačiau migrate.latest po to nepaleido downstream migracijų),
+      // ištrinam stale įrašą iš knex_migrations ir paleidžiam migrate.latest
+      // iš naujo — kad mūsų down chain'as veiktų normaliai.
       await knex.migrate.latest();
+      const hasPayrollProfileCol = await knex.schema.hasColumn(
+        'expenses',
+        'payroll_profile_id',
+      );
+      if (!hasPayrollProfileCol) {
+        await knex('knex_migrations')
+          .where({
+            name: '20260527100000_add_payroll_profile_to_expenses.ts',
+          })
+          .del();
+        await knex.migrate.latest();
+      }
       const hasExpenses = await knex.schema.hasTable('expenses');
       expect(hasExpenses).toBe(true);
 
-      // Roll'inam šią migraciją down.
+      // Roll'inam visus migracijų stack'us, kurie priklauso nuo `expenses`
+      // lentelės — tvarka svarbi:
+      //   1. `add_payroll_profile_to_expenses` (Iter 14) prideda koloną į
+      //      expenses, todėl roll'inam pirmiausia (kitaip create_expenses
+      //      down tos kolonos rasti negalėtų — nors konkrečiu atveju
+      //      DROP TABLE viską nuima, knex_migrations table'as
+      //      neatsinaujintų, kad migracija paliesta).
+      //   2. `create_expenses` — pati lentelės kūrimas.
+      // Šitas chain'as užtikrina, kad `migrate.latest()` po test'o vėl
+      // teisingai išskaičiuoja, kurias migracijas reikia paleisti.
+      await knex.migrate.down({
+        name: '20260527100000_add_payroll_profile_to_expenses.ts',
+      });
       await knex.migrate.down({ name: EXPENSES_MIGRATION });
     });
 
