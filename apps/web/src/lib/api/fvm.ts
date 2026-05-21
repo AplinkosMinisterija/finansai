@@ -37,6 +37,7 @@ import type {
   BudgetExecutionReport,
   BudgetWarningsResponse,
   ComputeMonthResponse,
+  CopyBudgetResponse,
   Expense,
   ExpenseCreateDTO,
   ExpenseListQuery,
@@ -45,6 +46,7 @@ import type {
   FundingSourceCreateDTO,
   FundingSourceListQuery,
   FundingSourceUpdateDTO,
+  FvmSummaryResponse,
   PayrollDistribution,
   PayrollDistributionCreateDTO,
   PayrollDistributionListQuery,
@@ -98,12 +100,75 @@ async function fundingSourceRemove(id: number): Promise<{ ok: true }> {
   return data;
 }
 
+/**
+ * Multi-year planning (Iter 15, F16) — kopijuoja visus tenant scope funding
+ * sources + budget allocations iš `sourceYear` į `targetYear`. Visa
+ * transakcijoje. AM admin only.
+ *
+ * Backend errors:
+ *  - 400 COPY_SAME_YEAR — kai sourceYear === targetYear
+ *  - 400 COPY_SOURCE_EMPTY — kai šaltinio metai tušti
+ *  - 409 COPY_TARGET_NOT_EMPTY — kai tikslo metai jau turi įrašų
+ *  - 403 — kai vartotojas ne AM admin
+ */
+async function fundingSourcesCopyFromYear(body: {
+  sourceYear: number;
+  targetYear: number;
+  tenantId?: number;
+}): Promise<CopyBudgetResponse> {
+  const payload: Record<string, number> = {
+    sourceYear: body.sourceYear,
+    targetYear: body.targetYear,
+  };
+  if (body.tenantId !== undefined) payload.tenantId = body.tenantId;
+  const { data } = await api.post<CopyBudgetResponse>(
+    '/funding-sources/copy-year',
+    payload,
+  );
+  return data;
+}
+
 export const fundingSourcesApi = {
   list: fundingSourcesList,
   get: fundingSourceGet,
   create: fundingSourceCreate,
   update: fundingSourceUpdate,
   remove: fundingSourceRemove,
+  copyFromYear: fundingSourcesCopyFromYear,
+};
+
+// ---------- Dashboard (Iter 15, F15) ----------
+
+/**
+ * FVM dashboard suvestinė nurodytiems metams (Iter 15, F15).
+ *
+ * Grąžina:
+ *  - bendrus biudžeto totals (planuota / faktinė / likutis / percentUsed)
+ *  - top 5 warning'us (vykdomi allocations su isWarning arba isOver)
+ *  - artėjančius terminus (30 d horizontas)
+ *  - projektų / šaltinių / paskirstymų skaičius
+ *
+ * Tenant scope per ADR-005 — backend forsuoja:
+ *  - AM admin: visi tenant'ai (su optional `tenantId` filtru)
+ *  - AM user su scope: scope tenant'ai
+ *  - Org admin / user: tik savo tenant
+ *  - !canViewPayroll: DU expense'ai / allocations exclude'inami
+ */
+async function dashboardFvmSummary(query: {
+  year: number;
+  tenantId?: number;
+}): Promise<FvmSummaryResponse> {
+  const params: Record<string, string | number> = { year: query.year };
+  if (query.tenantId !== undefined) params.tenantId = query.tenantId;
+  const { data } = await api.get<FvmSummaryResponse>(
+    '/dashboard/fvm-summary',
+    { params },
+  );
+  return data;
+}
+
+export const dashboardApi = {
+  fvmSummary: dashboardFvmSummary,
 };
 
 // ---------- Biudžeto paskirstymai ----------

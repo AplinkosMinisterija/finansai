@@ -1,13 +1,18 @@
+import * as React from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertTriangle,
+  CalendarClock,
   CheckCircle2,
   ChevronRight,
   FileEdit,
   FileText,
+  FolderKanban,
   Inbox,
+  Layers,
   Plus,
+  TrendingUp,
   Users,
   XCircle,
   Clock,
@@ -20,16 +25,23 @@ import type {
   DashboardActivityItem,
   DashboardData,
   FinancingRequest,
+  FvmSummaryResponse,
+  UpcomingDeadline,
 } from '@biip-finansai/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MonthlyTrendChart } from '@/components/charts/MonthlyTrendChart';
+import { BudgetWarningsList } from '@/components/charts/BudgetWarningsList';
 import { useAuth } from '@/lib/auth';
 import { dashboardGet } from '@/lib/api';
+import { dashboardApi } from '@/lib/api/fvm';
 import {
   canCreate,
+  fmtDate,
   fmtDateTime,
   fmtEur,
   STATUS_LABELS,
@@ -208,6 +220,9 @@ export default function HomePage(): JSX.Element {
           </>
         )}
       </div>
+
+      {/* FVM biudžeto suvestinė (Iter 15, F15) */}
+      <FvmSummarySection defaultYear={d.year} />
 
       {/* Main content: 2 columns */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -593,5 +608,339 @@ function QuickLink({
       <span>{label}</span>
       <ChevronRight className="h-3 w-3 text-muted-foreground" />
     </Link>
+  );
+}
+
+// ---------- FVM Dashboard sekcija (Iter 15, F15) ----------
+
+interface FvmSummarySectionProps {
+  defaultYear: number;
+}
+
+/**
+ * FVM dashboard sekcija — biudžeto suvestinė, top įspėjimai, artėjantys
+ * terminai ir aktyvios projekto / šaltinių statistikos.
+ *
+ * Visi auth users mato (org user — be DU sumų; backend per ADR-005 atfiltruoja).
+ * Year picker leidžia peržiūrėti ankstesnių / būsimų metų biudžetą.
+ */
+function FvmSummarySection({ defaultYear }: FvmSummarySectionProps): JSX.Element {
+  const [year, setYear] = React.useState<number>(defaultYear);
+  const q = useQuery<FvmSummaryResponse>({
+    queryKey: ['dashboard', 'fvm-summary', { year }],
+    queryFn: () => dashboardApi.fvmSummary({ year }),
+    staleTime: 30_000,
+  });
+
+  return (
+    <section
+      aria-label="FVM biudžeto suvestinė"
+      className="space-y-4"
+      data-testid="fvm-summary-section"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+            <Wallet className="h-5 w-5 text-muted-foreground" />
+            Biudžeto suvestinė {year}
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Bendri planuoti vs. faktiniai įsipareigojimai, įspėjimai ir
+            artėjantys terminai.
+          </p>
+        </div>
+        <div className="flex items-end gap-2">
+          <div className="space-y-1">
+            <Label htmlFor="fvm-summary-year" className="text-xs text-muted-foreground">
+              Metai
+            </Label>
+            <Input
+              id="fvm-summary-year"
+              type="number"
+              min={2001}
+              max={3000}
+              value={year}
+              onChange={(e) => {
+                const next = Number.parseInt(e.target.value, 10);
+                if (Number.isFinite(next) && next >= 2001 && next <= 3000) {
+                  setYear(next);
+                }
+              }}
+              className="w-28"
+              data-testid="fvm-summary-year-input"
+            />
+          </div>
+        </div>
+      </div>
+
+      {q.isLoading ? (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4" data-testid="fvm-summary-skeleton">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-24" />
+          ))}
+        </div>
+      ) : q.isError || !q.data ? (
+        <Card>
+          <CardContent
+            className="p-6 text-center text-sm text-destructive"
+            data-testid="fvm-summary-error"
+          >
+            Nepavyko užkrauti biudžeto suvestinės.
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* 4 metric cards */}
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <FvmMetricCard
+              icon={<PiggyBank className="h-4 w-4" />}
+              label="Planuota"
+              valueRaw={fmtEur(q.data.budgetTotals.planuota)}
+              tone="default"
+            />
+            <FvmMetricCard
+              icon={<TrendingUp className="h-4 w-4" />}
+              label="Faktinė"
+              valueRaw={fmtEur(q.data.budgetTotals.faktine)}
+              tone="default"
+            />
+            <FvmMetricCard
+              icon={<Wallet className="h-4 w-4" />}
+              label="Likutis"
+              valueRaw={fmtEur(q.data.budgetTotals.likutis)}
+              tone={q.data.budgetTotals.isOver ? 'destructive' : 'default'}
+            />
+            <FvmMetricCard
+              icon={<AlertTriangle className="h-4 w-4" />}
+              label="% panaudota"
+              valueRaw={`${q.data.budgetTotals.percentUsed.toFixed(1)}%`}
+              tone={
+                q.data.budgetTotals.isOver
+                  ? 'destructive'
+                  : q.data.budgetTotals.isWarning
+                    ? 'warning'
+                    : 'success'
+              }
+            />
+          </div>
+
+          {/* Top warnings + upcoming deadlines side by side */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                  <AlertTriangle className="h-4 w-4 text-orange-600" />
+                  Top įspėjimai
+                  <Link
+                    to="/ispejimai"
+                    className="ml-auto text-[11px] font-normal text-muted-foreground hover:text-foreground"
+                  >
+                    Visi įspėjimai →
+                  </Link>
+                </h3>
+                <BudgetWarningsList year={year} topN={5} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                  <CalendarClock className="h-4 w-4" />
+                  Artėjantys terminai
+                  <Badge variant="outline" className="ml-auto text-[10px]">
+                    {q.data.upcomingDeadlines.length}
+                  </Badge>
+                </h3>
+                <UpcomingDeadlinesList items={q.data.upcomingDeadlines} />
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Statistika cards */}
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <FvmMetricCard
+              icon={<FolderKanban className="h-4 w-4" />}
+              label="Aktyvūs projektai"
+              value={q.data.activeProjectsCount}
+              hint="planuojami + vykdomi"
+              tone="default"
+              to="/projektai"
+            />
+            <FvmMetricCard
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              label="Baigti projektai"
+              value={q.data.completedProjectsCount}
+              hint="baigti + uždaryti"
+              tone="default"
+            />
+            <FvmMetricCard
+              icon={<Wallet className="h-4 w-4" />}
+              label="Šaltiniai"
+              value={q.data.totalSourcesCount}
+              hint={`${year} m.`}
+              tone="default"
+              to="/finansavimo-saltiniai"
+            />
+            <FvmMetricCard
+              icon={<Layers className="h-4 w-4" />}
+              label="Paskirstymai"
+              value={q.data.totalAllocationsCount}
+              hint={`${year} m.`}
+              tone="default"
+            />
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+interface FvmMetricCardProps {
+  icon: React.ReactNode;
+  label: string;
+  value?: number;
+  valueRaw?: string;
+  hint?: string;
+  tone?: 'default' | 'success' | 'warning' | 'destructive';
+  to?: string;
+}
+
+function FvmMetricCard({
+  icon,
+  label,
+  value,
+  valueRaw,
+  hint,
+  tone = 'default',
+  to,
+}: FvmMetricCardProps): JSX.Element {
+  const toneCls = {
+    default: '',
+    success: 'border-emerald-500/40',
+    warning: 'border-orange-400/60 bg-orange-50/40 dark:bg-orange-950/20',
+    destructive: 'border-destructive/50 bg-destructive/5',
+  }[tone];
+
+  const valueColor = {
+    default: '',
+    success: 'text-emerald-700 dark:text-emerald-300',
+    warning: 'text-orange-700 dark:text-orange-300',
+    destructive: 'text-destructive',
+  }[tone];
+
+  const valueDisplay = valueRaw ?? (value !== undefined ? String(value) : '—');
+
+  const inner = (
+    <Card
+      className={cn(
+        'h-full transition-colors',
+        toneCls,
+        to && 'hover:bg-muted/40 cursor-pointer',
+      )}
+      data-tone={tone}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            {icon}
+            {label}
+          </span>
+          {to && <ChevronRight className="h-3 w-3" />}
+        </div>
+        <div className={cn('mt-1.5 text-2xl font-semibold tabular-nums', valueColor)}>
+          {valueDisplay}
+        </div>
+        {hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>}
+      </CardContent>
+    </Card>
+  );
+
+  if (to) {
+    return <Link to={to}>{inner}</Link>;
+  }
+  return inner;
+}
+
+function UpcomingDeadlinesList({
+  items,
+}: {
+  items: UpcomingDeadline[];
+}): JSX.Element {
+  if (items.length === 0) {
+    return (
+      <div
+        className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground"
+        data-testid="upcoming-deadlines-empty"
+      >
+        Artėjančių terminų per artimiausias 30 dienų nėra.
+      </div>
+    );
+  }
+  return (
+    <ul className="space-y-2" data-testid="upcoming-deadlines-list">
+      {items.map((d) => (
+        <UpcomingDeadlineRow key={`${d.type}-${d.id}`} item={d} />
+      ))}
+    </ul>
+  );
+}
+
+function UpcomingDeadlineRow({ item }: { item: UpcomingDeadline }): JSX.Element {
+  const isUrgent = item.daysUntil <= 7;
+  const isOverdue = item.daysUntil < 0;
+  const tone: 'default' | 'warning' | 'destructive' = isOverdue
+    ? 'destructive'
+    : isUrgent
+      ? 'warning'
+      : 'default';
+
+  const borderCls = cn(
+    'flex items-center gap-3 rounded-md border px-3 py-2',
+    tone === 'destructive' && 'border-destructive/40 bg-destructive/5',
+    tone === 'warning' && 'border-orange-300/60 bg-orange-50',
+    tone === 'default' && 'border-border',
+  );
+
+  const linkTarget = item.type === 'project_end' ? `/projektai` : undefined;
+
+  const inner = (
+    <>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{item.name}</p>
+        <p className="truncate text-[11px] text-muted-foreground">
+          {fmtDate(item.date)}
+        </p>
+      </div>
+      <div className="shrink-0 text-right">
+        <p
+          className={cn(
+            'text-sm font-semibold tabular-nums',
+            tone === 'destructive' && 'text-destructive',
+            tone === 'warning' && 'text-orange-700',
+          )}
+        >
+          {isOverdue
+            ? `pavėluota ${Math.abs(item.daysUntil)} d.`
+            : item.daysUntil === 0
+              ? 'šiandien'
+              : `${item.daysUntil} d.`}
+        </p>
+      </div>
+    </>
+  );
+
+  return (
+    <li
+      className={borderCls}
+      data-testid={`upcoming-deadline-${item.type}-${item.id}`}
+    >
+      {linkTarget ? (
+        <Link to={linkTarget} className="flex flex-1 items-center gap-3">
+          {inner}
+        </Link>
+      ) : (
+        inner
+      )}
+    </li>
   );
 }

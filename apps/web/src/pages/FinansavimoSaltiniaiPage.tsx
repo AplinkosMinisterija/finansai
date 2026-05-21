@@ -16,7 +16,7 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { Plus, Wallet } from 'lucide-react';
+import { Copy, Plus, Wallet } from 'lucide-react';
 import type { FundingSource } from '@biip-finansai/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -39,6 +39,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { FundingSourceCard } from '@/components/funding-sources/FundingSourceCard';
 import { FundingSourceDialog } from '@/components/funding-sources/FundingSourceDialog';
+import { CopyBudgetDialog } from '@/components/funding-sources/CopyBudgetDialog';
 import { AllocationsSection } from '@/components/funding-sources/AllocationsSection';
 import { useAuth } from '@/lib/auth';
 import { canManageBudget } from '@/lib/roles';
@@ -67,6 +68,7 @@ export default function FinansavimoSaltiniaiPage(): JSX.Element {
   const [creatingDialogOpen, setCreatingDialogOpen] = React.useState(false);
   const [editingSource, setEditingSource] = React.useState<FundingSource | null>(null);
   const [detailSource, setDetailSource] = React.useState<FundingSource | null>(null);
+  const [copyDialogOpen, setCopyDialogOpen] = React.useState(false);
 
   const listQ = useQuery<FundingSource[]>({
     queryKey: ['fundingSources', { year }],
@@ -147,6 +149,16 @@ export default function FinansavimoSaltiniaiPage(): JSX.Element {
               </SelectContent>
             </Select>
           </div>
+          {canEdit && (
+            <Button
+              variant="outline"
+              onClick={() => setCopyDialogOpen(true)}
+              data-testid="open-copy-budget"
+            >
+              <Copy className="h-4 w-4" />
+              Kopijuoti iš praėjusių metų
+            </Button>
+          )}
           {canEdit && (
             <Button
               onClick={() => setCreatingDialogOpen(true)}
@@ -231,6 +243,15 @@ export default function FinansavimoSaltiniaiPage(): JSX.Element {
             setEditingSource(detailSource);
             setDetailSource(null);
           }}
+        />
+      )}
+
+      {canEdit && copyDialogOpen && (
+        <CopyBudgetDialog
+          open={copyDialogOpen}
+          onOpenChange={setCopyDialogOpen}
+          defaultSourceYear={(year ?? now.getFullYear()) - 1}
+          defaultTargetYear={year ?? now.getFullYear()}
         />
       )}
     </div>
