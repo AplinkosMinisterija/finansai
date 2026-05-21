@@ -2,7 +2,8 @@ import * as React from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { CheckCircle2, MessageCircle, Pencil, Send, Trash2, XCircle, RotateCcw, Loader2 } from 'lucide-react';
+import { Briefcase, CheckCircle2, MessageCircle, Pencil, Send, Trash2, XCircle, RotateCcw, Loader2 } from 'lucide-react';
+import { toast } from '@/lib/use-toast';
 import type {
   FinancingRequestDetail,
   RequestCommentKind,
@@ -200,11 +201,28 @@ export default function PrasymoDetailPage(): JSX.Element {
     mutationFn: () =>
       import('@/lib/api').then((m) => m.requestCreateFvmProject(requestId)),
     onSuccess: (resp) => {
-      // Iter 10 placeholder — backend grąžina pending message'ą; Iter 11 šitas
-      // mutation'as sukurs realų `projects` įrašą.
-      setError(resp.message);
+      // Iter 11: backend real impl — grąžina status='created' su projektu.
+      // Iter 10 backward compat'as: status='pending' tik jei backend yra senas.
+      if (resp.status === 'created') {
+        void qc.invalidateQueries({ queryKey: ['requests', requestId] });
+        void qc.invalidateQueries({ queryKey: ['requests'] });
+        void qc.invalidateQueries({ queryKey: ['projects'] });
+        toast({
+          title: 'Projektas sukurtas',
+          description: `Projektas „${resp.project.pavadinimas}" sukurtas sėkmingai.`,
+          variant: 'success',
+        });
+        navigate(`/projektai/${resp.project.id}`);
+      } else {
+        // pending — backend dar Iter 10; rodom info žinutę.
+        setError(resp.message);
+      }
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => {
+      const msg = getErrorMessage(err);
+      setError(msg);
+      toast({ title: msg, variant: 'error' });
+    },
   });
 
   function getErrorMessage(err: unknown): string {
@@ -607,38 +625,53 @@ export default function PrasymoDetailPage(): JSX.Element {
         </Card>
       )}
 
-      {/* FVM projekto sukūrimas — TIK AM tenant'as, TIK kai status=APPROVED (P04 Iter 10 placeholder).
-          Mygtukas vizualiai pažymimas „placeholder" tooltip'u — backend kviečiamas, bet grąžina
-          pending status'ą su LT žinute (real impl. Iter 11). */}
-      {r.status === 'APPROVED' &&
-        user?.tenantIsApprover === true && (
-          <Card className="mb-4">
-            <CardContent className="p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium">FVM projekto sukūrimas</p>
-                  <p className="text-xs text-muted-foreground">
-                    Iš patvirtinto prašymo automatiškai sukuriamas FVM projektas
-                    su biudžetu = patvirtinta suma.
-                  </p>
-                </div>
+      {/* FVM projekto sukūrimas — TIK AM tenant'as, TIK kai status=APPROVED (Iter 11, real impl).
+          Jei projektas jau sukurtas (fvmProjectId != null) — rodom „Žiūrėti projektą" link'ą. */}
+      {r.status === 'APPROVED' && user?.tenantIsApprover === true && (
+        <Card className="mb-4">
+          <CardContent className="p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">FVM projektas</p>
+                <p className="text-xs text-muted-foreground">
+                  {r.fvmProjectId !== null
+                    ? 'Iš šio prašymo jau sukurtas FVM projektas.'
+                    : 'Iš patvirtinto prašymo automatiškai sukuriamas FVM projektas su biudžetu = patvirtinta suma.'}
+                </p>
+              </div>
+              {r.fvmProjectId !== null ? (
+                <Button
+                  asChild
+                  size="sm"
+                  variant="outline"
+                  data-testid="view-fvm-project-btn"
+                >
+                  <Link to={`/projektai/${r.fvmProjectId}`}>
+                    <Briefcase className="h-4 w-4" />
+                    Žiūrėti projektą →
+                  </Link>
+                </Button>
+              ) : (
                 <Button
                   size="sm"
                   variant="outline"
-                  title="FVM projektas — Iter 11"
+                  title="Sukurti spec.programos vykdymo projektą"
                   onClick={() => createFvmProjectMutation.mutate()}
                   disabled={createFvmProjectMutation.isPending}
                   data-testid="create-fvm-project-btn"
                 >
                   {createFvmProjectMutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : null}
-                  Sukurti FVM projektą (Iter 11)
+                  ) : (
+                    <Briefcase className="h-4 w-4" />
+                  )}
+                  Sukurti FVM projektą
                 </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-4">

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   BarChart3,
+  Briefcase,
   Building2,
   ChevronUp,
   Coins,
@@ -44,6 +45,7 @@ const PRIMARY_NAV: NavItemEx[] = [
   { to: '/statistika', label: 'Statistika', icon: BarChart3 },
   { to: '/finansavimo-saltiniai', label: 'Finansavimo šaltiniai', icon: Coins },
   { to: '/biudzetas', label: 'Biudžetas', icon: Wallet },
+  { to: '/projektai', label: 'Projektai', icon: Briefcase },
   { to: '/vartotojai', label: 'Vartotojai', icon: Users },
   { to: '/organizacijos', label: 'Organizacijos', icon: Building2, adminOnly: true },
   { to: '/klasifikatoriai', label: 'Klasifikatoriai', icon: Tags, classifiersAdminOnly: true },
