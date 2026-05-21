@@ -413,3 +413,160 @@ export type BudgetWarningsResponse = {
   year: number;
   items: BudgetWarningItem[];
 };
+
+// ---------- Payroll (Iter 13, FVM-5) ----------
+
+/**
+ * Darbuotojo sutarties tipas (docx §6.5).
+ *
+ *  - `darbo` — darbo sutartis
+ *  - `paslaugu` — paslaugų sutartis (su trečiąja šalimi, kuri gali neturėti
+ *    sistemos paskyros — tada `userId` NULL, `vardasPavarde` užpildomas rankomis)
+ *  - `autorine` — autorinė sutartis
+ *
+ * Apribota PostgreSQL CHECK constraint'u — žr.
+ * `20260526100000_create_payroll.ts`.
+ */
+export type ContractType = 'darbo' | 'paslaugu' | 'autorine';
+
+/**
+ * DU paskirstymo tipas (docx §6.6).
+ *
+ *  - `procentais` — `reiksme` yra procentai (0-100). SUM(procentais.reiksme)
+ *    per profile per overlap'inantį periodą ≤ 100.
+ *  - `fiksuota` — `reiksme` yra fiksuota suma eurais.
+ *
+ * Apribota PostgreSQL CHECK constraint'u — žr.
+ * `20260526100000_create_payroll.ts`.
+ */
+export type DistributionType = 'procentais' | 'fiksuota';
+
+/**
+ * Darbuotojo finansinis profilis — Iter 13 entitetas (docx §4.4, §6.5).
+ *
+ * SAUGUMO REIKALAVIMAS (docx §4.4): DU duomenis mato tik:
+ *  - AM administratorius (visi tenant'ai)
+ *  - Org admin (tik savo tenant'as)
+ *  - Specialistas (org_user) — NEMATO net savo
+ *
+ * Per ADR-003: tik bruto + priedai, BE Sodra/GPM apskaitos.
+ */
+export type PayrollProfile = {
+  id: number;
+  tenantId: number;
+  /** Tenant kodas (denormalizuotas išvedimui). */
+  tenantCode?: string;
+  /** Tenant pavadinimas (denormalizuotas išvedimui). */
+  tenantName?: string;
+  /** NULL leidžiamas — darbuotojas gali neturėti sistemos paskyros. */
+  userId: number | null;
+  /** Vartotojo pilnas vardas (denormalizuotas, jei userId ne NULL). */
+  userFullName?: string | null;
+  /** Redundant copy — istorinis snapshot, stabilus net jei user pakeistas. */
+  vardasPavarde: string;
+  pareigos: string;
+  sutartiesTipas: ContractType;
+  /** Bruto atlyginimas. Decimal(10, 2) — string formatas. */
+  atlyginimasBruto: string;
+  /** Priedai. Decimal(10, 2) — string formatas. Default '0'. */
+  priedai: string;
+  /** ISO 8601 data (YYYY-MM-DD). */
+  galiojaNuo: string;
+  /** ISO 8601 data (YYYY-MM-DD) arba NULL (jei vis dar galioja). */
+  galiojaIki: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PayrollProfileCreateDTO = {
+  tenantId: number;
+  userId?: number | null;
+  vardasPavarde: string;
+  pareigos: string;
+  sutartiesTipas: ContractType;
+  atlyginimasBruto: string;
+  priedai?: string;
+  galiojaNuo: string;
+  galiojaIki?: string | null;
+};
+
+export type PayrollProfileUpdateDTO = {
+  userId?: number | null;
+  vardasPavarde?: string;
+  pareigos?: string;
+  sutartiesTipas?: ContractType;
+  atlyginimasBruto?: string;
+  priedai?: string;
+  galiojaNuo?: string;
+  galiojaIki?: string | null;
+};
+
+export type PayrollProfileListQuery = {
+  tenantId?: number;
+  userId?: number;
+  /**
+   * Jei true — filtruoja tik profilius, aktyvius šios dienos datai
+   * (`galioja_nuo <= today AND (galioja_iki IS NULL OR galioja_iki >= today)`).
+   */
+  active?: boolean;
+};
+
+/**
+ * DU paskirstymas — Iter 13 entitetas (docx §4.4, §6.6).
+ */
+export type PayrollDistribution = {
+  id: number;
+  payrollProfileId: number;
+  fundingSourceId: number;
+  /** Finansavimo šaltinio pavadinimas (denormalizuotas). */
+  fundingSourceName?: string;
+  /** Finansavimo šaltinio kodas (denormalizuotas). */
+  fundingSourceCode?: string;
+  paskirstymoTipas: DistributionType;
+  /** Decimal(10, 4) — procentai (0-100) arba fiksuota suma eurais. */
+  reiksme: string;
+  galiojaNuo: string;
+  galiojaIki: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PayrollDistributionCreateDTO = {
+  payrollProfileId: number;
+  fundingSourceId: number;
+  paskirstymoTipas: DistributionType;
+  reiksme: string;
+  galiojaNuo: string;
+  galiojaIki?: string | null;
+};
+
+export type PayrollDistributionUpdateDTO = {
+  fundingSourceId?: number;
+  paskirstymoTipas?: DistributionType;
+  reiksme?: string;
+  galiojaNuo?: string;
+  galiojaIki?: string | null;
+};
+
+export type PayrollDistributionListQuery = {
+  profileId?: number;
+  sourceId?: number;
+};
+
+/**
+ * `payroll.computeMonth` endpoint'o atsakymas.
+ *
+ * Apskaičiavimas idempotentiškas: pakartotinis to paties mėnesio kvietimas
+ * ištrina ankstesnius DU expense'us prieš sukuriant naujus.
+ */
+export type ComputeMonthResponse = {
+  status: 'computed';
+  /** YYYY-MM formatu. */
+  month: string;
+  /** Kiek profile'ų buvo aktyvūs mėnesyje. */
+  profilesProcessed: number;
+  /** Kiek `expenses` įrašų sukurta. */
+  expensesCreated: number;
+  /** Suvestinė bendra suma. Decimal string formatas. */
+  totalAmount: string;
+};

@@ -187,6 +187,7 @@ const ApiService: ServiceSchema = {
           'budgetAllocations.*',
           'projects.*',
           'expenses.*',
+          'payroll.*',
           'requestAttachments.*',
           'requestReports.*',
         ],
@@ -267,6 +268,21 @@ const ApiService: ServiceSchema = {
           'POST /expenses': 'expenses.create',
           'PATCH /expenses/:id': 'expenses.update',
           'DELETE /expenses/:id': 'expenses.delete',
+
+          // Payroll (Iter 13) — SAUGUMO PRIORITETINĖ: visi endpoint'ai per
+          // `requireDuAccess` arba `requireAmDuAccess` guard'us servise.
+          // `/payroll/compute` aukščiau už `/payroll-*` route'us, kad tvarka
+          // gražiai grupuotųsi loguose (apgaubia mėnesinį batch'ą).
+          'POST /payroll/compute': 'payroll.computeMonth',
+          'GET /payroll-profiles': 'payroll.listProfiles',
+          'GET /payroll-profiles/:id': 'payroll.getProfile',
+          'POST /payroll-profiles': 'payroll.createProfile',
+          'PATCH /payroll-profiles/:id': 'payroll.updateProfile',
+          'DELETE /payroll-profiles/:id': 'payroll.deleteProfile',
+          'GET /payroll-distributions': 'payroll.listDistributions',
+          'POST /payroll-distributions': 'payroll.createDistribution',
+          'PATCH /payroll-distributions/:id': 'payroll.updateDistribution',
+          'DELETE /payroll-distributions/:id': 'payroll.deleteDistribution',
 
           'GET /requests/:requestId/attachments': 'requestAttachments.list',
           'POST /requests/:requestId/attachments': 'requestAttachments.upload',

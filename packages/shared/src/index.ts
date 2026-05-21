@@ -662,6 +662,17 @@ export type {
   ExpenseListQuery,
   BudgetWarningItem,
   BudgetWarningsResponse,
+  ContractType,
+  DistributionType,
+  PayrollProfile,
+  PayrollProfileCreateDTO,
+  PayrollProfileUpdateDTO,
+  PayrollProfileListQuery,
+  PayrollDistribution,
+  PayrollDistributionCreateDTO,
+  PayrollDistributionUpdateDTO,
+  PayrollDistributionListQuery,
+  ComputeMonthResponse,
 } from './fvm';
 
 // ---------- Dashboard ----------
