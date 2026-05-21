@@ -154,3 +154,20 @@
 - VIISP / biip-auth-api integracija
 - Power BI dashboard'ai
 - Notifikacijos (email, in-app) apie status pakeitimus
+
+## Iter 9 — FVM-1: Finansavimo šaltiniai + biudžeto paskirstymas ✅
+
+**Tikslas:** pirmas FVM duomenų sluoksnis pagal Giedrės techninį užsakymą (§2.1, §2.2, §6.1, §6.2). Žr. `docs/fvm/` katalogą su master planu, architektūra ir ADR'ais.
+
+- [x] Backend test infra (apps/api/test/) — pamatas FVM testams (Iter 9A)
+- [x] Migracija: `funding_sources` + `budget_allocations_v2` (laikinas pavadinimas) + verify helper
+- [x] Klasifikatoriai seedinti: `funding_source_type` (3 items), `budget_category` (5 items)
+- [x] Data migration: senų `budgets` + `budget_allocations` pervarymas (heuristic mapper)
+- [x] Backend: `fundingSources.service.ts`, `budgetAllocations.service.ts`, modeliai, DTO
+- [x] Frontend: `/finansavimo-saltiniai` puslapis + dialog'ai + Sidebar item
+- [x] Frontend: `/biudzetas` refactor į naują 2-lygio modelį (su spec_prog_tipas conditional UI)
+- [x] Testai: 54 backend + 10 nauji frontend (visi PASS)
+- [x] ADR-001 (klasifikatorius vs enum), ADR-004 (SERIAL ID vs UUID) priimti
+- [x] Nepriklausomas auditas: 8/8 PASS
+
+FVM Iter 9-16 detalus planas — `docs/fvm/00-master-plan.md`. Iter 10 (FVM-2) — prašymo modelio papildymai (Stream 1 §3 docx).

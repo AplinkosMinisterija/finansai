@@ -2,6 +2,26 @@
 
 Naujausi įrašai viršuje. Vienas įrašas = vienas sprendimas/diskusija.
 
+## 2026-05-21 — Iter 9 (FVM-1) baigta — Foundation tables
+
+Pirmoji FVM iteracija užbaigta. 4 paralelinės komandos (Test Infra → DBA → Backend → Frontend) + nepriklausomas auditas. 8/8 audit kriterijai PASS.
+
+**Iškart svarbu** (ne-akivaizdūs sprendimai):
+- **ADR-004 priimtas** (`docs/fvm/03-decisions-log.md`): visi nauji FVM lentelių PK ir FK — `SERIAL integer`, ne UUID. Originalus arch doc (v1.0) siūlė UUID, bet DBA pastebėjo, kad visa esama codebase naudoja integer (tenants, users, requests). FK konsistencija svarbiau už docx schemos raidiškumą. Arch doc atnaujinta į v1.1.
+- **Backend testų infra atstatyta nuo nulio**: `apps/api/test/` katalogas neegzistavo nuo MVP (jest.config.js referavo nelikvidžius failus). Iter 9A sukūrė pamatą — global-setup/teardown, helpers (db/broker/auth), sanity test. Visi FVM testai dabar veikia ant šito.
+- **Heuristic data migration** senų `budget_allocations.classifier_item_id` (per „Lėšų tipas" grupę: SALARY, IT, INVESTMENT etc.) į naują `budget_category` (du, prekes_paslaugos, investicijos, kita). Žr. `mapOldItemToBudgetCategory` funkciją migracijoje. Custom items nepatekę į heuristikas → mapuojami į `kita`. Acceptable, dokumentuota.
+- **Sena `budgets` + senas `budget_allocations` lieka koegzistuoti** iki Iter 16. Naujasis tariamas pavadinimas DB — `budget_allocations_v2` (laikinas — Iter 16 pervadinsim). Tas pats su modeliu — `BudgetAllocationV2` klasė.
+- **VitePress`srcExclude: ['fvm/**']`**: FVM darbo dokumentai (CTO/komandos koordinavimo turinys) nebepublikuojami per dokų svetainę — buvo CI failure dėl `<placeholder>` šablono žymeklių, kurie atrodė kaip neuždarytas HTML.
+
+**Deliverables**:
+- 4 commits → `dev` → dev-finansai.biip.lt deploy success
+- Backend: 54 testai PASS (3 sanity + 11 migration + 40 service)
+- Frontend: 42 testai PASS (32 baseline + 10 nauji)
+- Nauji puslapiai: `/finansavimo-saltiniai`, refaktorintas `/biudzetas`
+- API endpoint'ai: `/funding-sources/*`, `/budget-allocations/*`, `/budget-allocations/:id/summary`
+
+Toliau — Iter 10 (FVM-2): prašymo modelio papildymai pagal §3 docx (P01-P06), wizard biudžeto žingsnis, AM approval ekrano papildymai.
+
 ## 2026-05-21 — FVM (Iter 9-16) — Kickoff
 
 Giedrė pateikė techninį užsakymą **„Finansų valdymo modulis (FVM)"** v0.1 (`docs/fvm/spec/FVM-v0.1.md`). Tai didelis scope — esamai sistemai pakeitimai (Stream 1, §3 docx) PLIUS visiškai naujas finansų sekimo sluoksnis (Stream 2, §4): funding_sources hierarchy, projects, expenses, payroll.
