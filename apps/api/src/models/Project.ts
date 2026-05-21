@@ -42,6 +42,13 @@ export class Project extends BaseModel {
   statusas!: ProjectStatus;
   atsakingasUserId!: number | null;
   aprasymas!: string | null;
+  /**
+   * DU sistemos projektas (Iter 13.x saugumo patch'as). `true` reiškia, kad
+   * šis projektas auto-sukurtas per `payroll.computeMonth` ir laiko DU
+   * expense'us — turi būti nematomas vartotojams be DU teisės
+   * (žr. `canViewPayroll` iš `utils/permissions.ts`).
+   */
+  isDuSystem!: boolean;
   createdAt!: string;
   updatedAt!: string;
 
@@ -81,6 +88,7 @@ export class Project extends BaseModel {
         },
         atsakingasUserId: { type: ['integer', 'null'] },
         aprasymas: { type: ['string', 'null'] },
+        isDuSystem: { type: 'boolean' },
         createdAt: { type: 'string' },
         updatedAt: { type: 'string' },
       },

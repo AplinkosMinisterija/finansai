@@ -46,6 +46,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/lib/auth';
+import { canViewPayroll } from '@/lib/roles';
 import { expensesApi } from '@/lib/api/fvm';
 import { toast } from '@/lib/use-toast';
 import { ExpenseDialog } from './ExpenseDialog';
@@ -169,7 +170,15 @@ export function ExpensesSection({
     deleteMutation.mutate(e.id);
   }
 
-  const expenses = listQ.data ?? [];
+  // SAUGUMO PATCH (Iter 13.x, docx §4.4) — defense-in-depth:
+  // Backend'as jau filter'ina DU expense'us per `canViewPayroll` SQL WHERE,
+  // bet ir frontend'e papildomai išmetam — jei backend kažkaip pakeičia
+  // savo elgseną arba cache'as turi senų DU įrašų, vartotojas vis tiek
+  // jų nepamato. Du sluoksniai > vienas sluoksnis.
+  const rawExpenses = listQ.data ?? [];
+  const expenses = canViewPayroll(user)
+    ? rawExpenses
+    : rawExpenses.filter((e) => e.tipas !== 'du');
   const total = expenses.reduce(
     (acc, e) => acc + (Number.parseFloat(e.suma) || 0),
     0,

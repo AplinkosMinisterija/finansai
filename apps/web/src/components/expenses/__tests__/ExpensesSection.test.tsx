@@ -208,4 +208,42 @@ describe('ExpensesSection', () => {
     });
     expect(screen.queryByTestId('open-new-expense')).toBeNull();
   });
+
+  // SAUGUMO PATCH (Iter 13.x, docx §4.4): defense-in-depth FE filter'is.
+  // Net jei backend grąžintų DU expense'ą (regresijos / cache atveju), FE
+  // turi išmesti jį prieš render'inant ne-DU vartotojui.
+  it('Organizacijos vartotojas NEmato DU expense\'ų net jei backend grąžina', async () => {
+    expensesListMock.mockResolvedValue([
+      makeExpense({
+        id: 1,
+        tipas: 'sutartis',
+        suma: '1500.00',
+      }),
+      makeExpense({
+        id: 99,
+        tipas: 'du',
+        suma: '5000.00',
+        aprasymas: 'DU 2026-03: Petras Sensitive',
+      }),
+    ]);
+
+    renderWithProviders(
+      <ExpensesSection
+        projectId={42}
+        defaultAllocationId={10}
+        projectTenantId={2}
+      />,
+      { authValue: makeAuthValue({ user: ORG_USER }) },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('expenses-table')).toBeInTheDocument();
+    });
+
+    // Sutartis matoma
+    expect(screen.getByTestId('expense-row-1')).toBeInTheDocument();
+    // DU paslėpta — net jei backend grąžino (defense in depth).
+    expect(screen.queryByTestId('expense-row-99')).toBeNull();
+    expect(screen.queryByText(/Petras Sensitive/)).toBeNull();
+  });
 });

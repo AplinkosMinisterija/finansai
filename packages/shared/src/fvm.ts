@@ -238,6 +238,13 @@ export type Project = {
   /** Atsakingo asmens pilnas vardas (denormalizuotas). */
   atsakingasUserName?: string | null;
   aprasymas: string | null;
+  /**
+   * DU sistemos projektas (Iter 13.x saugumo patch'as). `true` — auto-sukurtas
+   * per `payroll.computeMonth` ir laiko DU expense'us. Matomas tik
+   * vartotojams su DU prieiga (AM admin + org admin); kitiems backend'as ir
+   * frontend'as paslepia (žr. `canViewPayroll`).
+   */
+  isDuSystem: boolean;
   createdAt: string;
   updatedAt: string;
 };

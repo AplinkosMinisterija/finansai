@@ -72,6 +72,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     atsakingasUserId: 5,
     atsakingasUserName: 'Jonas Jonaitis',
     aprasymas: null,
+    isDuSystem: false,
     createdAt: '2026-05-21T00:00:00Z',
     updatedAt: '2026-05-21T00:00:00Z',
     ...overrides,
@@ -146,6 +147,36 @@ describe('ProjektaiPage', () => {
       expect(screen.getByTestId('projects-empty')).toBeInTheDocument();
     });
     expect(screen.queryByTestId('open-new-project')).toBeNull();
+  });
+
+  // SAUGUMO PATCH (Iter 13.x, docx §4.4): defense-in-depth FE filter'is.
+  // Net jei backend grąžintų DU sistemos projektą (regresijos / cache atveju),
+  // FE turi išmesti jį prieš render'inant ne-DU vartotojui.
+  it('Organizacijos vartotojas NEmato DU sistemos projektų net jei backend grąžina', async () => {
+    listMock.mockResolvedValue([
+      makeProject({
+        id: 1,
+        pavadinimas: 'IT modernizavimas 2026',
+        isDuSystem: false,
+      }),
+      makeProject({
+        id: 99,
+        pavadinimas: 'DU expense system (auto)',
+        tipas: 'veikla',
+        isDuSystem: true,
+      }),
+    ]);
+    renderWithProviders(<ProjektaiPage />, {
+      authValue: makeAuthValue({ user: ORG_USER }),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('projects-table')).toBeInTheDocument();
+    });
+    expect(screen.getByText('IT modernizavimas 2026')).toBeInTheDocument();
+    // DU sistemos projektas turi būti paslėptas — net jei API grąžino.
+    expect(screen.queryByText('DU expense system (auto)')).toBeNull();
+    expect(screen.queryByTestId('project-row-99')).toBeNull();
   });
 
   it('rodo projektų sąrašą su pateiktais duomenimis', async () => {

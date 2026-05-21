@@ -199,6 +199,7 @@ describe('ProjectDialog', () => {
           atsakingasUserId: null,
           atsakingasUserName: null,
           aprasymas: null,
+          isDuSystem: false,
           createdAt: '2026-05-21T00:00:00Z',
           updatedAt: '2026-05-21T00:00:00Z',
         }}
@@ -242,6 +243,7 @@ describe('ProjectDialog', () => {
           atsakingasUserId: null,
           atsakingasUserName: null,
           aprasymas: null,
+          isDuSystem: false,
           createdAt: '2026-05-21T00:00:00Z',
           updatedAt: '2026-05-21T00:00:00Z',
         }}

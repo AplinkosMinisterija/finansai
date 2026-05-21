@@ -1296,6 +1296,7 @@ const RequestsService: ServiceSchema = {
             atsakingasUserId: full.atsakingasUserId,
             atsakingasUserName: full.atsakingasUser?.fullName ?? null,
             aprasymas: full.aprasymas,
+            isDuSystem: full.isDuSystem,
             createdAt: full.createdAt,
             updatedAt: full.updatedAt,
           },

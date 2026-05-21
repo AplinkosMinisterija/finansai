@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/lib/auth';
+import { canViewPayroll } from '@/lib/roles';
 import { projectsApi } from '@/lib/api/fvm';
 import { tenantsList } from '@/lib/api';
 import { toast } from '@/lib/use-toast';
@@ -127,7 +128,13 @@ export default function ProjektaiPage(): JSX.Element {
     deleteMutation.mutate(p.id);
   }
 
-  const projects = listQ.data ?? [];
+  // SAUGUMO PATCH (Iter 13.x, docx §4.4) — defense-in-depth:
+  // Backend'as jau filter'ina DU sistemos projektus per `canViewPayroll`,
+  // bet papildomai išmetam frontend'e — apsauga nuo cache'o / regression'o.
+  const rawProjects = listQ.data ?? [];
+  const projects = canViewPayroll(user)
+    ? rawProjects
+    : rawProjects.filter((p) => !p.isDuSystem);
   const tenants = tenantsQ.data ?? [];
   const years: number[] = [];
   for (let y = now.getFullYear() - 1; y <= now.getFullYear() + 5; y += 1) {

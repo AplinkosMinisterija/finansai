@@ -113,6 +113,33 @@ export function requireDuAccess(
 }
 
 /**
+ * Boolean variantas `requireDuAccess`'o (Iter 13.x saugumo patch'as).
+ *
+ * Naudojama, kai reikia VARYTI filter'o sluoksnį (pvz., SQL WHERE clause)
+ * ne throw'inant — backend'inis ekvivalentas `apps/web/src/lib/roles.ts`
+ * `canViewPayroll` helper'iui.
+ *
+ * Returns `true` jei:
+ *  - AM administratorius (`admin` + `tenantIsApprover`), arba
+ *  - Org admin (`admin` + NOT `tenantIsApprover`).
+ *
+ * Returns `false`:
+ *  - Specialistas / org user (`role !== 'admin'`)
+ *  - Neautentifikuotas (user undefined)
+ *
+ * SVARBU: org admin VISADA grąžina `true`, tenant scope priklauso nuo
+ * vietos servise (paprastai per project.tenant_id chain'ą). Tenant scope
+ * NE patikrinamas šitame helper'yje, nes naudojamas tiek single-record
+ * pre-check, tiek list filter — semantiškai skirtingos vietos.
+ */
+export function canViewPayroll(user: AuthUser | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role !== 'admin') return false;
+  // AM admin (visi tenant'ai) + Org admin (savo tenant — scope per servisus).
+  return true;
+}
+
+/**
  * AM-only DU operacijų gate'as (Iter 13).
  *
  * Naudoti operacijoms, kurias gali atlikti TIK AM administratorius:

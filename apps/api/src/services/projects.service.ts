@@ -55,6 +55,7 @@ import { Tenant } from '../models/Tenant';
 import { User } from '../models/User';
 import { centsToAmount, normalizeAmount, toCents } from '../utils/money';
 import { calculatePercentUsed, calculateWarningFlags } from '../utils/fvm';
+import { canViewPayroll } from '../utils/permissions';
 import type { AuthMeta } from './auth.service';
 
 const SPEC_PROGRAMA_CODE = 'spec_programa';
@@ -116,6 +117,7 @@ function toDTO(p: ProjectWithRels): ProjectDTO {
     atsakingasUserId: p.atsakingasUserId,
     atsakingasUserName: p.atsakingasUser?.fullName ?? null,
     aprasymas: p.aprasymas,
+    isDuSystem: p.isDuSystem,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };
@@ -443,6 +445,14 @@ const ProjectsService: ServiceSchema = {
           q.where('projects.tenant_id', me.tenantId);
         }
 
+        // SAUGUMO PATCH (Iter 13.x, docx §4.4):
+        // DU sistemos projektus paslepiam vartotojams be DU teisės — kitaip
+        // specialistas pamatytų „DU expense system (auto)" projektą su DU
+        // expense suma. `canViewPayroll` grąžina true tik admin'ams.
+        if (!canViewPayroll(me)) {
+          q.where('projects.is_du_system', false);
+        }
+
         // Optional filtrai
         if (ctx.params.tenantId !== undefined) {
           q.where('projects.tenant_id', ctx.params.tenantId);
@@ -502,6 +512,16 @@ const ProjectsService: ServiceSchema = {
             'PROJECT_NOT_FOUND',
           );
         }
+        // SAUGUMO PATCH (Iter 13.x, docx §4.4):
+        // DU sistemos projektą paslepiam ne-DU vartotojams (404, ne 403 —
+        // kad nepatvirtintume ID egzistavimo).
+        if (p.isDuSystem && !canViewPayroll(me)) {
+          throw new Errors.MoleculerClientError(
+            'Projektas nerastas',
+            404,
+            'PROJECT_NOT_FOUND',
+          );
+        }
         requireReadAccess(me, p.tenantId);
         return toDTO(p);
       },
@@ -526,6 +546,16 @@ const ProjectsService: ServiceSchema = {
         const me = requireMe(ctx);
         const p = await Project.query().findById(ctx.params.id);
         if (!p) {
+          throw new Errors.MoleculerClientError(
+            'Projektas nerastas',
+            404,
+            'PROJECT_NOT_FOUND',
+          );
+        }
+        // SAUGUMO PATCH (Iter 13.x, docx §4.4):
+        // DU sistemos projekto summary — paslėpta ne-DU vartotojams (404).
+        // Kitaip specialistas pamatytų agreguotas DU totals.
+        if (p.isDuSystem && !canViewPayroll(me)) {
           throw new Errors.MoleculerClientError(
             'Projektas nerastas',
             404,

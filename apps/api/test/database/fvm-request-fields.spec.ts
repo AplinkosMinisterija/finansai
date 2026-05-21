@@ -280,8 +280,18 @@ describe('FVM request fields migration (Iter 10)', () => {
       // Iter 11 sukūrė `projects` su FK `requests.fvm_project_id ->
       // projects.id`. Drop'inant Iter 10 (kuri sukūrė `fvm_project_id`
       // koloną), reikia visų vėlesnių migracijų rollback'o. Tvarka — nuo
-      // naujausios atgal: Iter 12 (expenses) → Iter 11 (projects) → Iter 10.
-      // Po `afterAll` `migrate.latest()` visos atstatomos.
+      // naujausios atgal: Iter 13.x (is_du_system kolona) → Iter 12 (expenses)
+      // → Iter 11 (projects) → Iter 10. Po `afterAll` `migrate.latest()`
+      // visos atstatomos.
+      const hasIsDuSystem = await knex.schema.hasColumn(
+        'projects',
+        'is_du_system',
+      );
+      if (hasIsDuSystem) {
+        await knex.migrate.down({
+          name: '20260526200000_add_is_du_system_to_projects.ts',
+        });
+      }
       const hasExpenses = await knex.schema.hasTable('expenses');
       if (hasExpenses) {
         await knex.migrate.down({

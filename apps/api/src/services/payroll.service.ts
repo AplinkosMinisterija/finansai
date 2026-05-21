@@ -296,10 +296,13 @@ async function ensureDuSystemProject(
   tenantId: number,
   duAllocationId: number,
 ): Promise<number> {
+  // Po Iter 13.x saugumo patch'o paieška vyksta pirmiausia per `is_du_system`
+  // flag'ą (robustinis identifikatorius); pavadinimo `like` prefix lieka
+  // kaip backup'as, jei kažkas turi senų įrašų be flag'o (migracijos
+  // backfill'as turėtų užtikrinti, kad jų nebūtų — bet defensive code).
   const existing = (await trx('projects')
     .where('tenant_id', tenantId)
-    .where('tipas', DU_SYSTEM_PROJECT_TIPAS)
-    .where('pavadinimas', 'like', `${DU_SYSTEM_PROJECT_NAME_PREFIX}%`)
+    .where('is_du_system', true)
     .first('id')) as { id: number } | undefined;
   if (existing) return existing.id;
 
@@ -318,6 +321,10 @@ async function ensureDuSystemProject(
       aprasymas:
         'Auto-sukurtas sistemos projektas DU mėnesinių apskaičiavimų išlaidoms talpinti. ' +
         'Žr. payroll.computeMonth.',
+      // Iter 13.x saugumo patch'as: pažymim, kad šis projektas yra DU sistemos
+      // projektas — filter'inamas atskirai per `canViewPayroll` gate'us
+      // expenses + projects servisuose.
+      is_du_system: true,
     })
     .returning('id')) as Array<{ id: number }>;
   const id = inserted[0]?.id;

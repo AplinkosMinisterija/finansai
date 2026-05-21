@@ -563,6 +563,21 @@ describe('FVM projects migration (Iter 11)', () => {
       const hasProjects = await knex.schema.hasTable('projects');
       expect(hasProjects).toBe(true);
 
+      // PASTABA (Iter 13.x): nuo Iter 13.x yra `20260526200000_add_is_du_system`
+      // migracija, kuri ALTER'ina `projects.is_du_system`. Jei nerollback'insim
+      // jos prieš `PROJECTS_MIGRATION`, knex pažymės šitą migraciją kaip
+      // jau paleistą, ir vėliau `migrate.latest()` jos NEpaleis iš naujo —
+      // gausim projects lentelę be `is_du_system` kolonos. Drop'inam pirma.
+      const hasIsDuSystem = await knex.schema.hasColumn(
+        'projects',
+        'is_du_system',
+      );
+      if (hasIsDuSystem) {
+        await knex.migrate.down({
+          name: '20260526200000_add_is_du_system_to_projects.ts',
+        });
+      }
+
       // PASTABA (Iter 12): nuo Iter 12 yra `expenses` lentelė su FK į
       // `projects(id)` ON DELETE RESTRICT. Norint rollback'inti Iter 11
       // (projects), pirma reikia rollback'inti Iter 12 (expenses) — kitaip

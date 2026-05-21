@@ -147,13 +147,25 @@ describe('FVM foundation migration', () => {
       // Rollback FVM migration only (nepaliekam senųjų po setup'o).
       // currentVersion turi būti FVM — global-setup paleido latest.
       //
-      // PASTABA (Iter 11+12+13): nuo Iter 13 yra `payroll_distributions` su
-      // FK į `funding_sources`. Nuo Iter 12 yra `expenses` lentelė su FK į
+      // PASTABA (Iter 11+12+13+13.x): nuo Iter 13.x yra `projects.is_du_system`
+      // migracija (ALTER'inanti projects); nuo Iter 13 yra `payroll_distributions`
+      // su FK į `funding_sources`. Nuo Iter 12 yra `expenses` lentelė su FK į
       // `projects` ir `budget_allocations_v2`. Nuo Iter 11 yra `projects`
       // lentelė su FK į `budget_allocations_v2`. Norint rollback'inti Iter 9
       // (foundation), pirma reikia rollback'inti vėlesnes migracijas —
-      // pradėdami nuo naujausios (payroll), kitaip FK constraint'ai užkirs
-      // kelią DROP TABLE komandoms.
+      // pradėdami nuo naujausios (is_du_system → payroll), kitaip
+      // FK constraint'ai užkirs kelią DROP TABLE komandoms, o pasiekti
+      // migracijos liks completed'ų sąraše ir migrate.latest jų atstatyti
+      // nebevykdys.
+      const hasIsDuSystem = await knex.schema.hasColumn(
+        'projects',
+        'is_du_system',
+      );
+      if (hasIsDuSystem) {
+        await knex.migrate.down({
+          name: '20260526200000_add_is_du_system_to_projects.ts',
+        });
+      }
       const hasPayroll = await knex.schema.hasTable('payroll_profiles');
       if (hasPayroll) {
         await knex.migrate.down({ name: '20260526100000_create_payroll.ts' });
@@ -314,12 +326,20 @@ describe('FVM foundation migration', () => {
       expect(hasBav2).toBe(true);
 
       // Roll'inam migraciją down.
-      // PASTABA (Iter 11+12+13): nuo Iter 13 yra `payroll_distributions` su
-      // FK į `funding_sources`. Nuo Iter 12 yra `expenses` su FK į `projects`
-      // ir `budget_allocations_v2`. Nuo Iter 11 yra `projects` su FK į
-      // `budget_allocations_v2`. Pirma rollback'inam vėlesnes migracijas
-      // (nuo naujausios atgal), tada pačią Iter 9 (foundation). Žr.
-      // analogišką paaiškinimą Test 1.
+      // PASTABA (Iter 11+12+13+13.x): nuo Iter 13.x yra `projects.is_du_system`
+      // ALTER migracija. Pirma rollback'inam vėlesnes migracijas (nuo
+      // naujausios atgal: is_du_system → payroll → expenses → projects →
+      // fvm_fields), tada pačią Iter 9 (foundation). Žr. analogišką
+      // paaiškinimą Test 1.
+      const hasIsDuSystemHere = await knex.schema.hasColumn(
+        'projects',
+        'is_du_system',
+      );
+      if (hasIsDuSystemHere) {
+        await knex.migrate.down({
+          name: '20260526200000_add_is_du_system_to_projects.ts',
+        });
+      }
       const hasPayrollHere = await knex.schema.hasTable('payroll_profiles');
       if (hasPayrollHere) {
         await knex.migrate.down({ name: '20260526100000_create_payroll.ts' });

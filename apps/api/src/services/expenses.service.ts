@@ -63,6 +63,7 @@ import {
   calculatePercentUsed,
   calculateWarningFlags,
 } from '../utils/fvm';
+import { canViewPayroll } from '../utils/permissions';
 import type { AuthMeta } from './auth.service';
 
 const EXPENSE_TYPES: readonly ExpenseType[] = [
@@ -374,6 +375,16 @@ const ExpensesService: ServiceSchema = {
           });
         }
 
+        // SAUGUMO PATCH (Iter 13.x, docx §4.4):
+        // DU expense'ai (`tipas='du'`) turi būti paslėpti vartotojams be DU
+        // teisės — kitaip specialistas pamatytų darbuotojo vardą + sumą per
+        // `expenses.aprasymas` lauką. `canViewPayroll` grąžina true tik
+        // admin'ams (AM admin + org admin); kiekviena rolė turi atskirą
+        // tenant scope'ą jau pritaikyta aukščiau.
+        if (!canViewPayroll(me)) {
+          q.whereNot('expenses.tipas', 'du');
+        }
+
         if (ctx.params.projectId !== undefined) {
           q.where('expenses.project_id', ctx.params.projectId);
         }
@@ -434,6 +445,18 @@ const ExpensesService: ServiceSchema = {
             'Išlaidos projektas neturi organizacijos',
             500,
             'EXPENSE_INCONSISTENT',
+          );
+        }
+        // SAUGUMO PATCH (Iter 13.x, docx §4.4):
+        // Pirma — DU tipo expense'us paslepiam vartotojams be DU teisės.
+        // Naudojam 404 (ne 403), kad nepamatytų expense ID egzistuoja —
+        // saugumo „dark pattern": resource nera randamas niekam, kas neturi
+        // teisės.
+        if (e.tipas === 'du' && !canViewPayroll(me)) {
+          throw new Errors.MoleculerClientError(
+            'Išlaida nerasta',
+            404,
+            'EXPENSE_NOT_FOUND',
           );
         }
         requireReadAccess(me, tenantId);
