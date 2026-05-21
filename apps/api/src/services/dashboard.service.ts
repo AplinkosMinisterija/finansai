@@ -12,6 +12,7 @@
 import type { ServiceSchema, Context } from 'moleculer';
 import { Errors } from 'moleculer';
 import type {
+  BudgetCategoryStats,
   CostCategoryStats,
   DashboardActivityItem,
   DashboardData,
@@ -21,14 +22,18 @@ import type {
 } from '@biip-finansai/shared';
 import { Request } from '../models/Request';
 import { RequestComment } from '../models/RequestComment';
+import { ClassifierItem } from '../models/ClassifierItem';
 import { Tenant } from '../models/Tenant';
 import { User } from '../models/User';
+import { centsToAmount, toCents } from '../utils/money';
 import type { AuthMeta } from './auth.service';
 
 interface RequestWithRels extends Request {
   tenant?: Tenant;
   createdByUser?: User;
   decidedByUser?: User;
+  budgetCategory?: ClassifierItem;
+  fundingSourceType?: ClassifierItem;
 }
 
 interface CommentWithRels extends RequestComment {
@@ -90,6 +95,15 @@ function toRequestDTO(r: RequestWithRels): RequestDTO {
     decidedAt: r.decidedAt,
     decidedByUserId: r.decidedByUserId,
     decidedByName: r.decidedByUser?.fullName ?? null,
+    // FVM laukai (Iter 10)
+    budgetCategoryId: r.budgetCategoryId,
+    budgetCategoryCode: r.budgetCategory?.code ?? null,
+    budgetCategoryName: r.budgetCategory?.name ?? null,
+    fundingSourceTypeId: r.fundingSourceTypeId,
+    fundingSourceTypeCode: r.fundingSourceType?.code ?? null,
+    fundingSourceTypeName: r.fundingSourceType?.name ?? null,
+    specProgramFundingType: r.specProgramFundingType,
+    fvmProjectId: r.fvmProjectId,
     submittedAt: r.submittedAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
@@ -163,6 +177,7 @@ const DashboardService: ServiceSchema = {
           'requests.cost_modernization',
           'requests.cost_decommissioning',
           'requests.decision_granted_amount',
+          'requests.budget_category_id',
           'requests.created_at',
         )) as Request[];
 
@@ -318,7 +333,7 @@ const DashboardService: ServiceSchema = {
         let actionable: RequestDTO[] = [];
         if (!isApprover) {
           const rows = (await scopedRequestQuery(me)
-            .withGraphFetched('[tenant, createdByUser, decidedByUser]')
+            .withGraphFetched('[tenant, createdByUser, decidedByUser, budgetCategory, fundingSourceType]')
             .whereIn('requests.status', ['RETURNED', 'DRAFT'])
             .orderByRaw("CASE WHEN requests.status = 'RETURNED' THEN 0 ELSE 1 END")
             .orderBy('requests.updated_at', 'desc')
@@ -330,7 +345,7 @@ const DashboardService: ServiceSchema = {
         let pendingReview: RequestDTO[] = [];
         if (isApprover) {
           const rows = (await scopedRequestQuery(me)
-            .withGraphFetched('[tenant, createdByUser, decidedByUser]')
+            .withGraphFetched('[tenant, createdByUser, decidedByUser, budgetCategory, fundingSourceType]')
             .where('requests.status', 'SUBMITTED')
             .orderBy('requests.submitted_at', 'asc')
             .limit(8)) as RequestWithRels[];
@@ -449,6 +464,61 @@ const DashboardService: ServiceSchema = {
           approved: approvedByMonth[m] ?? 0,
         }));
 
+        // ===== Budget category stats (FVM Iter 10, P06 docx §3.4) =====
+        // Agreguojam prašymus pagal `budget_category_id`. Į stats'ą TIK įtraukiami
+        // prašymai su not-null `budgetCategoryId` — t.y. FVM-aware prašymai.
+        // Pastaba: naudojam in-memory agregaciją iš jau užkrauto `allRequests`
+        // dataset'o (konsistentiškai su costCategories logika) + atskira užklausa
+        // ClassifierItem'ams (gauti code+name).
+        const budgetCategoryAcc: Map<
+          number,
+          { totalRequestedCents: number; totalGrantedCents: number; count: number }
+        > = new Map();
+        for (const r of allRequests) {
+          if (r.budgetCategoryId === null || r.budgetCategoryId === undefined) {
+            // NULL budget_category_id — neįtraukiam (legacy/be-FVM prašymai).
+            continue;
+          }
+          const requestedCents = toCents(totalRequestedFromRow(r));
+          const grantedCents =
+            r.status === 'APPROVED' && r.decisionGrantedAmount !== null
+              ? toCents(r.decisionGrantedAmount)
+              : 0;
+          const existing = budgetCategoryAcc.get(r.budgetCategoryId) ?? {
+            totalRequestedCents: 0,
+            totalGrantedCents: 0,
+            count: 0,
+          };
+          existing.totalRequestedCents += requestedCents;
+          existing.totalGrantedCents += grantedCents;
+          existing.count += 1;
+          budgetCategoryAcc.set(r.budgetCategoryId, existing);
+        }
+
+        let budgetCategoryStats: BudgetCategoryStats[] = [];
+        if (budgetCategoryAcc.size > 0) {
+          const categoryIds = [...budgetCategoryAcc.keys()];
+          const items = (await ClassifierItem.query()
+            .whereIn('id', categoryIds)) as ClassifierItem[];
+          const itemsById = new Map(items.map((it) => [it.id, it]));
+          budgetCategoryStats = categoryIds
+            .map((id) => {
+              const acc = budgetCategoryAcc.get(id)!;
+              const item = itemsById.get(id);
+              return {
+                categoryItemId: id,
+                categoryCode: item?.code ?? '',
+                categoryName: item?.name ?? '',
+                totalRequested: centsToAmount(acc.totalRequestedCents),
+                totalGranted: centsToAmount(acc.totalGrantedCents),
+                count: acc.count,
+              };
+            })
+            // Stabilus sort'as — pagal code'ą (LT konvencija: alfabetiškai). Bus
+            // konsistencija UI'ui ir testams.
+            .sort((a, b) => a.categoryCode.localeCompare(b.categoryCode));
+        }
+
         return {
           role: me.role,
           tenantIsApprover: me.tenantIsApprover,
@@ -460,6 +530,7 @@ const DashboardService: ServiceSchema = {
           perTenantBreakdown,
           monthlyTrend,
           costCategories,
+          budgetCategoryStats,
         };
       },
     },

@@ -1,7 +1,16 @@
 /**
  * Request modelis (finansavimo prašymas).
+ *
+ * Iter 10 (FVM-2) papildymai:
+ *  - `budgetCategoryId` — FK į `classifier_items` grupėje `budget_category`.
+ *  - `fundingSourceTypeId` — FK į `classifier_items` grupėje `funding_source_type`.
+ *  - `specProgramFundingType` — varchar ('atskiras' | 'biudzeto_dalis').
+ *    Naudojamas tik kai `budgetCategory` = `spec_programa`.
+ *  - `fvmProjectId` — integer (FK į `projects` bus pridėta Iter 11).
+ *
+ * Visi nauji laukai nullable — backward compatibility seniems prašymams.
  */
-import type { RelationMappings } from 'objection';
+import type { JSONSchema, RelationMappings } from 'objection';
 import { BaseModel } from './Base';
 
 export type RequestStatus =
@@ -10,6 +19,17 @@ export type RequestStatus =
   | 'RETURNED'
   | 'APPROVED'
   | 'REJECTED';
+
+/**
+ * Spec.programos finansavimo tipas (Iter 10).
+ *
+ * - `atskiras` — Su atskiru finansavimu (rinkliavos, mokesčiai, spec.fondai).
+ * - `biudzeto_dalis` — Iš bendrojo biudžeto (atskira eilutė VB sudėtyje).
+ *
+ * Naudojamas tik kai `budgetCategoryId` rodantis į `spec_programa`
+ * (grupėje `budget_category`).
+ */
+export type SpecProgramFundingType = 'atskiras' | 'biudzeto_dalis';
 
 export class Request extends BaseModel {
   static override tableName = 'requests';
@@ -64,6 +84,12 @@ export class Request extends BaseModel {
   decidedAt!: string | null;
   decidedByUserId!: number | null;
 
+  // 6. FVM laukai (Iter 10, P05 docx §3.1)
+  budgetCategoryId!: number | null;
+  fundingSourceTypeId!: number | null;
+  specProgramFundingType!: SpecProgramFundingType | null;
+  fvmProjectId!: number | null;
+
   submittedAt!: string | null;
   createdAt!: string;
   updatedAt!: string;
@@ -74,6 +100,29 @@ export class Request extends BaseModel {
   decidedByUser?: import('./User').User;
   comments?: import('./RequestComment').RequestComment[];
   approvalSteps?: import('./ApprovalStep').ApprovalStep[];
+  budgetCategory?: import('./ClassifierItem').ClassifierItem;
+  fundingSourceType?: import('./ClassifierItem').ClassifierItem;
+
+  static override get jsonSchema(): JSONSchema {
+    return {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' },
+        tenantId: { type: 'integer' },
+        createdByUserId: { type: 'integer' },
+        status: { type: 'string' },
+        year: { type: 'integer' },
+        // FVM laukai (Iter 10) — visi nullable
+        budgetCategoryId: { type: ['integer', 'null'] },
+        fundingSourceTypeId: { type: ['integer', 'null'] },
+        specProgramFundingType: {
+          type: ['string', 'null'],
+          enum: ['atskiras', 'biudzeto_dalis', null],
+        },
+        fvmProjectId: { type: ['integer', 'null'] },
+      },
+    };
+  }
 
   static override get relationMappings(): RelationMappings {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -84,6 +133,9 @@ export class Request extends BaseModel {
     const { RequestComment } = require('./RequestComment') as typeof import('./RequestComment');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { ApprovalStep } = require('./ApprovalStep') as typeof import('./ApprovalStep');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ClassifierItem } =
+      require('./ClassifierItem') as typeof import('./ClassifierItem');
 
     return {
       tenant: {
@@ -110,6 +162,23 @@ export class Request extends BaseModel {
         relation: BaseModel.HasManyRelation,
         modelClass: ApprovalStep,
         join: { from: 'requests.id', to: 'approval_steps.request_id' },
+      },
+      // FVM Iter 10
+      budgetCategory: {
+        relation: BaseModel.BelongsToOneRelation,
+        modelClass: ClassifierItem,
+        join: {
+          from: 'requests.budget_category_id',
+          to: 'classifier_items.id',
+        },
+      },
+      fundingSourceType: {
+        relation: BaseModel.BelongsToOneRelation,
+        modelClass: ClassifierItem,
+        join: {
+          from: 'requests.funding_source_type_id',
+          to: 'classifier_items.id',
+        },
       },
     };
   }

@@ -1,5 +1,10 @@
 /**
  * ApprovalStep — vienas aprobacijos workflow žingsnis (issue #9).
+ *
+ * Pastaba: `approval_steps` lentelė neturi `updated_at` kolonos (žr.
+ * `20260519160000_create_approval_steps.ts`). `BaseModel.$beforeUpdate`
+ * default'iškai bandytų set'inti `updatedAt`, kas sukeltų PG error patch'o metu.
+ * Todėl no-op'inam `$beforeUpdate` čia.
  */
 import type { RelationMappings } from 'objection';
 import { BaseModel } from './Base';
@@ -21,6 +26,11 @@ export class ApprovalStep extends BaseModel {
   createdAt!: string;
 
   decidedByUser?: import('./User').User;
+
+  // Lentelė neturi `updated_at` — overrride'inam Base'o $beforeUpdate kaip no-op.
+  override $beforeUpdate(): void {
+    // no-op
+  }
 
   static override get relationMappings(): RelationMappings {
     // eslint-disable-next-line @typescript-eslint/no-require-imports

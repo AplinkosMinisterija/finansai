@@ -9,10 +9,17 @@
  *   - am_user: scope organizacijų prašymai
  *   - org_admin: savo tenant prašymai (CRUD draft, submit)
  *   - org_user: tik savo (=user) prašymai
+ *
+ * Iter 10 (FVM-2) papildymai:
+ *   - 4 nauji laukai: budget_category_id, funding_source_type_id,
+ *     spec_program_funding_type, fvm_project_id
+ *   - Validacija create/update/decision metu (klasifikatoriaus grupė turi sutapti)
+ *   - `createFvmProject` placeholder endpoint'as (real impl. Iter 11)
  */
 import type { ServiceSchema, Context } from 'moleculer';
 import { Errors } from 'moleculer';
 import type {
+  CreateFvmProjectResponse,
   FinancingRequest as RequestDTO,
   FinancingRequestDetail,
   PaginatedResponse,
@@ -21,6 +28,7 @@ import type {
   RequestListQuery,
   RequestPayload,
   RequestStatus,
+  SpecProgramFundingType,
 } from '@biip-finansai/shared';
 import { Request } from '../models/Request';
 import { RequestComment } from '../models/RequestComment';
@@ -33,6 +41,15 @@ import { User } from '../models/User';
 import { normalizeAmount } from '../utils/money';
 import { canViewRequest } from '../utils/permissions';
 import type { AuthMeta } from './auth.service';
+
+// ---------- FVM (Iter 10) ----------
+const BUDGET_CATEGORY_GROUP_CODE = 'budget_category';
+const FUNDING_SOURCE_TYPE_GROUP_CODE = 'funding_source_type';
+const SPEC_PROGRAMA_CODE = 'spec_programa';
+const SPEC_PROGRAM_FUNDING_TYPE_VALUES: readonly SpecProgramFundingType[] = [
+  'atskiras',
+  'biudzeto_dalis',
+];
 
 /**
  * Default workflow AAD scope'ui (issue #9, „šiame etape biški mažiau, bet
@@ -47,6 +64,8 @@ interface RequestWithRels extends Request {
   decidedByUser?: User;
   comments?: (RequestComment & { authorUser?: User })[];
   approvalSteps?: (ApprovalStep & { decidedByUser?: User })[];
+  budgetCategory?: ClassifierItem;
+  fundingSourceType?: ClassifierItem;
 }
 
 const PAYLOAD_FIELDS = [
@@ -166,6 +185,15 @@ function toRequestDTO(r: RequestWithRels): RequestDTO {
     decidedAt: r.decidedAt,
     decidedByUserId: r.decidedByUserId,
     decidedByName: r.decidedByUser?.fullName ?? null,
+    // FVM laukai (Iter 10)
+    budgetCategoryId: r.budgetCategoryId,
+    budgetCategoryCode: r.budgetCategory?.code ?? null,
+    budgetCategoryName: r.budgetCategory?.name ?? null,
+    fundingSourceTypeId: r.fundingSourceTypeId,
+    fundingSourceTypeCode: r.fundingSourceType?.code ?? null,
+    fundingSourceTypeName: r.fundingSourceType?.name ?? null,
+    specProgramFundingType: r.specProgramFundingType,
+    fvmProjectId: r.fvmProjectId,
     submittedAt: r.submittedAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
@@ -192,7 +220,9 @@ function toCommentDTO(c: RequestComment & { authorUser?: User }): RequestComment
 async function loadRequest(id: number): Promise<RequestWithRels | undefined> {
   const r = await Request.query()
     .findById(id)
-    .withGraphFetched('[tenant, createdByUser, decidedByUser]');
+    .withGraphFetched(
+      '[tenant, createdByUser, decidedByUser, budgetCategory, fundingSourceType]',
+    );
   return r as RequestWithRels | undefined;
 }
 
@@ -200,7 +230,7 @@ async function loadRequestDetail(id: number): Promise<RequestWithRels | undefine
   const r = await Request.query()
     .findById(id)
     .withGraphFetched(
-      '[tenant, createdByUser, decidedByUser, comments.authorUser, approvalSteps.decidedByUser]',
+      '[tenant, createdByUser, decidedByUser, budgetCategory, fundingSourceType, comments.authorUser, approvalSteps.decidedByUser]',
     )
     .modifyGraph('comments', (b) => {
       b.orderBy('created_at', 'asc');
@@ -217,6 +247,152 @@ async function resolveLevelName(code: string): Promise<string> {
   if (!group) return code;
   const item = await ClassifierItem.query().findOne({ group_id: group.id, code });
   return item?.name ?? code;
+}
+
+// ---------- FVM validacijos (Iter 10) ----------
+
+/**
+ * Patikrina, kad classifier_item priklauso `budget_category` grupei. Grąžina
+ * item'ą su denormalizuotu kodu (reikia tolesniam validation'ui, pvz., ar
+ * = `spec_programa`).
+ *
+ * Tikrina ne-NULL `itemId`'us; null'ams praleidžia validation'ą — laukas
+ * optional ir backward compat'ui leidžiamas tuščias.
+ */
+async function validateBudgetCategory(itemId: number): Promise<ClassifierItem> {
+  const item = await ClassifierItem.query()
+    .findById(itemId)
+    .withGraphFetched('group');
+  if (!item) {
+    throw new Errors.MoleculerClientError(
+      'Biudžeto kategorija nerasta klasifikatoriuje',
+      400,
+      'INVALID_BUDGET_CATEGORY',
+    );
+  }
+  const group = (item as ClassifierItem & { group?: ClassifierGroup }).group;
+  if (!group || group.code !== BUDGET_CATEGORY_GROUP_CODE) {
+    throw new Errors.MoleculerClientError(
+      'Biudžeto kategorija turi būti iš grupės budget_category',
+      400,
+      'INVALID_BUDGET_CATEGORY_GROUP',
+    );
+  }
+  return item;
+}
+
+/**
+ * Patikrina, kad classifier_item priklauso `funding_source_type` grupei.
+ */
+async function validateFundingSourceType(itemId: number): Promise<ClassifierItem> {
+  const item = await ClassifierItem.query()
+    .findById(itemId)
+    .withGraphFetched('group');
+  if (!item) {
+    throw new Errors.MoleculerClientError(
+      'Finansavimo šaltinio tipas nerastas klasifikatoriuje',
+      400,
+      'INVALID_FUNDING_SOURCE_TYPE',
+    );
+  }
+  const group = (item as ClassifierItem & { group?: ClassifierGroup }).group;
+  if (!group || group.code !== FUNDING_SOURCE_TYPE_GROUP_CODE) {
+    throw new Errors.MoleculerClientError(
+      'Finansavimo šaltinio tipas turi būti iš grupės funding_source_type',
+      400,
+      'INVALID_FUNDING_SOURCE_TYPE_GROUP',
+    );
+  }
+  return item;
+}
+
+/**
+ * Apskaičiuoja FVM laukų patch'ą iš input'o.
+ *
+ * Logika:
+ *  - Jei `budgetCategoryId === null` arba apvis nenurodytas — atstatom NULL.
+ *  - Jei `budgetCategoryId` skaičius — validuojam grupę, gauname code.
+ *  - Jei `fundingSourceTypeId` — analogiškai validuojam grupę.
+ *  - Jei `specProgramFundingType` nurodytas (ne null) — tik kai
+ *    `budgetCategoryCode` == `spec_programa`. Kitaip 400 error.
+ *
+ * `existingBudgetCategoryId` reikalingas, kai input'as `specProgramFundingType`
+ * yra perduotas, bet `budgetCategoryId` neperduotas — tada naudojam DB esamą
+ * kategoriją validation'ui (update kontekstas).
+ */
+async function buildFvmPatch(
+  input: {
+    budgetCategoryId?: number | null;
+    fundingSourceTypeId?: number | null;
+    specProgramFundingType?: SpecProgramFundingType | null;
+  },
+  existingBudgetCategoryId?: number | null,
+): Promise<Record<string, unknown>> {
+  const patch: Record<string, unknown> = {};
+
+  // Budget category
+  let effectiveBudgetCategoryId: number | null | undefined =
+    input.budgetCategoryId;
+  let effectiveBudgetCategoryCode: string | null = null;
+  if (input.budgetCategoryId === null) {
+    patch['budgetCategoryId'] = null;
+    effectiveBudgetCategoryId = null;
+  } else if (typeof input.budgetCategoryId === 'number') {
+    const item = await validateBudgetCategory(input.budgetCategoryId);
+    patch['budgetCategoryId'] = item.id;
+    effectiveBudgetCategoryCode = item.code;
+  } else if (existingBudgetCategoryId !== undefined && existingBudgetCategoryId !== null) {
+    // Input nesuteikia budgetCategoryId, bet update kontekste reikia žinoti
+    // esamą kategoriją, kad galėtume validuoti specProgramFundingType.
+    const item = await ClassifierItem.query().findById(existingBudgetCategoryId);
+    if (item) effectiveBudgetCategoryCode = item.code;
+    effectiveBudgetCategoryId = existingBudgetCategoryId;
+  }
+
+  // Funding source type
+  if (input.fundingSourceTypeId === null) {
+    patch['fundingSourceTypeId'] = null;
+  } else if (typeof input.fundingSourceTypeId === 'number') {
+    const item = await validateFundingSourceType(input.fundingSourceTypeId);
+    patch['fundingSourceTypeId'] = item.id;
+  }
+
+  // Spec program funding type
+  if (input.specProgramFundingType === null) {
+    patch['specProgramFundingType'] = null;
+  } else if (input.specProgramFundingType !== undefined) {
+    if (!SPEC_PROGRAM_FUNDING_TYPE_VALUES.includes(input.specProgramFundingType)) {
+      throw new Errors.MoleculerClientError(
+        'Neteisinga spec.programos finansavimo tipo reikšmė. Galimos reikšmės: atskiras, biudzeto_dalis.',
+        400,
+        'INVALID_SPEC_PROGRAM_FUNDING_TYPE',
+      );
+    }
+    if (effectiveBudgetCategoryCode !== SPEC_PROGRAMA_CODE) {
+      throw new Errors.MoleculerClientError(
+        'Specialiosios programos finansavimo tipą galima nurodyti tik kai biudžeto kategorija = Specialioji programa',
+        400,
+        'SPEC_PROGRAM_FUNDING_TYPE_REQUIRES_SPEC_PROGRAMA',
+      );
+    }
+    patch['specProgramFundingType'] = input.specProgramFundingType;
+  } else if (
+    // Jei kategorija pakeičiama (ar nustatoma) į ne-spec_programa — null'inam
+    // specProgramFundingType (kad neliktų inconsistent state'o).
+    patch['budgetCategoryId'] !== undefined &&
+    effectiveBudgetCategoryId !== null &&
+    effectiveBudgetCategoryCode !== null &&
+    effectiveBudgetCategoryCode !== SPEC_PROGRAMA_CODE
+  ) {
+    patch['specProgramFundingType'] = null;
+  } else if (
+    // Jei budgetCategoryId nustatomas į null — null'inam ir specProgramFundingType.
+    patch['budgetCategoryId'] === null
+  ) {
+    patch['specProgramFundingType'] = null;
+  }
+
+  return patch;
 }
 
 function approvalStepDTO(
@@ -364,6 +540,27 @@ const RequestsService: ServiceSchema = {
         tenantId: { type: 'number', integer: true, optional: true, convert: true },
         year: { type: 'number', integer: true, optional: true, convert: true },
         projectName: { type: 'string', optional: true, max: 500 },
+        // FVM laukai (Iter 10) — opcionalūs (backward compat)
+        budgetCategoryId: {
+          type: 'number',
+          integer: true,
+          optional: true,
+          nullable: true,
+          convert: true,
+        },
+        fundingSourceTypeId: {
+          type: 'number',
+          integer: true,
+          optional: true,
+          nullable: true,
+          convert: true,
+        },
+        specProgramFundingType: {
+          type: 'enum',
+          values: ['atskiras', 'biudzeto_dalis'],
+          optional: true,
+          nullable: true,
+        },
       },
       async handler(
         ctx: Context<RequestPayload & { tenantId?: number }, AuthMeta>,
@@ -422,6 +619,12 @@ const RequestsService: ServiceSchema = {
             'YEAR_OUT_OF_RANGE',
           );
         }
+        // FVM laukai (Iter 10): validuojam ir įdedam, jei pateikti.
+        const fvmPatch = await buildFvmPatch({
+          budgetCategoryId: ctx.params.budgetCategoryId,
+          fundingSourceTypeId: ctx.params.fundingSourceTypeId,
+          specProgramFundingType: ctx.params.specProgramFundingType,
+        });
         const inserted = await Request.query().insert({
           tenantId: targetTenantId,
           createdByUserId: me.id,
@@ -429,6 +632,7 @@ const RequestsService: ServiceSchema = {
           year: requestedYear,
           projectName: (patch['projectName'] as string) ?? 'Naujas prašymas',
           ...patch,
+          ...fvmPatch,
         });
         const full = await loadRequest(inserted.id);
         if (!full) throw new Error('Inserted request not found');
@@ -439,6 +643,27 @@ const RequestsService: ServiceSchema = {
     update: {
       params: {
         id: { type: 'number', integer: true, convert: true },
+        // FVM laukai (Iter 10) — opcionalūs
+        budgetCategoryId: {
+          type: 'number',
+          integer: true,
+          optional: true,
+          nullable: true,
+          convert: true,
+        },
+        fundingSourceTypeId: {
+          type: 'number',
+          integer: true,
+          optional: true,
+          nullable: true,
+          convert: true,
+        },
+        specProgramFundingType: {
+          type: 'enum',
+          values: ['atskiras', 'biudzeto_dalis'],
+          optional: true,
+          nullable: true,
+        },
       },
       async handler(ctx: Context<RequestPayload & { id: number }, AuthMeta>): Promise<RequestDTO> {
         const me = requireMe(ctx);
@@ -456,7 +681,20 @@ const RequestsService: ServiceSchema = {
         const { id: _id, ...rest } = ctx.params;
         void _id;
         const patch = sanitizePayload(rest);
-        await Request.query().findById(r.id).patch(patch);
+        // FVM laukai (Iter 10): validuojam tik tai, ką input atneša; perduodam
+        // DB esamą `budgetCategoryId`, kad specProgramFundingType validation
+        // veiktų net jei input atneša tik šitą lauką.
+        const fvmPatch = await buildFvmPatch(
+          {
+            budgetCategoryId: ctx.params.budgetCategoryId,
+            fundingSourceTypeId: ctx.params.fundingSourceTypeId,
+            specProgramFundingType: ctx.params.specProgramFundingType,
+          },
+          r.budgetCategoryId,
+        );
+        await Request.query()
+          .findById(r.id)
+          .patch({ ...patch, ...fvmPatch });
         const full = await loadRequest(r.id);
         if (!full) throw new Error('Updated request not found');
         return toRequestDTO(full);
@@ -664,6 +902,28 @@ const RequestsService: ServiceSchema = {
         fundingSource: { type: 'string', optional: true, max: 500 },
         protocol: { type: 'string', optional: true, max: 500 },
         order: { type: 'string', optional: true, max: 500 },
+        // FVM laukai (Iter 10, docx §3.3): AM gali pakeisti kategoriją per
+        // patvirtinimą. Visi optional — be jų veikia kaip iki šiol.
+        budgetCategoryId: {
+          type: 'number',
+          integer: true,
+          optional: true,
+          nullable: true,
+          convert: true,
+        },
+        fundingSourceTypeId: {
+          type: 'number',
+          integer: true,
+          optional: true,
+          nullable: true,
+          convert: true,
+        },
+        specProgramFundingType: {
+          type: 'enum',
+          values: ['atskiras', 'biudzeto_dalis'],
+          optional: true,
+          nullable: true,
+        },
       },
       async handler(
         ctx: Context<RequestDecisionPayload & { id: number }, AuthMeta>,
@@ -702,6 +962,20 @@ const RequestsService: ServiceSchema = {
         let newStatus: RequestStatus;
         let kind: 'returned' | 'approved' | 'rejected';
 
+        // FVM laukai (Iter 10): AM gali koreguoti per patvirtinimą.
+        // Validuojam ANKSTI — jei klaidinga reikšmė, niekas nesikeičia.
+        // Esamą `r.budgetCategoryId` perduodam fallback'ui (jei nurodytas
+        // tik `specProgramFundingType` be `budgetCategoryId` — validuoti
+        // pagal esamą kategoriją).
+        const fvmPatch = await buildFvmPatch(
+          {
+            budgetCategoryId: p.budgetCategoryId,
+            fundingSourceTypeId: p.fundingSourceTypeId,
+            specProgramFundingType: p.specProgramFundingType,
+          },
+          r.budgetCategoryId,
+        );
+
         if (isApprove) {
           newStatus = 'APPROVED';
           kind = 'approved';
@@ -720,6 +994,10 @@ const RequestsService: ServiceSchema = {
           newStatus = 'RETURNED';
           kind = 'returned';
         }
+
+        // FVM laukai įdedami nepriklausomai nuo sprendimo tipo (approve/reject/return),
+        // — AM gali koreguoti kategoriją prieš return ar reject taip pat.
+        Object.assign(patch, fvmPatch);
 
         // Audit #10: visi Request + ApprovalStep + RequestComment rašymai turi
         // įvykti atominėje transakcijoje. Read'ai po commit'o (loadRequest)
@@ -829,6 +1107,55 @@ const RequestsService: ServiceSchema = {
           .withGraphFetched('authorUser');
         if (!full) throw new Error('Comment not found');
         return toCommentDTO(full as RequestComment & { authorUser: User });
+      },
+    },
+
+    /**
+     * `createFvmProject` — Iter 10 placeholder endpoint'as (P04 docx §3.3).
+     *
+     * Iter 11 metu šitas endpoint'as sukurs realų `projects` įrašą iš patvirtinto
+     * prašymo (tipas=`spec_programa`, biudžetas=`decisionGrantedAmount`,
+     * request_id=prašymo ID). Kol kas grąžina pending status'ą, kad frontend'as
+     * gali iškviesti mygtuką ir gauti aiškų atsakymą.
+     *
+     * Tik AM (`tenantIsApprover`) gali kviesti; prašymas turi būti APPROVED.
+     */
+    createFvmProject: {
+      params: { id: { type: 'number', integer: true, convert: true } },
+      async handler(
+        ctx: Context<{ id: number }, AuthMeta>,
+      ): Promise<CreateFvmProjectResponse> {
+        const me = requireMe(ctx);
+        if (!me.tenantIsApprover) {
+          throw new Errors.MoleculerClientError(
+            'Tik AM gali sukurti FVM projektą iš prašymo',
+            403,
+            'FORBIDDEN',
+          );
+        }
+        const r = await Request.query().findById(ctx.params.id);
+        if (!r) {
+          throw new Errors.MoleculerClientError(
+            'Prašymas nerastas',
+            404,
+            'REQUEST_NOT_FOUND',
+          );
+        }
+        if (r.status !== 'APPROVED') {
+          throw new Errors.MoleculerClientError(
+            'FVM projektą galima sukurti tik iš patvirtinto prašymo',
+            400,
+            'INVALID_STATUS',
+          );
+        }
+        // Iter 11 įgyvendins: sukurs `projects` įrašą tame pačiame transaction'e
+        // ir patch'ins `request.fvm_project_id = newProject.id`.
+        return {
+          status: 'pending',
+          message:
+            'FVM projekto auto-create bus įgyvendintas Iter 11. Šis endpoint kol kas grąžina placeholder atsakymą.',
+          requestId: r.id,
+        };
       },
     },
   },

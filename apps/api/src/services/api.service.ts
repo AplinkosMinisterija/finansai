@@ -215,6 +215,7 @@ const ApiService: ServiceSchema = {
           'DELETE /requests/:id': 'requests.delete',
           'POST /requests/:id/decision': 'requests.decision',
           'POST /requests/:id/comments': 'requests.addComment',
+          'POST /requests/:id/create-fvm-project': 'requests.createFvmProject',
 
           'GET /dashboard': 'dashboard.get',
 

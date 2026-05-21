@@ -193,6 +193,18 @@ export type RequestComment = {
 };
 
 /**
+ * Spec.programos finansavimo tipas (Iter 10 / docx §2.3, P02).
+ *
+ * - `atskiras` — Su atskiru finansavimu (rinkliavos, mokesčiai, spec.fondai).
+ * - `biudzeto_dalis` — Iš bendrojo biudžeto (atskira eilutė VB sudėtyje).
+ *
+ * Naudojamas tik kai prašymo `budgetCategory` = `spec_programa`. Aliasas tas
+ * pats kaip `SpecProgTipas` iš `./fvm` — vartojame skirtingus pavadinimus
+ * prašymo (Iter 10) ir budget_allocation (Iter 9) kontekstuose.
+ */
+export type SpecProgramFundingType = 'atskiras' | 'biudzeto_dalis';
+
+/**
  * Pagal `year` skiriama:
  *  - year === currentYear → įprastas einamųjų metų prašymas
  *  - year  >  currentYear → planas (issue #4); pateikiamas paprastai, atėjus
@@ -248,6 +260,27 @@ export type FinancingRequest = {
   decidedByUserId: number | null;
   decidedByName: string | null;
 
+  // ---------- FVM laukai (Iter 10, P05 docx §3.1) ----------
+  /** FK į classifier_items (grupė `budget_category`). Visiems nauji prašymai pildomi. */
+  budgetCategoryId: number | null;
+  /** Denormalizuotas budget_category klasifikatoriaus kodas (output only). */
+  budgetCategoryCode?: string | null;
+  /** Denormalizuotas budget_category klasifikatoriaus name (output only). */
+  budgetCategoryName?: string | null;
+  /** FK į classifier_items (grupė `funding_source_type`). */
+  fundingSourceTypeId: number | null;
+  /** Denormalizuotas funding_source_type klasifikatoriaus kodas (output only). */
+  fundingSourceTypeCode?: string | null;
+  /** Denormalizuotas funding_source_type klasifikatoriaus name (output only). */
+  fundingSourceTypeName?: string | null;
+  /**
+   * Spec.programos finansavimo tipas. Naudojamas tik kai
+   * `budgetCategory` = `spec_programa`.
+   */
+  specProgramFundingType: SpecProgramFundingType | null;
+  /** FK į projects (Iter 11). Kol kas tik schema; populated bus Iter 11. */
+  fvmProjectId: number | null;
+
   submittedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -292,6 +325,12 @@ export type RequestPayload = {
   executorEmail?: string | null;
   implementationDeadline?: string | null;
   submitterNotes?: string | null;
+
+  // ---------- FVM laukai (Iter 10, P05 docx §3.1) ----------
+  /** Visi opcionalūs — backward compatibility seniems prašymams. */
+  budgetCategoryId?: number | null;
+  fundingSourceTypeId?: number | null;
+  specProgramFundingType?: SpecProgramFundingType | null;
 };
 
 export type RequestListQuery = {
@@ -313,6 +352,16 @@ export type RequestDecisionPayload = {
   fundingSource?: string;
   protocol?: string;
   order?: string;
+  /**
+   * AM patvirtinimo metu gali pakeisti biudžeto kategoriją (Iter 10, docx §3.3).
+   * Jei nurodytas — overrides institucijos pasirinkimą; validation tokia pati
+   * kaip per CRUD endpoint'us.
+   */
+  budgetCategoryId?: number | null;
+  /** AM patvirtinimo metu galima pakeisti finansavimo šaltinio tipą. */
+  fundingSourceTypeId?: number | null;
+  /** AM patvirtinimo metu galima pakeisti spec.programos finansavimo tipą. */
+  specProgramFundingType?: SpecProgramFundingType | null;
 };
 
 // ---------- Dashboard ----------
@@ -338,6 +387,32 @@ export type DashboardStats = {
   /** Atmestų prašymų suma einamais metais (pinigų prizmė, issue #6). */
   totalRejectedThisYear: number;
   usersCount: number;
+};
+
+/**
+ * Pjūvis pagal biudžeto kategoriją (FVM Iter 10, docx §3.4 / P06).
+ *
+ * Agreguoja prašymus pagal `budget_category_id` (FK į classifier_items grupėje
+ * `budget_category`). Prašymai be `budget_category_id` (NULL) į šitą stats'ą
+ * neįtraukti — t.y. tik FVM-aware prašymai.
+ *
+ * Skiriasi nuo `CostCategoryStats`:
+ *  - `BudgetCategoryStats` — FVM lygmens kategorija (du / spec_programa / ...).
+ *  - `CostCategoryStats` — cost field-based (costDu / costEquipment / ...).
+ */
+export type BudgetCategoryStats = {
+  /** classifier_items.id (budget_category grupėje). */
+  categoryItemId: number;
+  /** classifier_items.code, pvz. „spec_programa", „du", ... */
+  categoryCode: string;
+  /** classifier_items.name (LT label'as UI rodymui). */
+  categoryName: string;
+  /** Prašyta visose šios kategorijos užklausose (decimal string). */
+  totalRequested: string;
+  /** Patvirtinta APPROVED prašymuose (decimal string). */
+  totalGranted: string;
+  /** Prašymų skaičius su šia kategorija. */
+  count: number;
 };
 
 /** Pjūvis pagal lėšų kategoriją (issue #6). */
@@ -592,4 +667,26 @@ export type DashboardData = {
   }>;
   /** Pjūvis pagal lėšų kategoriją (issue #6). */
   costCategories: CostCategoryStats[];
+  /**
+   * Pjūvis pagal biudžeto kategoriją (FVM Iter 10, P06).
+   *
+   * Apima tik prašymus su nustatytu `budget_category_id`. Prašymai be FVM laukų
+   * (legacy) į šitą agregaciją neįtraukti — `count`/`totalRequested`/`totalGranted`
+   * skaičiuoja tik FVM-aware prašymus per scoped užklausą.
+   */
+  budgetCategoryStats: BudgetCategoryStats[];
+};
+
+// ---------- FVM project (Iter 10 placeholder, Iter 11 implementation) ----------
+
+/**
+ * `requests.createFvmProject` action response (Iter 10 placeholder).
+ *
+ * Iter 11 metu šitas endpoint'as kurs realų `projects` įrašą; Iter 10 grąžina
+ * `status: 'pending'` placeholder'į, kad frontend mygtukas turėtų ką iškviesti.
+ */
+export type CreateFvmProjectResponse = {
+  status: 'pending';
+  message: string;
+  requestId: number;
 };
