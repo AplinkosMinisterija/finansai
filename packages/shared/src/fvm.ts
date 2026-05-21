@@ -157,17 +157,25 @@ export type BudgetAllocationListQuery = {
 };
 
 /**
- * Allocation suvestinė: planuota / faktinė / likutis.
+ * Allocation suvestinė: planuota / faktinė / likutis + warning flag'ai.
  *
  * - `planuota` = `BudgetAllocation.planuotaSuma`
  * - `faktine` = SUM(expenses kur expense.budget_allocation_id = allocation.id).
- *   Kol expenses lentelė nesukurta (Iter 12), grąžinama '0.00'.
+ *   Tiek single-source (saltinio_dalis=null), tiek multi-source išlaidos
+ *   visada įskaitomos pagal `expenses.budget_allocation_id` (multi-source split
+ *   nekeičia allocation pasirinkimo — tik finansavimo šaltinio paskirstymą).
  * - `likutis` = `planuota - faktine`.
+ * - `percentUsed` — faktine / planuota × 100, suapvalinta iki 2 skaičių.
+ * - `isWarning` — true, kai percentUsed >= WARNING_THRESHOLD_PERCENT (default 80).
+ * - `isOver` — true, kai percentUsed > 100.
  */
 export type BudgetAllocationSummary = {
   planuota: string;
   faktine: string;
   likutis: string;
+  percentUsed: number;
+  isWarning: boolean;
+  isOver: boolean;
 };
 
 // ---------- Projects (3 lygis, Iter 11) ----------
@@ -272,15 +280,136 @@ export type ProjectListQuery = {
 };
 
 /**
- * Projekto suvestinė: biudžetas / panaudota / likutis.
+ * Projekto suvestinė: biudžetas / panaudota / likutis + warning flag'ai.
  *
  * - `biudzetas` — `Project.biudzetas`
  * - `panaudota` — SUM(expenses kur expense.project_id = project.id).
- *   Kol expenses lentelė nesukurta (Iter 12), grąžinama '0.00'.
  * - `likutis` = `biudzetas - panaudota`.
+ * - `percentUsed` — panaudota / biudzetas × 100, suapvalinta iki 2 skaičių.
+ * - `isWarning` — true, kai percentUsed >= WARNING_THRESHOLD_PERCENT (default 80).
+ * - `isOver` — true, kai percentUsed > 100.
  */
 export type ProjectSummary = {
   biudzetas: string;
   panaudota: string;
   likutis: string;
+  percentUsed: number;
+  isWarning: boolean;
+  isOver: boolean;
+};
+
+// ---------- Expenses (Iter 12) ----------
+
+/**
+ * Išlaidos tipas (FVM-4):
+ *  - `du` — darbo užmokestis (per payroll_distributions / Iter 13 modulius)
+ *  - `sutartis` — pagal sutartį (paslaugos, autorinė)
+ *  - `saskaita` — sąskaita-faktūra prekei ar paslaugai
+ *  - `tiesiogine` — tiesioginės išlaidos (komandiruotės, smulkios pirkimai)
+ *
+ * Apribota PostgreSQL CHECK constraint'u — žr.
+ * `20260525100000_create_expenses.ts`.
+ */
+export type ExpenseType = 'du' | 'sutartis' | 'saskaita' | 'tiesiogine';
+
+/**
+ * Multi-source split eilutė. `saltinio_dalis` jsonb — array iš tokių objektų.
+ * SUM(`suma`) per visus elementus turi atitikti `Expense.suma` (epsilon
+ * comparison serveryje per centus).
+ */
+export type ExpenseSourceDistributionItem = {
+  fundingSourceId: number;
+  /** Decimal string formatas. */
+  suma: string;
+};
+
+/**
+ * Išlaida — 3 FVM lygio entiteto (`Project`) faktinė išlaida. Padidina
+ * biudžeto naudojimą, sumažina likutį.
+ *
+ * `saltinioDalis = null` — paveldima per `budget_allocation.funding_source_id`
+ * (single-source default). Multi-source atveju jsonb laikomas tarp finansavimo
+ * šaltinių (žr. ADR-002).
+ */
+export type Expense = {
+  id: number;
+  projectId: number;
+  /** Projekto pavadinimas (denormalizuotas išvedimui). */
+  projectName?: string;
+  budgetAllocationId: number;
+  /** Biudžeto eilutės pavadinimas (denormalizuotas). */
+  budgetAllocationName?: string;
+  /** Tenant ID iš projekto (denormalizuotas — naudingas list filtravimui). */
+  tenantId?: number;
+  tipas: ExpenseType;
+  /** Decimal(15,2) — string formatas. */
+  suma: string;
+  /** ISO 8601 data (YYYY-MM-DD). */
+  data: string;
+  aprasymas: string | null;
+  /** NULL kai single-source; multi-source split kai array. */
+  saltinioDalis: ExpenseSourceDistributionItem[] | null;
+  createdByUserId: number;
+  /** Sukūrusio vartotojo vardas (denormalizuotas). */
+  createdByName?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ExpenseCreateDTO = {
+  projectId: number;
+  budgetAllocationId: number;
+  tipas: ExpenseType;
+  suma: string;
+  data: string;
+  aprasymas?: string | null;
+  saltinioDalis?: ExpenseSourceDistributionItem[] | null;
+};
+
+export type ExpenseUpdateDTO = {
+  budgetAllocationId?: number;
+  tipas?: ExpenseType;
+  suma?: string;
+  data?: string;
+  aprasymas?: string | null;
+  saltinioDalis?: ExpenseSourceDistributionItem[] | null;
+};
+
+export type ExpenseListQuery = {
+  projectId?: number;
+  allocationId?: number;
+  /** Metai (overlapping su `data` lauku). */
+  year?: number;
+  type?: ExpenseType;
+  /** YYYY-MM-DD. */
+  dateFrom?: string;
+  dateTo?: string;
+  /** Filtruoja per `saltinio_dalis` jsonb @> containment'ą. */
+  fundingSourceId?: number;
+};
+
+/**
+ * Biudžeto suvestinės eilutė įspėjimų sąraše. Atspindi vienos
+ * `BudgetAllocationV2` situaciją per nurodytą metus.
+ */
+export type BudgetWarningItem = {
+  allocationId: number;
+  allocationName: string;
+  /** Finansavimo šaltinio pavadinimas (denormalizuotas) — UI rodymui. */
+  fundingSourceName: string;
+  planuota: string;
+  faktine: string;
+  likutis: string;
+  percentUsed: number;
+  isWarning: boolean;
+  isOver: boolean;
+};
+
+/**
+ * `expenses.budgetSummary` endpoint'o atsakymas. Grąžina visus tų metų
+ * allocations (tenant-scoped) su pilnu likučio + warning'o vaizdu.
+ */
+export type BudgetWarningsResponse = {
+  year: number;
+  items: BudgetWarningItem[];
 };

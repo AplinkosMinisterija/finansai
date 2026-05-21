@@ -654,6 +654,14 @@ export type {
   ProjectChangeStatusDTO,
   ProjectListQuery,
   ProjectSummary,
+  Expense,
+  ExpenseType,
+  ExpenseSourceDistributionItem,
+  ExpenseCreateDTO,
+  ExpenseUpdateDTO,
+  ExpenseListQuery,
+  BudgetWarningItem,
+  BudgetWarningsResponse,
 } from './fvm';
 
 // ---------- Dashboard ----------

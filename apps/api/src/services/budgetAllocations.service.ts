@@ -34,10 +34,12 @@ import type {
   SpecProgTipas,
 } from '@biip-finansai/shared';
 import { BudgetAllocationV2 } from '../models/BudgetAllocationV2';
+import { Expense } from '../models/Expense';
 import { FundingSource } from '../models/FundingSource';
 import { ClassifierGroup } from '../models/ClassifierGroup';
 import { ClassifierItem } from '../models/ClassifierItem';
 import { centsToAmount, normalizeAmount, toCents } from '../utils/money';
+import { calculatePercentUsed, calculateWarningFlags } from '../utils/fvm';
 import type { AuthMeta } from './auth.service';
 
 const BUDGET_CATEGORY_GROUP_CODE = 'budget_category';
@@ -235,11 +237,17 @@ const BudgetAllocationsService: ServiceSchema = {
     },
 
     /**
-     * Grąžina suvestinę vienam paskirstymui: planuota / faktinė / likutis.
+     * Grąžina suvestinę vienam paskirstymui:
+     *   planuota / faktinė / likutis + percentUsed + isWarning + isOver.
      *
-     * Kol expenses lentelė nesukurta (Iter 12), `faktine` visada '0.00',
-     * `likutis` = `planuota`. Pradinis API contract'o suderinamumas, kad
-     * frontend galėtų rodyti UI placeholder'ius nuo Iter 9.
+     * - `planuota` = allocation.planuota_suma
+     * - `faktine` = SUM(expenses.suma) WHERE budget_allocation_id = id
+     *   (per visus expenses — single + multi-source; multi-source split
+     *   nekeičia allocation pasirinkimo)
+     * - `likutis` = planuota - faktine
+     * - `percentUsed` = faktine / planuota × 100 (rounded 2 decimals)
+     * - `isWarning` = percentUsed >= WARNING_THRESHOLD_PERCENT (default 80)
+     * - `isOver` = percentUsed > 100
      */
     summary: {
       params: { id: { type: 'number', integer: true, convert: true } },
@@ -256,13 +264,21 @@ const BudgetAllocationsService: ServiceSchema = {
           );
         }
         const planuotaCents = toCents(a.planuotaSuma);
-        // TODO Iter 12: faktine = SUM(expenses kur expense.budget_allocation_id = a.id)
-        const faktineCents = 0;
+        const sumRow = (await Expense.query()
+          .where('budget_allocation_id', a.id)
+          .sum('suma as total')
+          .first()) as unknown as { total: string | null } | undefined;
+        const faktineCents = toCents(sumRow?.total ?? '0');
         const likutisCents = planuotaCents - faktineCents;
+        const percentUsed = calculatePercentUsed(planuotaCents, faktineCents);
+        const flags = calculateWarningFlags(percentUsed);
         return {
           planuota: centsToAmount(planuotaCents),
           faktine: centsToAmount(faktineCents),
           likutis: centsToAmount(likutisCents),
+          percentUsed,
+          isWarning: flags.isWarning,
+          isOver: flags.isOver,
         };
       },
     },

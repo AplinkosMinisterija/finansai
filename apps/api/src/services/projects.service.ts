@@ -47,12 +47,14 @@ import type {
 } from '@biip-finansai/shared';
 import { BudgetAllocationV2 } from '../models/BudgetAllocationV2';
 import { ClassifierItem } from '../models/ClassifierItem';
+import { Expense } from '../models/Expense';
 import { FundingSource } from '../models/FundingSource';
 import { Project } from '../models/Project';
 import { Request } from '../models/Request';
 import { Tenant } from '../models/Tenant';
 import { User } from '../models/User';
 import { centsToAmount, normalizeAmount, toCents } from '../utils/money';
+import { calculatePercentUsed, calculateWarningFlags } from '../utils/fvm';
 import type { AuthMeta } from './auth.service';
 
 const SPEC_PROGRAMA_CODE = 'spec_programa';
@@ -506,10 +508,15 @@ const ProjectsService: ServiceSchema = {
     },
 
     /**
-     * Grąžina projekto biudžeto suvestinę.
+     * Grąžina projekto biudžeto suvestinę:
+     *   biudžetas / panaudota / likutis + percentUsed + isWarning + isOver.
      *
-     * Iter 11 metu `panaudota` visada '0.00' — expenses lentelė bus sukurta
-     * Iter 12. Frontend gali rodyti placeholder'ius nuo Iter 11.
+     * - `biudzetas` = project.biudzetas
+     * - `panaudota` = SUM(expenses.suma) WHERE project_id = id
+     * - `likutis` = biudzetas - panaudota
+     * - `percentUsed` = panaudota / biudzetas × 100 (rounded 2 decimals)
+     * - `isWarning` = percentUsed >= WARNING_THRESHOLD_PERCENT (default 80)
+     * - `isOver` = percentUsed > 100
      */
     summary: {
       params: { id: { type: 'number', integer: true, convert: true } },
@@ -527,13 +534,21 @@ const ProjectsService: ServiceSchema = {
         }
         requireReadAccess(me, p.tenantId);
         const biudzetasCents = toCents(p.biudzetas);
-        // TODO Iter 12: panaudota = SUM(expenses kur expense.project_id = p.id)
-        const panaudotaCents = 0;
+        const sumRow = (await Expense.query()
+          .where('project_id', p.id)
+          .sum('suma as total')
+          .first()) as unknown as { total: string | null } | undefined;
+        const panaudotaCents = toCents(sumRow?.total ?? '0');
         const likutisCents = biudzetasCents - panaudotaCents;
+        const percentUsed = calculatePercentUsed(biudzetasCents, panaudotaCents);
+        const flags = calculateWarningFlags(percentUsed);
         return {
           biudzetas: centsToAmount(biudzetasCents),
           panaudota: centsToAmount(panaudotaCents),
           likutis: centsToAmount(likutisCents),
+          percentUsed,
+          isWarning: flags.isWarning,
+          isOver: flags.isOver,
         };
       },
     },

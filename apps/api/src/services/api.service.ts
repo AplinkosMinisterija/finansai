@@ -186,6 +186,7 @@ const ApiService: ServiceSchema = {
           'fundingSources.*',
           'budgetAllocations.*',
           'projects.*',
+          'expenses.*',
           'requestAttachments.*',
           'requestReports.*',
         ],
@@ -257,6 +258,15 @@ const ApiService: ServiceSchema = {
           'PATCH /projects/:id': 'projects.update',
           'DELETE /projects/:id': 'projects.delete',
           'PATCH /projects/:id/status': 'projects.changeStatus',
+
+          // Expenses (Iter 12) — budget-summary route'as turi būti aukščiau už
+          // `:id` route'ą, kad string „budget-summary" nesinterpretuotų kaip id.
+          'GET /expenses/budget-summary': 'expenses.budgetSummary',
+          'GET /expenses': 'expenses.list',
+          'GET /expenses/:id': 'expenses.get',
+          'POST /expenses': 'expenses.create',
+          'PATCH /expenses/:id': 'expenses.update',
+          'DELETE /expenses/:id': 'expenses.delete',
 
           'GET /requests/:requestId/attachments': 'requestAttachments.list',
           'POST /requests/:requestId/attachments': 'requestAttachments.upload',
