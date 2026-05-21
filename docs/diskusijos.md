@@ -2,6 +2,26 @@
 
 Naujausi įrašai viršuje. Vienas įrašas = vienas sprendimas/diskusija.
 
+## 2026-05-21 — FVM (Iter 9-16) — Kickoff
+
+Giedrė pateikė techninį užsakymą **„Finansų valdymo modulis (FVM)"** v0.1 (`docs/fvm/spec/FVM-v0.1.md`). Tai didelis scope — esamai sistemai pakeitimai (Stream 1, §3 docx) PLIUS visiškai naujas finansų sekimo sluoksnis (Stream 2, §4): funding_sources hierarchy, projects, expenses, payroll.
+
+Vartotojas paskyrė Claude'ą CTO rolėje su instrukcija: 5-9 iteracijos, kiekviena su komanda + nepriklausomu auditu, pilna FVM apimtis.
+
+**Sukurta dokumentacija** `docs/fvm/`:
+- `README.md` — katalogas + scope
+- `00-master-plan.md` — 8 iteracijos (Iter 9 → Iter 16), ~12 sav. trukmė
+- `01-architecture.md` — duomenų modelis, lentelių schema, API contracts
+- `02-migration-strategy.md` — esamos `budgets`/`budget_allocations` migracija
+- `03-decisions-log.md` — 3 ADR (klasifikatorius vs enum, jsonb vs junction, payroll mokesčiai)
+- `PROGRESS.md` — live eiga
+
+**Pagrindinis architektūros sprendimas (ADR-001)**: docx siūlo enum'us `funding_source.tipas` ir `budget_allocation.kategorija`. Mes naudosim klasifikatorius (consistency su PR #10/#11; AM admin galės pridėti naujų be migracijos). Default items seedinami pagal docx values. Spec deviation flagged — gali revertuoti į enum jei Giedrė pareikalaus.
+
+**Iter 9 deliverables**: funding_sources + budget_allocations naujas modelis + data migration iš esamų budgets (2026 1.5M seed) + budget servisas + UI `/finansavimo-saltiniai`.
+
+Laukiama vartotojo sign-off pradėti Iter 9.
+
 ## 2026-05-15 — Iter 5 — Docs polish + visi 5 iter baigti
 
 Visi 5 iter užbaigti vienoje sesijoje:
