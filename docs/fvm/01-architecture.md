@@ -54,12 +54,12 @@ DU side track:
 
 ```sql
 CREATE TABLE funding_sources (
-  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id           uuid NOT NULL REFERENCES tenants(id),
+  id                  SERIAL PRIMARY KEY,
+  tenant_id           integer NOT NULL REFERENCES tenants(id),
   pavadinimas         varchar(200) NOT NULL,
   kodas               varchar(50) NOT NULL,
   -- Docx siūlo enum, mes naudojam klasifikatorių (ADR-001)
-  tipas_classifier_item_id  uuid NOT NULL REFERENCES classifier_items(id),
+  tipas_classifier_item_id  integer NOT NULL REFERENCES classifier_items(id),
   metai               integer NOT NULL,
   metine_suma         decimal(15, 2) NOT NULL,
   aprasymas           text,
@@ -79,10 +79,10 @@ CREATE INDEX idx_funding_sources_tenant_year ON funding_sources (tenant_id, meta
 
 ```sql
 CREATE TABLE budget_allocations (
-  id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  funding_source_id           uuid NOT NULL REFERENCES funding_sources(id) ON DELETE RESTRICT,
+  id                          SERIAL PRIMARY KEY,
+  funding_source_id           integer NOT NULL REFERENCES funding_sources(id) ON DELETE RESTRICT,
   -- Docx siūlo enum kategorija, mes naudojam klasifikatorių (ADR-001)
-  category_classifier_item_id uuid NOT NULL REFERENCES classifier_items(id),
+  category_classifier_item_id integer NOT NULL REFERENCES classifier_items(id),
   pavadinimas                 varchar(200) NOT NULL,
   -- Tik spec.programoms (kai kategorija = spec_programa)
   spec_prog_tipas             varchar(20) CHECK (spec_prog_tipas IN ('atskiras', 'biudzeto_dalis')),
@@ -102,10 +102,10 @@ CREATE INDEX idx_budget_allocations_year ON budget_allocations (metai);
 
 ```sql
 CREATE TABLE projects (
-  id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id                   uuid NOT NULL REFERENCES tenants(id),
-  budget_allocation_id        uuid NOT NULL REFERENCES budget_allocations(id) ON DELETE RESTRICT,
-  request_id                  uuid REFERENCES requests(id), -- NULL jei ne spec.programa
+  id                          SERIAL PRIMARY KEY,
+  tenant_id                   integer NOT NULL REFERENCES tenants(id),
+  budget_allocation_id        integer NOT NULL REFERENCES budget_allocations(id) ON DELETE RESTRICT,
+  request_id                  integer REFERENCES requests(id), -- NULL jei ne spec.programa
   pavadinimas                 varchar(300) NOT NULL,
   tipas                       varchar(20) NOT NULL CHECK (tipas IN ('projektas', 'spec_programa', 'veikla')),
   biudzetas                   decimal(15, 2) NOT NULL,
@@ -113,7 +113,7 @@ CREATE TABLE projects (
   pabaigos_data               date,
   statusas                    varchar(20) NOT NULL DEFAULT 'planuojama'
                               CHECK (statusas IN ('planuojama', 'vykdoma', 'baigta', 'uzdaryta')),
-  atsakingas_user_id          uuid REFERENCES users(id),
+  atsakingas_user_id          integer REFERENCES users(id),
   aprasymas                   text,
   created_at                  timestamptz NOT NULL DEFAULT now(),
   updated_at                  timestamptz NOT NULL DEFAULT now()
@@ -128,9 +128,9 @@ CREATE INDEX idx_projects_status ON projects (statusas);
 
 ```sql
 CREATE TABLE expenses (
-  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id           uuid NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
-  budget_allocation_id uuid NOT NULL REFERENCES budget_allocations(id) ON DELETE RESTRICT,
+  id                   SERIAL PRIMARY KEY,
+  project_id           integer NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  budget_allocation_id integer NOT NULL REFERENCES budget_allocations(id) ON DELETE RESTRICT,
   tipas                varchar(20) NOT NULL CHECK (tipas IN ('du', 'sutartis', 'saskaita', 'tiesiogine')),
   suma                 decimal(15, 2) NOT NULL,
   data                 date NOT NULL,
@@ -138,7 +138,7 @@ CREATE TABLE expenses (
   -- multi-source distribution: [{ "funding_source_id": "...", "suma": 600.00 }, ...]
   -- NULL jei išlaida vieno šaltinio (default: budget_allocation.funding_source_id)
   saltinio_dalis       jsonb,
-  created_by_user_id   uuid NOT NULL REFERENCES users(id),
+  created_by_user_id   integer NOT NULL REFERENCES users(id),
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_at           timestamptz NOT NULL DEFAULT now()
 );
@@ -157,9 +157,9 @@ CREATE INDEX idx_expenses_date ON expenses (data);
 
 ```sql
 CREATE TABLE payroll_profiles (
-  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id         uuid NOT NULL REFERENCES tenants(id),
-  user_id           uuid REFERENCES users(id), -- gali būti NULL jei darbuotojas nėra sistemos vartotojas
+  id                SERIAL PRIMARY KEY,
+  tenant_id         integer NOT NULL REFERENCES tenants(id),
+  user_id           integer REFERENCES users(id), -- gali būti NULL jei darbuotojas nėra sistemos vartotojas
   vardas_pavarde    varchar(200) NOT NULL, -- jei user_id NULL, redundant copy
   pareigos          varchar(200) NOT NULL,
   sutarties_tipas   varchar(20) NOT NULL CHECK (sutarties_tipas IN ('darbo', 'paslaugu', 'autorine')),
@@ -180,9 +180,9 @@ CREATE INDEX idx_payroll_profiles_user ON payroll_profiles (user_id);
 
 ```sql
 CREATE TABLE payroll_distributions (
-  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  payroll_profile_id  uuid NOT NULL REFERENCES payroll_profiles(id) ON DELETE CASCADE,
-  funding_source_id   uuid NOT NULL REFERENCES funding_sources(id) ON DELETE RESTRICT,
+  id                  SERIAL PRIMARY KEY,
+  payroll_profile_id  integer NOT NULL REFERENCES payroll_profiles(id) ON DELETE CASCADE,
+  funding_source_id   integer NOT NULL REFERENCES funding_sources(id) ON DELETE RESTRICT,
   paskirstymo_tipas   varchar(20) NOT NULL CHECK (paskirstymo_tipas IN ('procentais', 'fiksuota')),
   reiksme             decimal(10, 4) NOT NULL, -- % (0-100) arba fiksuota suma €
   galioja_nuo         date NOT NULL,
@@ -199,11 +199,11 @@ CREATE INDEX idx_payroll_distributions_source ON payroll_distributions (funding_
 ### requests papildomi laukai (Iter 10)
 
 ```sql
-ALTER TABLE requests ADD COLUMN budget_category_id uuid REFERENCES classifier_items(id);
-ALTER TABLE requests ADD COLUMN funding_source_type_id uuid REFERENCES classifier_items(id);
+ALTER TABLE requests ADD COLUMN budget_category_id integer REFERENCES classifier_items(id);
+ALTER TABLE requests ADD COLUMN funding_source_type_id integer REFERENCES classifier_items(id);
 ALTER TABLE requests ADD COLUMN spec_program_funding_type varchar(20)
   CHECK (spec_program_funding_type IN ('atskiras', 'biudzeto_dalis'));
-ALTER TABLE requests ADD COLUMN fvm_project_id uuid REFERENCES projects(id);
+ALTER TABLE requests ADD COLUMN fvm_project_id integer REFERENCES projects(id);
 ```
 
 **Pastaba**: `approved_amount` jau egzistuoja kaip `decision_granted_amount`. Nereikia naujo lauko.

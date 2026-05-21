@@ -2,6 +2,34 @@
 
 ADR — short structured records of architectural decisions. Naujausi viršuje. Kiekvienas ADR turi: statusą (Proposed | Accepted | Superseded | Deprecated), kontekstą, sprendimą, alternatyvas, pasekmes.
 
+## ADR-004 — Primary key tipas: SERIAL integer (ne UUID)
+
+**Status**: Accepted (priimta CTO peržiūros metu Iter 9B)
+
+**Data**: 2026-05-21
+
+**Klausimas**: Pradinis `01-architecture.md` (v1.0) siūlė visiems FVM lentelėms `uuid PRIMARY KEY DEFAULT gen_random_uuid()`. DBA implementuodamas pastebėjo, kad VISA esama codebase (`tenants`, `users`, `requests`, `classifier_*`, `request_*`, `approval_steps`, `budgets`) naudoja `t.increments('id')` — auto-increment integer (serial). Iter 9B DBA pasirinko integer, nes FK konsistencija svarbesnė už docx schemos raidiškumą.
+
+**Sprendimas**: Visi FVM lentelių `id` ir FK — **integer (SERIAL)**. Atnaujintas `01-architecture.md`. UUID galima būtų pridėti vėliau atskira migracija, jei kada prireiks (pvz., distributed system, external-facing IDs).
+
+**Pagrindimas**:
+- Foreign key consistency su esamomis lentelėmis
+- Migracijos paprastesnės (negalima maišyt integer FK su uuid FK)
+- Performance: 4 bytes vs 16 bytes per row; index'ai mažesni
+- Codebase'as jau prijungtas prie šio convention'o per Objection.js modelius
+
+**Alternatyvos atmestos**:
+- UUID — reikštų migruoti visą codebase (tenants, users, requests, etc.) → out of scope
+- Mixed (UUID FVM, integer legacy) — FK conflicts, painu maintainerams
+
+**Pasekmės**:
+- Frontend per API gaus number'inius ID'us (jau ir taip taip yra)
+- API contracts dokumentuoti su `id: number` (ne string UUID)
+- Jokio FK conversion'o nereikia
+- Reverso pakeitimas (jei prireiks UUID) — atskira fazė, didelis darbas
+
+---
+
 ## ADR-003 — Payroll mokesčiai: tik bruto, ne Sodra/GPM
 
 **Status**: Proposed (Iter 13 patvirtins)
