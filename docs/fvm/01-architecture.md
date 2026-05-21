@@ -98,7 +98,7 @@ CREATE INDEX idx_budget_allocations_year ON budget_allocations (metai);
 
 **Migration iš esamos `budget_allocations`**: žr. [02-migration-strategy.md](./02-migration-strategy.md).
 
-### projects (§6.3 docx)
+### projects (§6.3 docx + ADR-005)
 
 ```sql
 CREATE TABLE projects (
@@ -115,10 +115,15 @@ CREATE TABLE projects (
                               CHECK (statusas IN ('planuojama', 'vykdoma', 'baigta', 'uzdaryta')),
   atsakingas_user_id          integer REFERENCES users(id),
   aprasymas                   text,
+  -- ADR-005: stabilus flag DU sistemos projektams. payroll.computeMonth
+  -- set'ina į true; visi kiti — false. Naudojama leak prevention'e
+  -- per expenses.budgetSummary, projects.list/get/summary endpoint'us.
+  is_du_system                boolean NOT NULL DEFAULT false,
   created_at                  timestamptz NOT NULL DEFAULT now(),
   updated_at                  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_projects_tenant ON projects (tenant_id);
+CREATE INDEX idx_projects_is_du_system ON projects (is_du_system) WHERE is_du_system = true;
 CREATE INDEX idx_projects_allocation ON projects (budget_allocation_id);
 CREATE INDEX idx_projects_request ON projects (request_id);
 CREATE INDEX idx_projects_status ON projects (statusas);

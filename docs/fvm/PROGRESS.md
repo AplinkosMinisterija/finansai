@@ -14,6 +14,7 @@
 | 10 (FVM-2) | Stream 1: Request integration | 🟢 done | `iter-10-request-integration.md` | 8/8 PASS | ✅ 2026-05-21 |
 | 11 (FVM-3) | Projects + auto-create | 🟢 done | `iter-11-projects.md` | 8/8 PASS | ✅ 2026-05-21 |
 | 12 (FVM-4) | Expenses + budget remainder | 🟢 done | `iter-12-expenses.md` | 8/8 PASS | ✅ 2026-05-21 |
+| 13 (FVM-5) | Payroll (DU) — su 2 security fix'ais | 🟢 done | `iter-13-payroll.md` | 8/8 PASS + SECURE | ✅ 2026-05-22 |
 | 11 (FVM-3) | Projects + auto-create | ⏸️ | — | — | — |
 | 12 (FVM-4) | Expenses + budget remainder | ⏸️ | — | — | — |
 | 13 (FVM-5) | Payroll (DU) | ⏸️ | — | — | — |
@@ -39,6 +40,7 @@ Originalas: 8 iter × ~1.5 sav = 12 sav.
 | 10 | 1.5 sav. | ~1 val. (Claude sesija) | -1.5 sav. |
 | 11 | 1.5 sav. | ~1.5 val. (Claude sesija) | -1.5 sav. |
 | 12 | 1.5 sav. | ~1.5 val. (Claude sesija) | -1.5 sav. |
+| 13 | 2 sav. | ~3 val. (Claude sesija, su 2 security fix'ais) | -2 sav. |
 
 Claude vykdomas paraleliai daug subagent'ais — realus laikas daug trumpesnis nei žmogui. Adjustments po kiekvieno iter.
 
@@ -61,6 +63,19 @@ Claude vykdomas paraleliai daug subagent'ais — realus laikas daug trumpesnis n
 - 4 commit'ai push'inti į `dev`. CI green. dev-finansai.biip.lt deploy success.
 - Auditorius: 8/8 audit kriterijai PASS. READY TO SHIP.
 - Test counts: backend 54 (3 sanity + 11 migration + 40 service); frontend 42 (32 baseline + 10 nauji).
+
+### 2026-05-22
+- **Iter 13 (FVM-5) BAIGTA — saugumo prioritetinė**. 4 subagent'ai + Security Reviewer + nepriklausomas audit.
+- Sub A (DBA): payroll_profiles + payroll_distributions lentelės + 20 testai.
+- Sub B (Backend): payroll.service.ts su requireDuAccess/requireAmDuAccess strict gating, computeMonth idempotentiškas, 32 nauji testai (20 security + 12 functional).
+- Sub C (Frontend): /du puslapis su 4 sluoksnių permission gating (route guard + sidebar + dialog re-check + canViewPayroll helper'is), 11 nauji testai.
+- **Security Reviewer (1-asis pass): VULNERABLE** — DU duomenys leak'ino per gretimus servisus (expenses.list/get + projects.list/get/summary). Specialistas galėjo gauti darbuotojo vardus + sumas per `?type=du`.
+- **Iter 13D fix**: pridėta `is_du_system` flag projects lentelei (migracija + backfill), SQL filter'ai expenses.service.ts + projects.service.ts (404 ne 403 DU expense/projektams), FE defense-in-depth, 16 nauji leak testai.
+- **Security Reviewer (2-asis pass): PARTIAL** — aptiktas naujasis agregatinis leak per expenses.budgetSummary + budgetAllocations.summary/list + fundingSources.list be tenant scope.
+- **Iter 13E fix**: filter'iai per visus 5 paviršius (incl. tenant scope budgetAllocations + fundingSources), `whereNotExists` patternai DU kategorijos exclude'inimui, defense-in-depth SUM filter'ai, 13 nauji aggregate leak testai.
+- **Security Reviewer (3-iasis pass): SECURE** — visi 4 sluoksniai apsaugos veikia (permission gate'ai + SQL filter'ai + 404 short-circuits + FE defense).
+- Auditorius (final): 8/8 PASS. READY TO SHIP.
+- Test counts (po Iter 13 + 13D + 13E): backend 256 (175 + 81); frontend 79 (66 + 13).
 
 ### 2026-05-21 (ilgas vakaras)
 - **Iter 12 (FVM-4) BAIGTA**. 3 subagent'ai + nepriklausomas auditas.

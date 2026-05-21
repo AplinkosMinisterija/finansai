@@ -2,6 +2,57 @@
 
 Naujausi įrašai viršuje. Vienas įrašas = vienas sprendimas/diskusija.
 
+## 2026-05-22 — Iter 13 (FVM-5) baigta — Payroll (DU) su 2 security fix'ais
+
+Penktoji FVM iteracija — **saugumo prioritetinė**. §4.4, §6.5, §6.6 docx + ADR-003 (tik bruto + priedai, be Sodra/GPM). 4 subagent'ai (Test Infra, DBA, Backend, Frontend) + 3 paralel Security Reviewer pass + nepriklausomas audit.
+
+**KRITIŠKAI svarbu — sutirpdyti DU leak'ai per 2 iteracijas**:
+
+Pradinis Iter 13B+C įgyvendinimas — `payroll.service.ts` su griežtais `requireDuAccess` gate'ais. Visi 32 funkcionalumo + 20 permission testai PASS. Nepriklausomas audit'as paskelbė READY TO SHIP.
+
+Tačiau Security Reviewer'is aptiko, kad **DU duomenys leak'ina per GRETIMUS servisus** — `payroll.computeMonth` sukuria `expense'us` su `tipas='du'` ir darbuotojo vardu `aprasymas` lauke, kurie buvo matomi specialistui per `expenses.list?type=du`. CTO sustabdė push'ą ir paleido Iter 13D fix'ą.
+
+**Iter 13D — row-level leak fix**:
+- `is_du_system boolean` kolona projects lentelei (stabilus flag, ne pavadinimo match)
+- `expenses.list`: SQL `WHERE tipas != 'du'` jei `!canViewPayroll`
+- `expenses.get`: DU expense → **404 (ne 403)** kad ID egzistavimas nebūtų atskleistas
+- `projects.list/get/summary`: DU sistemos projektas → 404
+- FE `ExpensesSection` + `ProjektaiPage` — defense-in-depth filter'ai
+- 16 nauji leak testai
+
+Po Iter 13D — Security re-audit aptiko **antrąjį leak vector'ių per agreguotus endpoint'us**: `expenses.budgetSummary` ir `budgetAllocations.summary` sumavo DU expense'us be filter'o. Specialistas galėjo sužinoti organizacijos DU sumą per mėnesį. Plus, `budgetAllocations.list` + `fundingSources.list` buvo **be tenant scope** (savaime žinoma problema, bet leak'as DU kontekste).
+
+**Iter 13E — aggregate-level leak fix**:
+- `expenses.budgetSummary`: `whereNotExists` join į classifier_items DU exclude + SUM filter'as
+- `budgetAllocations.summary/get/list`: tenant scope per `funding_sources.tenant_id` chain + DU kategorija paslėpta su 404
+- `fundingSources.list/get`: tenant scope (org_user tik savo tenant)
+- `projects.summary`: defense-in-depth `whereNot tipas='du'` edge case'ui
+- 13 nauji aggregate leak testai
+
+**Security Reviewer 3-iasis pass: SECURE**. 4 sluoksniai apsaugos veikia:
+1. Permission gate'ai (`requireDuAccess`, `requireAmDuAccess`) payroll servise
+2. SQL filter'ai (`canViewPayroll` helper'is) per visus expense/project/budget endpoint'us
+3. 404 short-circuits (ne 403) DU expense/projektams
+4. Frontend defense-in-depth (Sidebar + Route guard + Dialog + post-filter)
+
+**Pamoka**: kai naujasis modulis kuria duomenis (computeMonth → expenses), reikia tikrinti VISUS endpoint'us, kurie tuos duomenis išstoja, ne tik origin servisą. Per docx §4.4 „Specialistas savo duomenų nemato" reiškia per VISUS servisus, ne tik `payroll.*`.
+
+**ADR-003 statusas pakeičiamas iš `Proposed` į `Accepted`** — Iter 13 patvirtino sprendimą.
+
+**Deliverables (Iter 13 + 13D + 13E)**:
+- 7 commits → `dev`, 3 audit pass'ai, 1 final audit pass
+- Backend: 81 nauji testai (175 → 256). Iš jų DU-specific: 49 (20 permission + 12 functional + 7 expense leak + 9 project leak + 13 aggregate leak)
+- Frontend: 13 nauji testai (66 → 79)
+- Naujieji modeliai: PayrollProfile + PayrollDistribution
+- Servisas: payroll.service.ts su computeMonth idempotentiškas
+- Naujasis flag: projects.is_du_system + canViewPayroll helper (FE+BE)
+- API endpoint'ai: /payroll-profiles/*, /payroll-distributions/*, /payroll/compute
+- UI: /du puslapis su 4 sluoksnių permission gating
+- Migracijos: 20260526100000_create_payroll.ts + 20260526200000_add_is_du_system_to_projects.ts
+- ADR-003 status: Proposed → Accepted
+
+Toliau — Iter 14 (FVM-6): ataskaitos + Excel/PDF eksportas.
+
 ## 2026-05-21 — Iter 12 (FVM-4) baigta — Expenses + likučio skaičiavimas + warnings
 
 Ketvirtoji FVM iteracija. §4.3, §6.4, F06-F08, F11 docx. 3 paralelinės komandos + auditas. 8/8 PASS.

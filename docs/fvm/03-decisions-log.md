@@ -2,6 +2,57 @@
 
 ADR — short structured records of architectural decisions. Naujausi viršuje. Kiekvienas ADR turi: statusą (Proposed | Accepted | Superseded | Deprecated), kontekstą, sprendimą, alternatyvas, pasekmes.
 
+## ADR-005 — DU duomenų izoliacija per `is_du_system` flag + `canViewPayroll`
+
+**Status**: Accepted (priimta Iter 13D + 13E security fix'uose 2026-05-22)
+
+**Data**: 2026-05-22
+
+**Klausimas**: Per Iter 13 payroll įgyvendinimą Security Reviewer'is aptiko, kad nors `payroll.service.ts` permission gate'ai veikia tinkamai, DU duomenys leak'ina per gretimus servisus (`expenses.list/get`, `projects.list/get/summary`, `budgetAllocations.summary`, `expenses.budgetSummary`). Kaip apsaugoti DU duomenis cross-service'iu būdu be susikomplikavimo?
+
+**Sprendimas**: 4-sluoksnis defense:
+
+1. **DB flag**: `projects.is_du_system boolean NOT NULL DEFAULT false` kolona stabilus identifikatorius. Payroll computeMonth set'ina į true; visi kiti — false.
+
+2. **Permission helper'iai**:
+   - `canViewPayroll(user)` (FE + BE): true tik AM admin + org_admin. Specialist visada false.
+   - `requireDuAccess(meta, tenantId?)` (BE): throw 403 jei !canViewPayroll arba cross-tenant.
+   - `requireAmDuAccess(meta)` (BE): throw 403 jei !AM admin (computeMonth-only).
+
+3. **SQL filter'iai per VISUS data endpoint'us**:
+   - `expenses.list`: `WHERE tipas != 'du'` jei `!canViewPayroll(me)`
+   - `expenses.get`: 404 NOT_FOUND (ne 403) jei DU expense ir `!canViewPayroll`
+   - `projects.list`: `WHERE is_du_system = false` jei `!canViewPayroll`
+   - `projects.get/summary`: 404 jei `isDuSystem` ir `!canViewPayroll`
+   - `budgetAllocations.list/summary`: `whereNotExists` join į classifier_items DU + tenant scope
+   - `fundingSources.list`: tenant scope (org_user tik savo tenant'as)
+   - `*.summary` SUM užklausos: `whereNot('tipas', 'du')` jei `!canViewPayroll` (defense-in-depth)
+
+4. **Frontend defense-in-depth**: `ExpensesSection`, `ProjektaiPage` po-filter; `DuPage` route guard; Sidebar gating.
+
+**Pagrindimas**:
+- DB flag aiškiau nei pavadinimo match'as (Iter 13D pradinis sprendimas — atmestas)
+- `canViewPayroll` centralizuota logika — vienas point of truth
+- 404 ne 403 — DU expense/projekto ID egzistavimas neatskleidžiamas (security best practice)
+- Defense-in-depth: jei vienas sluoksnis sulūš, kiti laikys
+- SQL filter'iai (ne post-process) — saugiai, performance OK, lengviau audit
+
+**Alternatyvos atmestos**:
+- Hard-coded pavadinimo match'as — trapus, lengvai sulaužomas
+- Atskira `du_expenses` lentelė — dvigubas data model, sunku integruoti su budgetSummary
+- Cron'inis privacy scan — reaktyvus, ne prevencinis
+- Hashing aprasymas lauke — vis tiek leak sumos
+
+**Pasekmės**:
+- Kiekvienas naujas endpoint'as, kuris grąžina expenses ar projects, turi galvoti apie DU filter'ą
+- `canViewPayroll` ir `is_du_system` tampa cross-cutting concerns FVM
+- Migracija backfill'ina esamus DU sistemos projektus per pavadinimo prefix'ą
+- Iter 14+ reports endpoint'ai turės naudoti tuos pačius filter'us
+
+**Verified per testus**: 49 DU-specific testai per 6 service'us (payroll, expenses, projects, budgetAllocations, fundingSources, requests). Specialist negali sužinoti DU duomenų per JOKIUS endpoint'us.
+
+---
+
 ## ADR-004 — Primary key tipas: SERIAL integer (ne UUID)
 
 **Status**: Accepted (priimta CTO peržiūros metu Iter 9B)
@@ -32,7 +83,7 @@ ADR — short structured records of architectural decisions. Naujausi viršuje. 
 
 ## ADR-003 — Payroll mokesčiai: tik bruto, ne Sodra/GPM
 
-**Status**: Proposed (Iter 13 patvirtins)
+**Status**: Accepted (Iter 13 patvirtino 2026-05-22)
 
 **Data**: 2026-05-21
 

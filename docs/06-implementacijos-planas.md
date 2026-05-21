@@ -229,3 +229,22 @@ FVM Iter 9-16 detalus planas — `docs/fvm/00-master-plan.md`. Iter 10 (FVM-2) �
 - [x] Testai: backend 48 nauji (18 migration + 18 service + 7 summary + 5 budget-summary); frontend 9 nauji
 - [x] Test isolation fix: 3 esami spec'ai (Iter 9/10/11) rollback'ina Iter 12 prieš save
 - [x] Nepriklausomas auditas: 8/8 PASS
+
+## Iter 13 — FVM-5: Payroll (DU) su 2 security fix'ais ✅
+
+**Tikslas:** docx §4.4, §6.5, §6.6, F09-F10 + ADR-003 — DU sluoksnis su STRICT permission'ais. Saugumo prioritetinė iteracija.
+
+- [x] Migracija: payroll_profiles + payroll_distributions lentelės (+ ADR-005 is_du_system flag projects'ams per 13D)
+- [x] Backend: Payroll modeliai + payroll.service.ts (CRUD + computeMonth idempotent)
+- [x] Backend: requireDuAccess + requireAmDuAccess helper'iai (specialistas NEGAUNA DU)
+- [x] Backend: SUM(procentais) per overlapping period ≤ 100 validation
+- [x] Backend: computeMonth auto-create DU sistemos projektas + DU allocation discovery (jei nėra — 400 LT)
+- [x] Frontend: /du puslapis su 4 sluoksnių permission gating (canViewPayroll helper'is)
+- [x] Frontend: PayrollProfileDialog + PayrollDistributionDialog + ComputeMonthDialog
+- [x] **Iter 13D fix**: row-level DU leak per expenses/projects servisus (Security Reviewer pass #1: VULNERABLE)
+- [x] **Iter 13E fix**: aggregate-level DU leak per summary endpoint'us + tenant scope budgetAllocations/fundingSources (Security Reviewer pass #2: PARTIAL)
+- [x] Security Reviewer pass #3: SECURE — 4 sluoksniai apsaugos veikia
+- [x] ADR-003 patvirtintas (tik bruto + priedai, be Sodra/GPM)
+- [x] ADR-005 priimtas (DU duomenų izoliacija per is_du_system + canViewPayroll)
+- [x] Testai: backend 81 nauji (20 migration + 20 permission + 12 functional + 7 expense leak + 9 project leak + 13 aggregate leak); frontend 13 nauji
+- [x] Nepriklausomas auditas: 8/8 PASS, READY TO SHIP
