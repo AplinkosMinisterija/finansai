@@ -209,3 +209,23 @@ FVM Iter 9-16 detalus planas — `docs/fvm/00-master-plan.md`. Iter 10 (FVM-2) �
 - [x] Testai: backend 29 nauji (22 service + 8 createFvm); frontend 9 nauji
 - [x] Test isolation fix: Iter 9/10 testai rollback'ina Iter 11 prieš save migration
 - [x] Nepriklausomas auditas: 8/8 PASS
+
+## Iter 12 — FVM-4: Expenses + budget remainder + warnings ✅
+
+**Tikslas:** docx §4.3, §6.4, F06-F08, F11 — faktinių išlaidų sluoksnis, multi-source split, realaus likučio skaičiavimas, įspėjimai per 80% (konfigūruojama).
+
+- [x] Migracija: `expenses` lentelė (11 laukų + GIN index ant saltinio_dalis + CHECK + 3 FK)
+- [x] Backend: Expense modelis + expenses.service.ts (CRUD + budgetSummary endpoint)
+- [x] Backend: Multi-source split SUM validation (1 ct epsilon)
+- [x] Backend: List filter pagal fundingSourceId per GIN @> containment query
+- [x] Backend: budgetAllocations.summary + projects.summary perdaryti — realus faktine + percentUsed + isWarning + isOver
+- [x] Backend: WARNING_THRESHOLD_PERCENT env var (default 80%)
+- [x] Frontend: ExpensesSection lentelė su filter'iais + create/edit/delete
+- [x] Frontend: ExpenseDialog su multi-source split UI + live SUM validation
+- [x] Frontend: BudgetWarningBanner (progress bar + flags)
+- [x] Frontend: BudgetWarningsList (top N allocations) StatistikaPage + BiudzetasPage
+- [x] Frontend: BiudzetasPage bulk summary endpoint (1 query, ne N+1)
+- [x] Shared: Expense + ExpenseSourceDistributionItem + DTOs + BudgetWarningItem + BudgetWarningsResponse
+- [x] Testai: backend 48 nauji (18 migration + 18 service + 7 summary + 5 budget-summary); frontend 9 nauji
+- [x] Test isolation fix: 3 esami spec'ai (Iter 9/10/11) rollback'ina Iter 12 prieš save
+- [x] Nepriklausomas auditas: 8/8 PASS

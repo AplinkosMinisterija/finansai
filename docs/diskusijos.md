@@ -2,6 +2,30 @@
 
 Naujausi įrašai viršuje. Vienas įrašas = vienas sprendimas/diskusija.
 
+## 2026-05-21 — Iter 12 (FVM-4) baigta — Expenses + likučio skaičiavimas + warnings
+
+Ketvirtoji FVM iteracija. §4.3, §6.4, F06-F08, F11 docx. 3 paralelinės komandos + auditas. 8/8 PASS.
+
+**Svarbu**:
+- **expenses lentelė** su `saltinio_dalis jsonb` (ADR-002): viena išlaida gali būti padalinta tarp kelių finansavimo šaltinių. GIN index'as su `jsonb_path_ops` containment query'ams.
+- **Multi-source SUM validation**: 1 ct epsilon (1 cent = 0.01 €). Frontend + backend abu naudoja tą patį constant'ą.
+- **Realus likutis**: `budgetAllocations.summary` ir `projects.summary` dabar grąžina tikrą `faktine` per SUM(expenses) — Iter 9-11 grąžino '0.00' placeholder'į.
+- **Warning threshold**: `FVM_WARNING_THRESHOLD_PERCENT` env var (default 80%). `isWarning` ≥80%, `isOver` >100%. Konfigūruojama per environment, ne per UI (Iter 14+ gal pridėsim settings page'ą).
+- **Bulk summary endpoint**: `/expenses/budget-summary` grąžina visus allocations su flags vienoje užklausoje — vietoj N+1 per kiekvieną allocation row. BiudzetasPage'as naudoja šitą.
+- **UI warnings**: BudgetWarningBanner su progress bar (geltonas/raudonas tonai), BudgetWarningsList (top N) StatistikaPage'e ir BiudzetasPage'e.
+- **Test isolation iteracinis pattern**: kiekviena nauja Iter pridėjus FK į ankstesnių iter lenteles, esamų testų `beforeAll` reikia rollback'inti naujausią iter pirmiausia. Iter 12A pridėjo expenses rollback į 3 esamus spec'us.
+
+**Deliverables**:
+- 3 commits → `dev`, 1 audit, CI in progress
+- Backend: 48 nauji testai (18 migration + 18 service + 7 summary + 5 budget-summary). Iš viso 175.
+- Frontend: 9 nauji testai. Iš viso 66.
+- Naujasis modelis + servisas: Expense / expenses.service.ts (CRUD + budgetSummary)
+- API endpoint'ai: /expenses/*, /expenses/budget-summary
+- Migration: `20260525100000_create_expenses.ts` + GIN index
+- Frontend: ExpensesSection, ExpenseDialog, BudgetWarningBanner, BudgetWarningsList; ProjektoDetailPage + BiudzetasPage + StatistikaPage atnaujinti
+
+Toliau — Iter 13 (FVM-5): payroll DU sluoksnis. SVARBU — saugumo griežti reikalavimai (specialistas savo duomenų NEMATO).
+
 ## 2026-05-21 — Iter 11 (FVM-3) baigta — Projects (3 lygis) + auto-create
 
 Trečioji FVM iteracija. §2.4, §4.2, §6.3, F03-F05 docx. 3 paralelinės komandos + auditas. 8/8 PASS.

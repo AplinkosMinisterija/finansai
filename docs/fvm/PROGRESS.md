@@ -13,6 +13,7 @@
 | 9 (FVM-1) | Foundation: funding_sources + budget_allocations | 🟢 done | `iter-09-foundation.md` | 8/8 PASS | ✅ 2026-05-21 |
 | 10 (FVM-2) | Stream 1: Request integration | 🟢 done | `iter-10-request-integration.md` | 8/8 PASS | ✅ 2026-05-21 |
 | 11 (FVM-3) | Projects + auto-create | 🟢 done | `iter-11-projects.md` | 8/8 PASS | ✅ 2026-05-21 |
+| 12 (FVM-4) | Expenses + budget remainder | 🟢 done | `iter-12-expenses.md` | 8/8 PASS | ✅ 2026-05-21 |
 | 11 (FVM-3) | Projects + auto-create | ⏸️ | — | — | — |
 | 12 (FVM-4) | Expenses + budget remainder | ⏸️ | — | — | — |
 | 13 (FVM-5) | Payroll (DU) | ⏸️ | — | — | — |
@@ -37,6 +38,7 @@ Originalas: 8 iter × ~1.5 sav = 12 sav.
 | 9 | 1.5 sav. | ~2 val. (Claude sesija) | -1.5 sav. |
 | 10 | 1.5 sav. | ~1 val. (Claude sesija) | -1.5 sav. |
 | 11 | 1.5 sav. | ~1.5 val. (Claude sesija) | -1.5 sav. |
+| 12 | 1.5 sav. | ~1.5 val. (Claude sesija) | -1.5 sav. |
 
 Claude vykdomas paraleliai daug subagent'ais — realus laikas daug trumpesnis nei žmogui. Adjustments po kiekvieno iter.
 
@@ -59,6 +61,14 @@ Claude vykdomas paraleliai daug subagent'ais — realus laikas daug trumpesnis n
 - 4 commit'ai push'inti į `dev`. CI green. dev-finansai.biip.lt deploy success.
 - Auditorius: 8/8 audit kriterijai PASS. READY TO SHIP.
 - Test counts: backend 54 (3 sanity + 11 migration + 40 service); frontend 42 (32 baseline + 10 nauji).
+
+### 2026-05-21 (ilgas vakaras)
+- **Iter 12 (FVM-4) BAIGTA**. 3 subagent'ai + nepriklausomas auditas.
+- Sub A (DBA): `expenses` lentelė + GIN index ant `saltinio_dalis` (jsonb_path_ops) + test isolation fix 3 esamuose spec'uose. 18 testai PASS.
+- Sub B (Backend): Expense modelis + servisas (CRUD + budgetSummary), multi-source SUM validation (1 ct epsilon), realus `faktine` per SUM(expenses.suma), `WARNING_THRESHOLD_PERCENT` (default 80, env override), `budgetAllocations.summary` + `projects.summary` perdaryti su flags. 30 nauji testai.
+- Sub C (Frontend): ExpensesSection + ExpenseDialog (multi-source split UI su live SUM validation), BudgetWarningBanner (progress bar + flags), BudgetWarningsList, BiudzetasPage bulk summary + warnings sekcija, ProjektoDetailPage realus expenses UI. 9 nauji testai.
+- Auditorius: 8/8 PASS. Iter 12 backend testų 48 (gerokai viršija 19+ reikalavimą).
+- Test counts (po Iter 12): backend 175 (127 + 48); frontend 66 (57 + 9).
 
 ### 2026-05-21 (vėlai vakare)
 - **Iter 11 (FVM-3) BAIGTA**. 3 subagent'ai (A/B/C) + nepriklausomas auditas.
