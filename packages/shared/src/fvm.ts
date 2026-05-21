@@ -169,3 +169,118 @@ export type BudgetAllocationSummary = {
   faktine: string;
   likutis: string;
 };
+
+// ---------- Projects (3 lygis, Iter 11) ----------
+
+/**
+ * Projekto tipas (3 FVM lygio entiteto potipis):
+ *  - `projektas` — paprastas projektas (pvz. „IT modernizavimas")
+ *  - `spec_programa` — specialiosios programos projektas; turi request_id
+ *  - `veikla` — skyriaus veikla (pvz. „Mokymai 2026")
+ *
+ * Visi trys naudoja tą pačią `projects` lentelę. Skiriasi tik
+ * verslo logika (pvz., spec_programa auto-create iš patvirtinto prašymo).
+ */
+export type ProjectType = 'projektas' | 'spec_programa' | 'veikla';
+
+/**
+ * Projekto gyvavimo ciklas:
+ *  - `planuojama` — biudžetas užfiksuotas, vykdymas dar neprasidėjęs
+ *  - `vykdoma` — projektas vykdomas, kaupiamos išlaidos
+ *  - `baigta` — visas darbas atliktas; gali likti uždarymo procedūros
+ *  - `uzdaryta` — galutinai uždaryta; nebepasiekiama jokia atnaujinama
+ *    operacija (read-only)
+ *
+ * Forward tranzicijas leidžia tiek AM admin, tiek org admin. Reverse
+ * tranzicijos (pvz. „uzdaryta → baigta") tik AM admin.
+ */
+export type ProjectStatus =
+  | 'planuojama'
+  | 'vykdoma'
+  | 'baigta'
+  | 'uzdaryta';
+
+/**
+ * Projektas — 3 FVM lygio entitetas. Atsako į klausimą „Kas konkrečiai
+ * išleidžia?". Susietas su biudžeto eilute (`budgetAllocationId`) ir,
+ * jei tipas = `spec_programa`, su patvirtintu prašymu (`requestId`).
+ */
+export type Project = {
+  id: number;
+  tenantId: number;
+  /** Tenant kodas (denormalizuotas išvedimui). */
+  tenantCode?: string;
+  /** Tenant pavadinimas (denormalizuotas išvedimui). */
+  tenantName?: string;
+  budgetAllocationId: number;
+  /** Allocation pavadinimas (denormalizuotas). */
+  budgetAllocationName?: string;
+  /** NULL kai tipas != 'spec_programa'. */
+  requestId: number | null;
+  /** Susieto prašymo pavadinimas (denormalizuotas). */
+  requestProjectName?: string | null;
+  pavadinimas: string;
+  tipas: ProjectType;
+  /** Planuojamas projektui skirtas biudžetas. Decimal string formatas. */
+  biudzetas: string;
+  pradziosData: string | null;
+  pabaigosData: string | null;
+  statusas: ProjectStatus;
+  atsakingasUserId: number | null;
+  /** Atsakingo asmens pilnas vardas (denormalizuotas). */
+  atsakingasUserName?: string | null;
+  aprasymas: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectCreateDTO = {
+  tenantId: number;
+  budgetAllocationId: number;
+  requestId?: number | null;
+  pavadinimas: string;
+  tipas: ProjectType;
+  biudzetas: string;
+  pradziosData?: string | null;
+  pabaigosData?: string | null;
+  statusas?: ProjectStatus;
+  atsakingasUserId?: number | null;
+  aprasymas?: string | null;
+};
+
+export type ProjectUpdateDTO = {
+  budgetAllocationId?: number;
+  pavadinimas?: string;
+  biudzetas?: string;
+  pradziosData?: string | null;
+  pabaigosData?: string | null;
+  atsakingasUserId?: number | null;
+  aprasymas?: string | null;
+};
+
+export type ProjectChangeStatusDTO = {
+  statusas: ProjectStatus;
+};
+
+export type ProjectListQuery = {
+  tenantId?: number;
+  status?: ProjectStatus;
+  type?: ProjectType;
+  allocationId?: number;
+  requestId?: number;
+  year?: number;
+};
+
+/**
+ * Projekto suvestinė: biudžetas / panaudota / likutis.
+ *
+ * - `biudzetas` — `Project.biudzetas`
+ * - `panaudota` — SUM(expenses kur expense.project_id = project.id).
+ *   Kol expenses lentelė nesukurta (Iter 12), grąžinama '0.00'.
+ * - `likutis` = `biudzetas - panaudota`.
+ */
+export type ProjectSummary = {
+  biudzetas: string;
+  panaudota: string;
+  likutis: string;
+};

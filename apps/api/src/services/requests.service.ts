@@ -34,8 +34,11 @@ import { Request } from '../models/Request';
 import { RequestComment } from '../models/RequestComment';
 import { ApprovalStep } from '../models/ApprovalStep';
 import type { ApprovalStepStatus } from '../models/ApprovalStep';
+import { BudgetAllocationV2 } from '../models/BudgetAllocationV2';
 import { ClassifierItem } from '../models/ClassifierItem';
 import { ClassifierGroup } from '../models/ClassifierGroup';
+import { FundingSource } from '../models/FundingSource';
+import { Project } from '../models/Project';
 import { Tenant } from '../models/Tenant';
 import { User } from '../models/User';
 import { normalizeAmount } from '../utils/money';
@@ -1111,14 +1114,23 @@ const RequestsService: ServiceSchema = {
     },
 
     /**
-     * `createFvmProject` — Iter 10 placeholder endpoint'as (P04 docx §3.3).
+     * `createFvmProject` — Iter 11 real implementation (P04 docx §3.3).
      *
-     * Iter 11 metu šitas endpoint'as sukurs realų `projects` įrašą iš patvirtinto
-     * prašymo (tipas=`spec_programa`, biudžetas=`decisionGrantedAmount`,
-     * request_id=prašymo ID). Kol kas grąžina pending status'ą, kad frontend'as
-     * gali iškviesti mygtuką ir gauti aiškų atsakymą.
+     * Sukuria `projects` įrašą iš patvirtinto spec.programos prašymo:
+     *  - tipas = `spec_programa`
+     *  - biudzetas = `request.decisionGrantedAmount`
+     *  - request_id = prašymo ID
+     *  - tenant_id = prašymo tenant'as
+     *  - budget_allocation_id = automatiškai parinkta budget eilutė
+     *    (tenant'o, šių metų, kurioje kategorija = `spec_programa`)
      *
-     * Tik AM (`tenantIsApprover`) gali kviesti; prašymas turi būti APPROVED.
+     * Visa transakcijoje: jei kuris žingsnis fail'ina, niekas nepasikeičia.
+     *
+     * Tik AM admin gali kviesti (`tenantIsApprover` + `role === 'admin'`).
+     * Prašymas turi būti APPROVED ir dar neturėti `fvmProjectId`.
+     *
+     * Jei prašymo `budgetCategory` ne `spec_programa` — grąžinama LT klaida
+     * „rankiniu būdu", kviečiant naudoti /projektai puslapį.
      */
     createFvmProject: {
       params: { id: { type: 'number', integer: true, convert: true } },
@@ -1126,14 +1138,18 @@ const RequestsService: ServiceSchema = {
         ctx: Context<{ id: number }, AuthMeta>,
       ): Promise<CreateFvmProjectResponse> {
         const me = requireMe(ctx);
-        if (!me.tenantIsApprover) {
+        if (!me.tenantIsApprover || me.role !== 'admin') {
           throw new Errors.MoleculerClientError(
-            'Tik AM gali sukurti FVM projektą iš prašymo',
+            'FVM projektą iš prašymo gali sukurti tik AM administratorius',
             403,
             'FORBIDDEN',
           );
         }
-        const r = await Request.query().findById(ctx.params.id);
+        const r = (await Request.query()
+          .findById(ctx.params.id)
+          .withGraphFetched('budgetCategory')) as
+          | (Request & { budgetCategory?: ClassifierItem })
+          | undefined;
         if (!r) {
           throw new Errors.MoleculerClientError(
             'Prašymas nerastas',
@@ -1143,18 +1159,146 @@ const RequestsService: ServiceSchema = {
         }
         if (r.status !== 'APPROVED') {
           throw new Errors.MoleculerClientError(
-            'FVM projektą galima sukurti tik iš patvirtinto prašymo',
+            'Galima sukurti tik patvirtinto prašymo projektą',
             400,
             'INVALID_STATUS',
           );
         }
-        // Iter 11 įgyvendins: sukurs `projects` įrašą tame pačiame transaction'e
-        // ir patch'ins `request.fvm_project_id = newProject.id`.
+        if (r.fvmProjectId !== null) {
+          throw new Errors.MoleculerClientError(
+            'Šiam prašymui projektas jau sukurtas',
+            400,
+            'REQUEST_ALREADY_HAS_PROJECT',
+          );
+        }
+
+        // Šio iter'o auto-create palaiko TIK spec.programos kategorijos
+        // prašymus. Kitiems (DU, prekes_paslaugos, investicijos, kita) AM
+        // turi sukurti projektą rankiniu būdu per /projektai (frontend),
+        // nes biudžeto eilutės pasirinkimas reikalauja kontekstinio
+        // sprendimo (kuriai konkrečiai allocation tipui pridėti).
+        if (
+          !r.budgetCategory ||
+          r.budgetCategory.code !== SPEC_PROGRAMA_CODE
+        ) {
+          throw new Errors.MoleculerClientError(
+            'Šio tipo prašymui projektas kuriamas rankiniu būdu per /projektai',
+            400,
+            'NOT_SPEC_PROGRAMA',
+          );
+        }
+
+        if (r.budgetCategoryId === null) {
+          // Defensyvi patikra — į šitą šaką neturėtų patekti, nes budgetCategory
+          // egzistuoja tik kai FK užpildytas.
+          throw new Errors.MoleculerClientError(
+            'Prašymas neturi nustatytos biudžeto kategorijos',
+            400,
+            'NO_BUDGET_CATEGORY',
+          );
+        }
+
+        // Surasti budget_allocation: tenant + metai + kategorija = spec_programa
+        // item ID. Per funding_sources.tenant_id chain'ą. Naudojam raw join,
+        // nes Objection `joinRelated` alias'ai neperleidžia camelCase columnNameMappers
+        // į snake_case at JOIN level.
+        const candidateAllocations = (await BudgetAllocationV2.query()
+          .innerJoin(
+            'funding_sources',
+            'budget_allocations_v2.funding_source_id',
+            'funding_sources.id',
+          )
+          .where('budget_allocations_v2.metai', r.year)
+          .where(
+            'budget_allocations_v2.category_classifier_item_id',
+            r.budgetCategoryId,
+          )
+          .where('funding_sources.tenant_id', r.tenantId)
+          .orderBy('budget_allocations_v2.id', 'asc')
+          .select('budget_allocations_v2.*')) as BudgetAllocationV2[];
+
+        if (candidateAllocations.length === 0) {
+          throw new Errors.MoleculerClientError(
+            'Nerasta tinkama biudžeto eilutė šiam prašymui. Pirma sukurkite spec.programos biudžeto eilutę šiems metams.',
+            400,
+            'NO_MATCHING_ALLOCATION',
+          );
+        }
+        // TODO Iter 14: kai allocation kandidatų yra kelios, leisti AM admin
+        // pasirinkti per UI (dabar imam pirmąjį pagal ID ASC — stabilus deterministic
+        // pasirinkimas).
+        const allocation = candidateAllocations[0]!;
+
+        const grantedAmount = r.decisionGrantedAmount ?? '0';
+
+        const knex = Request.knex();
+        const newProject = await knex.transaction(async (trx) => {
+          const projectName =
+            r.projectName.length > 280
+              ? r.projectName.slice(0, 280)
+              : `Spec. programa: ${r.projectName}`;
+          const inserted = await Project.query(trx).insert({
+            tenantId: r.tenantId,
+            budgetAllocationId: allocation.id,
+            requestId: r.id,
+            pavadinimas:
+              projectName.length > 300
+                ? projectName.slice(0, 300)
+                : projectName,
+            tipas: 'spec_programa',
+            biudzetas: grantedAmount,
+            statusas: 'planuojama',
+            atsakingasUserId: r.createdByUserId,
+            aprasymas: r.description ?? null,
+          });
+          await Request.query(trx)
+            .findById(r.id)
+            .patch({ fvmProjectId: inserted.id });
+          return inserted;
+        });
+
+        // Eager load relations response'ui (transakcijos pabaigoje).
+        const full = (await Project.query()
+          .findById(newProject.id)
+          .withGraphFetched(
+            '[tenant, budgetAllocation, request, atsakingasUser]',
+          )) as
+          | (Project & {
+              tenant?: Tenant;
+              budgetAllocation?: BudgetAllocationV2;
+              request?: Request;
+              atsakingasUser?: User;
+            })
+          | undefined;
+        if (!full) {
+          throw new Error('Created project not found after commit');
+        }
+
         return {
-          status: 'pending',
-          message:
-            'FVM projekto auto-create bus įgyvendintas Iter 11. Šis endpoint kol kas grąžina placeholder atsakymą.',
+          status: 'created',
+          message: 'Projektas sėkmingai sukurtas',
           requestId: r.id,
+          project: {
+            id: full.id,
+            tenantId: full.tenantId,
+            tenantCode: full.tenant?.code,
+            tenantName: full.tenant?.name,
+            budgetAllocationId: full.budgetAllocationId,
+            budgetAllocationName: full.budgetAllocation?.pavadinimas,
+            requestId: full.requestId,
+            requestProjectName: full.request?.projectName ?? null,
+            pavadinimas: full.pavadinimas,
+            tipas: full.tipas,
+            biudzetas: full.biudzetas,
+            pradziosData: full.pradziosData,
+            pabaigosData: full.pabaigosData,
+            statusas: full.statusas,
+            atsakingasUserId: full.atsakingasUserId,
+            atsakingasUserName: full.atsakingasUser?.fullName ?? null,
+            aprasymas: full.aprasymas,
+            createdAt: full.createdAt,
+            updatedAt: full.updatedAt,
+          },
         };
       },
     },

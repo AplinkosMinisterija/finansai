@@ -19,7 +19,6 @@
  */
 import type { ServiceBroker } from 'moleculer';
 import type {
-  CreateFvmProjectResponse,
   FinancingRequest as RequestDTO,
   FinancingRequestDetail,
 } from '@biip-finansai/shared';
@@ -372,31 +371,10 @@ describe('requests service — FVM (Iter 10)', () => {
     });
   });
 
-  describe('Test 7: createFvmProject placeholder action (Iter 10)', () => {
-    it('AM gali iškviesti placeholder, gauna pending response', async () => {
-      const created = await createRequest({
-        budgetCategoryId: cls.budgetCategoryItemIds.spec_programa,
-      });
-      await broker.call(
-        'requests.submit',
-        { id: created.id },
-        { meta: { user: amAdmin() } },
-      );
-      await broker.call(
-        'requests.decision',
-        { id: created.id, decision: 'approve', grantedAmount: 100000 },
-        { meta: { user: amAdmin() } },
-      );
-      const res = (await broker.call(
-        'requests.createFvmProject',
-        { id: created.id },
-        { meta: { user: amAdmin() } },
-      )) as CreateFvmProjectResponse;
-      expect(res.status).toBe('pending');
-      expect(res.requestId).toBe(created.id);
-      expect(res.message).toMatch(/Iter 11/);
-    });
-
+  describe('Test 7: createFvmProject permission and status gates (Iter 11)', () => {
+    // Iter 10 grąžindavo placeholder — Iter 11 įgyvendina realų sukūrimą.
+    // Šiame test'e tikrinam tik permission ir status gate'us; pilną real
+    // create flow'ą padengia `requests-create-fvm-project.spec.ts`.
     it('Org admin negali iškviesti createFvmProject → 403', async () => {
       const created = await createRequest({});
       await expect(

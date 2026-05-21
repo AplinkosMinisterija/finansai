@@ -646,6 +646,14 @@ export type {
   BudgetAllocationListQuery,
   BudgetAllocationSummary,
   SpecProgTipas,
+  Project,
+  ProjectType,
+  ProjectStatus,
+  ProjectCreateDTO,
+  ProjectUpdateDTO,
+  ProjectChangeStatusDTO,
+  ProjectListQuery,
+  ProjectSummary,
 } from './fvm';
 
 // ---------- Dashboard ----------
@@ -677,16 +685,27 @@ export type DashboardData = {
   budgetCategoryStats: BudgetCategoryStats[];
 };
 
-// ---------- FVM project (Iter 10 placeholder, Iter 11 implementation) ----------
+// ---------- FVM project (Iter 11) ----------
 
 /**
- * `requests.createFvmProject` action response (Iter 10 placeholder).
+ * `requests.createFvmProject` action response (Iter 11).
  *
- * Iter 11 metu šitas endpoint'as kurs realų `projects` įrašą; Iter 10 grąžina
- * `status: 'pending'` placeholder'į, kad frontend mygtukas turėtų ką iškviesti.
+ * Iter 10 grąžindavo `status: 'pending'` placeholder'į (žr. iter-10 README).
+ * Iter 11 metu šitas endpoint'as kurs realų `projects` įrašą iš patvirtinto
+ * spec.programos prašymo — grąžinamas `status: 'created'` su pridėtu projektu.
+ *
+ * Pending state'as išsaugomas tipuose tik backward compatibility'ui — naujasis
+ * server'as jį nebenaudoja (Iter 11 visada bando sukurti realų projektą).
  */
-export type CreateFvmProjectResponse = {
-  status: 'pending';
-  message: string;
-  requestId: number;
-};
+export type CreateFvmProjectResponse =
+  | {
+      status: 'created';
+      message: string;
+      requestId: number;
+      project: import('./fvm').Project;
+    }
+  | {
+      status: 'pending';
+      message: string;
+      requestId: number;
+    };

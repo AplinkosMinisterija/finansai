@@ -185,6 +185,7 @@ const ApiService: ServiceSchema = {
           'budgets.*',
           'fundingSources.*',
           'budgetAllocations.*',
+          'projects.*',
           'requestAttachments.*',
           'requestReports.*',
         ],
@@ -248,6 +249,14 @@ const ApiService: ServiceSchema = {
           'POST /budget-allocations': 'budgetAllocations.create',
           'PATCH /budget-allocations/:id': 'budgetAllocations.update',
           'DELETE /budget-allocations/:id': 'budgetAllocations.delete',
+
+          'GET /projects': 'projects.list',
+          'GET /projects/:id': 'projects.get',
+          'GET /projects/:id/summary': 'projects.summary',
+          'POST /projects': 'projects.create',
+          'PATCH /projects/:id': 'projects.update',
+          'DELETE /projects/:id': 'projects.delete',
+          'PATCH /projects/:id/status': 'projects.changeStatus',
 
           'GET /requests/:requestId/attachments': 'requestAttachments.list',
           'POST /requests/:requestId/attachments': 'requestAttachments.upload',
