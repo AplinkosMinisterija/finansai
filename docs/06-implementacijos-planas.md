@@ -189,3 +189,23 @@ FVM Iter 9-16 detalus planas — `docs/fvm/00-master-plan.md`. Iter 10 (FVM-2) �
 - [x] Backward compat: prašymai be FVM laukų toliau veikia
 - [x] Pre-existing bug fix: ApprovalStep.$beforeUpdate no-op (lentelė neturi updated_at)
 - [x] Nepriklausomas auditas: 8/8 PASS
+
+## Iter 11 — FVM-3: Projektai (3 lygis) + auto-create iš prašymo ✅
+
+**Tikslas:** docx §2.4, §4.2, §6.3, F03-F05 — naujas projects DB sluoksnis + real createFvmProject implementation (Iter 10 placeholder pakeitimas) + /projektai UI.
+
+- [x] Migracija: `projects` lentelė (12 laukų + CHECK constraints + 4 FK + 4 indexai)
+- [x] Migracija: `requests.fvm_project_id` FK pridėtas (Iter 10 paliko be FK)
+- [x] Backend: Project modelis (Objection) + projects.service.ts (list/get/summary/create/update/delete/changeStatus)
+- [x] Backend: Lifecycle planuojama→vykdoma→baigta→uzdaryta + reverse tik AM admin
+- [x] Backend: Real createFvmProject (spec.programa auto-create iš APPROVED + allocation match per kategorija+metai)
+- [x] Backend: Cross-tenant allocation validation (per funding_source.tenant_id chain)
+- [x] Frontend: /projektai puslapis su filtrais + lentelė + create + row actions
+- [x] Frontend: /projektai/:id detail su metaduomenimis + summary placeholder
+- [x] Frontend: ProjectDialog (CRUD), ProjectStatusBadge, ProjectTypeBadge, ProjectStatusChangeDialog
+- [x] Frontend: PrasymoDetailPage „Sukurti FVM projektą" real integration; jei jau yra → „Žiūrėti projektą" link'as
+- [x] Sidebar: naujas „Projektai" nav punktas
+- [x] Shared: Project, ProjectType, ProjectStatus, ProjectSummary + DTOs; CreateFvmProjectResponse discriminated union
+- [x] Testai: backend 29 nauji (22 service + 8 createFvm); frontend 9 nauji
+- [x] Test isolation fix: Iter 9/10 testai rollback'ina Iter 11 prieš save migration
+- [x] Nepriklausomas auditas: 8/8 PASS

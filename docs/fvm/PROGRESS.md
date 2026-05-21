@@ -12,6 +12,7 @@
 |---|---|---|---|---|---|
 | 9 (FVM-1) | Foundation: funding_sources + budget_allocations | 🟢 done | `iter-09-foundation.md` | 8/8 PASS | ✅ 2026-05-21 |
 | 10 (FVM-2) | Stream 1: Request integration | 🟢 done | `iter-10-request-integration.md` | 8/8 PASS | ✅ 2026-05-21 |
+| 11 (FVM-3) | Projects + auto-create | 🟢 done | `iter-11-projects.md` | 8/8 PASS | ✅ 2026-05-21 |
 | 11 (FVM-3) | Projects + auto-create | ⏸️ | — | — | — |
 | 12 (FVM-4) | Expenses + budget remainder | ⏸️ | — | — | — |
 | 13 (FVM-5) | Payroll (DU) | ⏸️ | — | — | — |
@@ -35,6 +36,7 @@ Originalas: 8 iter × ~1.5 sav = 12 sav.
 |---|---|---|---|
 | 9 | 1.5 sav. | ~2 val. (Claude sesija) | -1.5 sav. |
 | 10 | 1.5 sav. | ~1 val. (Claude sesija) | -1.5 sav. |
+| 11 | 1.5 sav. | ~1.5 val. (Claude sesija) | -1.5 sav. |
 
 Claude vykdomas paraleliai daug subagent'ais — realus laikas daug trumpesnis nei žmogui. Adjustments po kiekvieno iter.
 
@@ -57,6 +59,14 @@ Claude vykdomas paraleliai daug subagent'ais — realus laikas daug trumpesnis n
 - 4 commit'ai push'inti į `dev`. CI green. dev-finansai.biip.lt deploy success.
 - Auditorius: 8/8 audit kriterijai PASS. READY TO SHIP.
 - Test counts: backend 54 (3 sanity + 11 migration + 40 service); frontend 42 (32 baseline + 10 nauji).
+
+### 2026-05-21 (vėlai vakare)
+- **Iter 11 (FVM-3) BAIGTA**. 3 subagent'ai (A/B/C) + nepriklausomas auditas.
+- Sub A (DBA): `projects` lentelė + 14 testai + `requests.fvm_project_id` FK pridėtas. Atrastas ir taisytas test isolation bug (Iter 9/10 testai turi pirma rollback Iter 11).
+- Sub B (Backend): Project modelis + projects.service.ts (CRUD + lifecycle + permissions), real createFvmProject implementation pakeičia Iter 10 placeholder. 29 nauji testai (22 service + 8 createFvm).
+- Sub C (Frontend): /projektai + /projektai/:id puslapiai, ProjectDialog + Status/Type badges + StatusChangeDialog, PrasymoDetailPage integration su real backend, Sidebar nav. 9 nauji testai.
+- Auditorius: 8/8 PASS. CreateFvmProjectResponse discriminated union (created|pending) backward compat.
+- Test counts (po Iter 11): backend 127 (98 + 29); frontend 57 (48 + 9).
 
 ### 2026-05-21 (šiandien, vakaras)
 - **Iter 10 (FVM-2) BAIGTA**. 3 subagent'ai (A/B/C) + nepriklausomas auditas.

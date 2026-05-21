@@ -2,6 +2,28 @@
 
 Naujausi įrašai viršuje. Vienas įrašas = vienas sprendimas/diskusija.
 
+## 2026-05-21 — Iter 11 (FVM-3) baigta — Projects (3 lygis) + auto-create
+
+Trečioji FVM iteracija. §2.4, §4.2, §6.3, F03-F05 docx. 3 paralelinės komandos + auditas. 8/8 PASS.
+
+**Svarbu**:
+- **projects lentelė** = 3 FVM lygio objektas. Tipai: projektas, spec_programa, veikla. Statusai: planuojama → vykdoma → baigta → uzdaryta.
+- **requests.fvm_project_id FK** uždarytas (Iter 10 paliko be FK). Orphan check guard'as migracijoje.
+- **`createFvmProject` real implementation** pakeičia Iter 10 placeholder'ą. AM admin patvirtinto spec.programa prašymo → mygtuko paspaudimu sukuriamas projekto įrašas (tipas=spec_programa, biudžetas=approved_amount, request_id, atsakingas=createdByUser). Allocation suranda per kategorija+metai. Non-spec_programa → 400 LT „rankiniu būdu per /projektai".
+- **`CreateFvmProjectResponse` discriminated union** ('created' | 'pending'): real Iter 11 grąžina 'created' su Project objektu; tipas backward-compatible su Iter 10 placeholder pending response.
+- **Test isolation fix**: kai Iter 11 sukūrė FK iš requests.fvm_project_id į projects, Iter 9/10 testai negalėjo daryt `migrate.down` savo specifikams (FK blokavo). Pridėtas eksplicitinis Iter 11 rollback prieš ankstesnių iter rollback'us — tylus, bet svarbus fix.
+- **`/projektai` + `/projektai/:id`** UI: lentelė su filtrais, dialog'ai (Project, StatusChange), badges (Status, Type), summary endpoint placeholder Iter 12 expenses.
+
+**Deliverables**:
+- 3 commits → `dev`, 1 audit, CI green
+- Backend: 29 nauji testai (127 viso)
+- Frontend: 9 nauji testai (57 viso)
+- Naujasis modelis + servisas: Project / projects.service.ts (CRUD + lifecycle + permissions)
+- API endpoint'ai: /projects/*, /projects/:id/status, /projects/:id/summary
+- Migration: `20260524100000_create_projects.ts` + FK į requests
+
+Toliau — Iter 12 (FVM-4): expenses lentelė, expense.service.ts, multi-source split (jsonb saltinio_dalis), realaus budget likučio skaičiavimas, 80% warning threshold.
+
 ## 2026-05-21 — Iter 10 (FVM-2) baigta — Stream 1 request integration
 
 Antroji FVM iteracija užbaigta. §3 docx (P01-P06) — esamos sistemos pakeitimai. 3 paralelinės komandos (DBA → Backend → Frontend) + nepriklausomas auditas. 8/8 PASS.
