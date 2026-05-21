@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
+  Banknote,
   BarChart3,
   Briefcase,
   Building2,
@@ -25,7 +26,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
-import { canManageClassifiers, canManageTenants, roleLabel } from '@/lib/roles';
+import {
+  canManageClassifiers,
+  canManageTenants,
+  canViewPayroll,
+  roleLabel,
+} from '@/lib/roles';
 
 interface NavItem {
   to: string;
@@ -37,6 +43,7 @@ interface NavItem {
 
 interface NavItemEx extends NavItem {
   classifiersAdminOnly?: boolean;
+  payrollAccessOnly?: boolean;
 }
 
 const PRIMARY_NAV: NavItemEx[] = [
@@ -46,6 +53,7 @@ const PRIMARY_NAV: NavItemEx[] = [
   { to: '/finansavimo-saltiniai', label: 'Finansavimo šaltiniai', icon: Coins },
   { to: '/biudzetas', label: 'Biudžetas', icon: Wallet },
   { to: '/projektai', label: 'Projektai', icon: Briefcase },
+  { to: '/du', label: 'DU', icon: Banknote, payrollAccessOnly: true },
   { to: '/vartotojai', label: 'Vartotojai', icon: Users },
   { to: '/organizacijos', label: 'Organizacijos', icon: Building2, adminOnly: true },
   { to: '/klasifikatoriai', label: 'Klasifikatoriai', icon: Tags, classifiersAdminOnly: true },
@@ -63,9 +71,13 @@ export function Sidebar({ onNavigate }: SidebarProps): JSX.Element {
   const role = user ? roleLabel(user) : '';
   const showTenants = canManageTenants(user);
   const showClassifiers = canManageClassifiers(user);
+  // SAUGUMAS (Iter 13): DU punktas matomas TIK kai canViewPayroll — specialistas
+  // (org_user) niekada nemato net įrašo sidebar'e.
+  const showPayroll = canViewPayroll(user);
   const navItems = PRIMARY_NAV.filter((i) => {
     if (i.adminOnly && !showTenants) return false;
     if (i.classifiersAdminOnly && !showClassifiers) return false;
+    if (i.payrollAccessOnly && !showPayroll) return false;
     return true;
   });
 

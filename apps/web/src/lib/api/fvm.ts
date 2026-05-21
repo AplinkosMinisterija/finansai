@@ -1,12 +1,13 @@
 /**
  * FVM (Finansų valdymo modelio) API klientas — Iter 9 (FVM-1) + Iter 11 (FVM-3) +
- * Iter 12 (FVM-4).
+ * Iter 12 (FVM-4) + Iter 13 (FVM-5).
  *
- * Apima 1, 2 ir 3 FVM lygius bei faktines išlaidas:
+ * Apima 1, 2 ir 3 FVM lygius, faktines išlaidas ir DU:
  *  - `fundingSourcesApi` — finansavimo šaltiniai („Iš kur pinigai?")
  *  - `budgetAllocationsApi` — biudžeto paskirstymai („Kam skiriama?")
  *  - `projectsApi` — projektai / spec.programos / veiklos („Kas konkrečiai išleidžia?")
  *  - `expensesApi` — faktinės išlaidos su multi-source split (Iter 12)
+ *  - `payrollApi` — DU profiliai + paskirstymai + mėnesio compute (Iter 13)
  *
  * Backend route'ai (žr. `apps/api/src/services/api.service.ts`):
  *  - /api/funding-sources
@@ -18,8 +19,14 @@
  *  - /api/expenses
  *  - /api/expenses/:id
  *  - /api/expenses/budget-summary
+ *  - /api/payroll-profiles[/:id]
+ *  - /api/payroll-distributions[/:id]
+ *  - /api/payroll/compute?month=YYYY-MM
  *
  * Tipai — `@biip-finansai/shared` (`fvm.ts`).
+ *
+ * SAUGUMAS (payroll): backend per `requireDuAccess` 403'ina specialistų užklausas.
+ * Frontend papildomai blokuoja UI (route guard + sidebar + helpers iš `roles.ts`).
  */
 import type {
   BudgetAllocation,
@@ -28,6 +35,7 @@ import type {
   BudgetAllocationSummary,
   BudgetAllocationUpdateDTO,
   BudgetWarningsResponse,
+  ComputeMonthResponse,
   Expense,
   ExpenseCreateDTO,
   ExpenseListQuery,
@@ -36,6 +44,14 @@ import type {
   FundingSourceCreateDTO,
   FundingSourceListQuery,
   FundingSourceUpdateDTO,
+  PayrollDistribution,
+  PayrollDistributionCreateDTO,
+  PayrollDistributionListQuery,
+  PayrollDistributionUpdateDTO,
+  PayrollProfile,
+  PayrollProfileCreateDTO,
+  PayrollProfileListQuery,
+  PayrollProfileUpdateDTO,
   Project,
   ProjectChangeStatusDTO,
   ProjectCreateDTO,
@@ -262,4 +278,112 @@ export const expensesApi = {
   update: expenseUpdate,
   remove: expenseRemove,
   budgetSummary: expensesBudgetSummary,
+};
+
+// ---------- DU (Iter 13, FVM-5) ----------
+
+async function payrollProfilesList(
+  query: PayrollProfileListQuery = {},
+): Promise<PayrollProfile[]> {
+  const params: Record<string, string | number | boolean> = {};
+  if (query.tenantId !== undefined) params.tenantId = query.tenantId;
+  if (query.userId !== undefined) params.userId = query.userId;
+  if (query.active !== undefined) params.active = query.active;
+  const { data } = await api.get<PayrollProfile[]>('/payroll-profiles', { params });
+  return data;
+}
+
+async function payrollProfileGet(id: number): Promise<PayrollProfile> {
+  const { data } = await api.get<PayrollProfile>(`/payroll-profiles/${id}`);
+  return data;
+}
+
+async function payrollProfileCreate(
+  body: PayrollProfileCreateDTO,
+): Promise<PayrollProfile> {
+  const { data } = await api.post<PayrollProfile>('/payroll-profiles', body);
+  return data;
+}
+
+async function payrollProfileUpdate(
+  id: number,
+  patch: PayrollProfileUpdateDTO,
+): Promise<PayrollProfile> {
+  const { data } = await api.patch<PayrollProfile>(`/payroll-profiles/${id}`, patch);
+  return data;
+}
+
+async function payrollProfileRemove(id: number): Promise<{ ok: true }> {
+  const { data } = await api.delete<{ ok: true }>(`/payroll-profiles/${id}`);
+  return data;
+}
+
+async function payrollDistributionsList(
+  query: PayrollDistributionListQuery = {},
+): Promise<PayrollDistribution[]> {
+  const params: Record<string, string | number> = {};
+  if (query.profileId !== undefined) params.profileId = query.profileId;
+  if (query.sourceId !== undefined) params.sourceId = query.sourceId;
+  const { data } = await api.get<PayrollDistribution[]>('/payroll-distributions', {
+    params,
+  });
+  return data;
+}
+
+async function payrollDistributionGet(id: number): Promise<PayrollDistribution> {
+  const { data } = await api.get<PayrollDistribution>(`/payroll-distributions/${id}`);
+  return data;
+}
+
+async function payrollDistributionCreate(
+  body: PayrollDistributionCreateDTO,
+): Promise<PayrollDistribution> {
+  const { data } = await api.post<PayrollDistribution>('/payroll-distributions', body);
+  return data;
+}
+
+async function payrollDistributionUpdate(
+  id: number,
+  patch: PayrollDistributionUpdateDTO,
+): Promise<PayrollDistribution> {
+  const { data } = await api.patch<PayrollDistribution>(
+    `/payroll-distributions/${id}`,
+    patch,
+  );
+  return data;
+}
+
+async function payrollDistributionRemove(id: number): Promise<{ ok: true }> {
+  const { data } = await api.delete<{ ok: true }>(`/payroll-distributions/${id}`);
+  return data;
+}
+
+/**
+ * Mėnesio DU compute (POST /payroll/compute?month=YYYY-MM).
+ *
+ * Idempotentiškas — pakartotinis to paties mėnesio kvietimas ištrina senesnius
+ * DU expense'us prieš sukuriant naujus (backend transakcijoje).
+ *
+ * Tik AM admin'as (backend forsuoja per `requireDuAccess`; UI gating'as papildomai
+ * paslepia mygtuką per `canComputePayroll`).
+ */
+async function payrollComputeMonth(month: string): Promise<ComputeMonthResponse> {
+  const { data } = await api.post<ComputeMonthResponse>('/payroll/compute', null, {
+    params: { month },
+  });
+  return data;
+}
+
+export const payrollApi = {
+  listProfiles: payrollProfilesList,
+  getProfile: payrollProfileGet,
+  createProfile: payrollProfileCreate,
+  updateProfile: payrollProfileUpdate,
+  removeProfile: payrollProfileRemove,
+  listDistributions: payrollDistributionsList,
+  getDistribution: payrollDistributionGet,
+  createDistribution: payrollDistributionCreate,
+  updateDistribution: payrollDistributionUpdate,
+  removeDistribution: payrollDistributionRemove,
+  computeMonth: payrollComputeMonth,
 };

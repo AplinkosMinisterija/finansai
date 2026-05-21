@@ -59,3 +59,36 @@ export function canManageBudget(user: AuthUser | null): boolean {
   if (!user) return false;
   return user.tenantIsApprover && user.role === 'admin';
 }
+
+/**
+ * Ar vartotojas gali matyti DU duomenis (Iter 13, FVM-5, docx §4.4).
+ *
+ * SAUGUMO REIKALAVIMAS (docx §4.4 explicit): „Specialistas savo duomenų NEmato".
+ *  - AM administratorius (tenantIsApprover + admin) → TAIP (visi tenant'ai)
+ *  - Org administratorius (admin, ne AM) → TAIP (tik savo tenant'as; tenant scope
+ *    forsuojamas backende per `requireDuAccess`)
+ *  - Org specialistas (user role) → NIEKADA (net savo profilį)
+ *  - Neprisijungęs → NIEKADA
+ *
+ * Naudojama 3 lygmenyse: route guard `/du`, sidebar punktas, dialog'ų vidus.
+ */
+export function canViewPayroll(user: AuthUser | null): boolean {
+  if (!user) return false;
+  if (user.role !== 'admin') return false;
+  // AM admin — visi tenant'ai.
+  if (user.tenantIsApprover) return true;
+  // Org admin — savo tenant'as (server forsuoja tenant scope).
+  return true;
+}
+
+/**
+ * Ar vartotojas gali kviesti mėnesio DU apskaičiavimą.
+ *
+ * Tik AM administratorius (tenantIsApprover + admin). Org admin'as gali matyti
+ * profilius/paskirstymus, bet mėnesio compute yra cross-tenant operacija, kuri
+ * sukuria expense'us — todėl tik AM.
+ */
+export function canComputePayroll(user: AuthUser | null): boolean {
+  if (!user) return false;
+  return user.tenantIsApprover && user.role === 'admin';
+}
