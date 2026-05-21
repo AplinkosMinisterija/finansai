@@ -305,8 +305,15 @@ describe('fundingSources service', () => {
       expect(list[0]?.allocatedAmount).toBe('800000.00');
     });
 
-    it('Org user gali READ (list) — auth required, no AM-admin gate', async () => {
-      await createSource();
+    it('Org user gali READ (list) tik savo tenant\'o sources (S15.C tenant scope)', async () => {
+      // AM tenant'o source — org_user NETURI matyti
+      await createSource({ tenantId: base.amTenantId });
+      // Org tenant'o source — org_user TURI matyti
+      await createSource({
+        tenantId: org.orgTenantId,
+        kodas: 'AAD-VB-2026',
+        pavadinimas: 'AAD biudžetas 2026',
+      });
       const list = (await broker.call(
         'fundingSources.list',
         {},
@@ -319,7 +326,10 @@ describe('fundingSources service', () => {
           },
         },
       )) as FundingSourceDTO[];
+      // Po S15.C tenant scope patch'o — org_user mato tik savo tenant'ą.
       expect(list).toHaveLength(1);
+      expect(list[0]?.tenantId).toBe(org.orgTenantId);
+      expect(list[0]?.kodas).toBe('AAD-VB-2026');
     });
   });
 

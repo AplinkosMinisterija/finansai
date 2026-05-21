@@ -140,6 +140,19 @@ export function canViewPayroll(user: AuthUser | null | undefined): boolean {
 }
 
 /**
+ * AM administratoriaus check'as (Iter 13.x agregatinis leak fix).
+ *
+ * Atskiriamas nuo `canViewPayroll`, nes kai kuriuose endpoint'uose (pvz.,
+ * `fundingSources.list`, `budgetAllocations.list`) tenant scope filter'as
+ * privalo įsijungti VISIEMS NE-AM vartotojams — net org admin'ams. AM admin
+ * (tvirtintojų tenant'as) mato visus tenant'us, kiti — tik savo.
+ */
+export function isAmAdminUser(user: AuthUser | null | undefined): boolean {
+  if (!user) return false;
+  return user.role === 'admin' && user.tenantIsApprover;
+}
+
+/**
  * AM-only DU operacijų gate'as (Iter 13).
  *
  * Naudoti operacijoms, kurias gali atlikti TIK AM administratorius:

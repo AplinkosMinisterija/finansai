@@ -40,6 +40,7 @@ import { ClassifierGroup } from '../models/ClassifierGroup';
 import { ClassifierItem } from '../models/ClassifierItem';
 import { centsToAmount, normalizeAmount, toCents } from '../utils/money';
 import { calculatePercentUsed, calculateWarningFlags } from '../utils/fvm';
+import { canViewPayroll, isAmAdminUser } from '../utils/permissions';
 import type { AuthMeta } from './auth.service';
 
 const BUDGET_CATEGORY_GROUP_CODE = 'budget_category';
@@ -197,13 +198,61 @@ const BudgetAllocationsService: ServiceSchema = {
       async handler(
         ctx: Context<ListParams, AuthMeta>,
       ): Promise<BudgetAllocationDTO[]> {
-        requireMe(ctx);
+        const me = requireMe(ctx);
         const q = BudgetAllocationV2.query()
           .withGraphFetched('[categoryClassifierItem, fundingSource]')
           .orderBy([
             { column: 'metai', order: 'desc' },
             { column: 'pavadinimas', order: 'asc' },
           ]);
+
+        // SAUGUMO PATCH (Iter 13.x agregatinis leak fix, docx §4.4):
+        // Tenant scope — iki šiol allocation listing leido org_user matyti
+        // visų tenant'ų allocations (kartu su `allocatedAmount`, `count`).
+        // Po patch'o:
+        //   - AM admin (`tenantIsApprover` + `admin`): visi tenant'ai
+        //   - AM user su scope=null: visi tenant'ai
+        //   - AM user su scope=[ids]: tik scope'o tenant'ai
+        //   - Org admin / org user: TIK savo tenant'as
+        // Filter'uojam per allocation.funding_source.tenant_id chain'ą.
+        if (me.tenantIsApprover) {
+          if (me.role === 'user' && me.amScopeOrgIds !== null) {
+            if (me.amScopeOrgIds.length === 0) {
+              return [];
+            }
+            q.whereExists((qb) => {
+              qb.from('funding_sources')
+                .whereRaw(
+                  'funding_sources.id = budget_allocations_v2.funding_source_id',
+                )
+                .whereIn('funding_sources.tenant_id', me.amScopeOrgIds!);
+            });
+          }
+        } else {
+          q.whereExists((qb) => {
+            qb.from('funding_sources')
+              .whereRaw(
+                'funding_sources.id = budget_allocations_v2.funding_source_id',
+              )
+              .where('funding_sources.tenant_id', me.tenantId);
+          });
+        }
+
+        // SAUGUMO PATCH (Iter 13.x agregatinis leak fix, docx §4.4):
+        // DU kategorijos allocations paslepiam vartotojams be DU teisės.
+        // Kitaip org_user pamatytų DU allocation pavadinimą +
+        // `planuotaSuma` per `categoryItemId=du` filter'ą arba bendrame
+        // sąraše.
+        if (!canViewPayroll(me)) {
+          q.whereNotExists((qb) => {
+            qb.from('classifier_items')
+              .whereRaw(
+                'classifier_items.id = budget_allocations_v2.category_classifier_item_id',
+              )
+              .where('classifier_items.code', 'du');
+          });
+        }
+
         if (ctx.params.fundingSourceId !== undefined) {
           q.where('funding_source_id', ctx.params.fundingSourceId);
         }
@@ -223,9 +272,46 @@ const BudgetAllocationsService: ServiceSchema = {
       async handler(
         ctx: Context<{ id: number }, AuthMeta>,
       ): Promise<BudgetAllocationDTO> {
-        requireMe(ctx);
+        const me = requireMe(ctx);
         const a = await loadAllocation(ctx.params.id);
         if (!a) {
+          throw new Errors.MoleculerClientError(
+            'Biudžeto paskirstymas nerastas',
+            404,
+            'BUDGET_ALLOCATION_NOT_FOUND',
+          );
+        }
+        // SAUGUMO PATCH (Iter 13.x agregatinis leak fix, docx §4.4):
+        // Tenant scope ne-AM vartotojams. Naudojam 404 (ne 403), kad
+        // nepamatytų, jog allocation ID egzistuoja kitame tenant'e.
+        if (!isAmAdminUser(me)) {
+          const ownerTenantId = a.fundingSource?.tenantId;
+          if (me.tenantIsApprover) {
+            // AM user su scope
+            if (
+              me.amScopeOrgIds !== null &&
+              (ownerTenantId === undefined ||
+                !me.amScopeOrgIds.includes(ownerTenantId))
+            ) {
+              throw new Errors.MoleculerClientError(
+                'Biudžeto paskirstymas nerastas',
+                404,
+                'BUDGET_ALLOCATION_NOT_FOUND',
+              );
+            }
+          } else if (ownerTenantId !== me.tenantId) {
+            throw new Errors.MoleculerClientError(
+              'Biudžeto paskirstymas nerastas',
+              404,
+              'BUDGET_ALLOCATION_NOT_FOUND',
+            );
+          }
+        }
+        // DU kategorijos allocation paslepiam ne-DU vartotojams (404).
+        if (
+          !canViewPayroll(me) &&
+          (a as BudgetAllocationWithRels).categoryClassifierItem?.code === 'du'
+        ) {
           throw new Errors.MoleculerClientError(
             'Biudžeto paskirstymas nerastas',
             404,
@@ -254,8 +340,12 @@ const BudgetAllocationsService: ServiceSchema = {
       async handler(
         ctx: Context<{ id: number }, AuthMeta>,
       ): Promise<BudgetAllocationSummary> {
-        requireMe(ctx);
-        const a = await BudgetAllocationV2.query().findById(ctx.params.id);
+        const me = requireMe(ctx);
+        const a = (await BudgetAllocationV2.query()
+          .findById(ctx.params.id)
+          .withGraphFetched(
+            '[categoryClassifierItem, fundingSource]',
+          )) as BudgetAllocationWithRels | undefined;
         if (!a) {
           throw new Errors.MoleculerClientError(
             'Biudžeto paskirstymas nerastas',
@@ -263,11 +353,58 @@ const BudgetAllocationsService: ServiceSchema = {
             'BUDGET_ALLOCATION_NOT_FOUND',
           );
         }
+        // SAUGUMO PATCH (Iter 13.x agregatinis leak fix, docx §4.4):
+        // Tenant scope — analogiškai `get`. 404 ne 403, kad nepatvirtintume
+        // ID egzistavimo kitame tenant'e.
+        if (!isAmAdminUser(me)) {
+          const ownerTenantId = a.fundingSource?.tenantId;
+          if (me.tenantIsApprover) {
+            if (
+              me.amScopeOrgIds !== null &&
+              (ownerTenantId === undefined ||
+                !me.amScopeOrgIds.includes(ownerTenantId))
+            ) {
+              throw new Errors.MoleculerClientError(
+                'Biudžeto paskirstymas nerastas',
+                404,
+                'BUDGET_ALLOCATION_NOT_FOUND',
+              );
+            }
+          } else if (ownerTenantId !== me.tenantId) {
+            throw new Errors.MoleculerClientError(
+              'Biudžeto paskirstymas nerastas',
+              404,
+              'BUDGET_ALLOCATION_NOT_FOUND',
+            );
+          }
+        }
+        // DU kategorijos allocation summary — 404 ne-DU vartotojams. Kitaip
+        // org_user pamatytų DU planuota + faktinė sumą per direktinį
+        // `GET /budget-allocations/:duId/summary` route.
+        if (
+          !canViewPayroll(me) &&
+          a.categoryClassifierItem?.code === 'du'
+        ) {
+          throw new Errors.MoleculerClientError(
+            'Biudžeto paskirstymas nerastas',
+            404,
+            'BUDGET_ALLOCATION_NOT_FOUND',
+          );
+        }
         const planuotaCents = toCents(a.planuotaSuma);
-        const sumRow = (await Expense.query()
+        const expenseQ = Expense.query()
           .where('budget_allocation_id', a.id)
-          .sum('suma as total')
-          .first()) as unknown as { total: string | null } | undefined;
+          .sum('suma as total');
+        // SAUGUMO PATCH (Iter 13.x agregatinis leak fix, docx §4.4):
+        // Defense-in-depth — SUM užklausoje neįskaitom DU expense'ų ne-DU
+        // vartotojams. Edge case: jei DU expense kažkaip atsidurtų ne-DU
+        // allocation'e (data drift), org_user vis tiek nepamatys DU sumos.
+        if (!canViewPayroll(me)) {
+          expenseQ.whereNot('expenses.tipas', 'du');
+        }
+        const sumRow = (await expenseQ.first()) as unknown as
+          | { total: string | null }
+          | undefined;
         const faktineCents = toCents(sumRow?.total ?? '0');
         const likutisCents = planuotaCents - faktineCents;
         const percentUsed = calculatePercentUsed(planuotaCents, faktineCents);

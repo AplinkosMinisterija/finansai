@@ -747,6 +747,21 @@ const ExpensesService: ServiceSchema = {
           });
         }
 
+        // SAUGUMO PATCH (Iter 13.x agregatinis leak fix, docx §4.4):
+        // DU kategorijos allocations turi būti paslėpti vartotojams be DU
+        // teisės — kitaip per `expenses.budgetSummary` org_user pamatytų
+        // DU allocation planuota / faktinė sumą. Filter'uojam per join'ą į
+        // `classifier_items` ir `code='du'` kategorijoms.
+        if (!canViewPayroll(me)) {
+          allocQ.whereNotExists((qb) => {
+            qb.from('classifier_items')
+              .whereRaw(
+                'classifier_items.id = budget_allocations_v2.category_classifier_item_id',
+              )
+              .where('classifier_items.code', 'du');
+          });
+        }
+
         const allocations = (await allocQ) as Array<
           BudgetAllocationV2 & { fundingSource?: FundingSource }
         >;
@@ -763,6 +778,16 @@ const ExpensesService: ServiceSchema = {
           .groupBy('budget_allocation_id');
         if (ctx.params.projectId !== undefined) {
           expenseQ.where('project_id', ctx.params.projectId);
+        }
+        // SAUGUMO PATCH (Iter 13.x agregatinis leak fix, docx §4.4):
+        // Defense-in-depth — net jei aukščiau allocation listing'as praleistų
+        // DU allocation (pvz., race condition ar netinkamai sukurta non-DU
+        // allocation su DU expense), SUM užklausoje NE skaičiuojam DU
+        // expense'ų. Kartu pridedam ir non-DU allocation reaktyvią apsaugą —
+        // jei kas nors klaidingai sukurtų DU expense ne-DU allocation'e,
+        // org_user vis tiek nepamatys.
+        if (!canViewPayroll(me)) {
+          expenseQ.whereNot('expenses.tipas', 'du');
         }
         const expenseRows = (await expenseQ) as unknown as Array<{
           budgetAllocationId: number;

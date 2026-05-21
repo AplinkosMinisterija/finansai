@@ -35,6 +35,7 @@ import { ClassifierGroup } from '../models/ClassifierGroup';
 import { ClassifierItem } from '../models/ClassifierItem';
 import { Tenant } from '../models/Tenant';
 import { centsToAmount, normalizeAmount, toCents } from '../utils/money';
+import { isAmAdminUser } from '../utils/permissions';
 import type { AuthMeta } from './auth.service';
 
 const FUNDING_SOURCE_TYPE_GROUP_CODE = 'funding_source_type';
@@ -183,13 +184,33 @@ const FundingSourcesService: ServiceSchema = {
         typeItemId: { type: 'number', integer: true, optional: true, convert: true },
       },
       async handler(ctx: Context<ListParams, AuthMeta>): Promise<FundingSourceDTO[]> {
-        requireMe(ctx);
+        const me = requireMe(ctx);
         const q = FundingSource.query()
           .withGraphFetched('[tenant, tipasClassifierItem]')
           .orderBy([
             { column: 'metai', order: 'desc' },
             { column: 'kodas', order: 'asc' },
           ]);
+
+        // SAUGUMO PATCH (Iter 13.x agregatinis leak fix, docx §4.4 / S15.C):
+        // Tenant scope — iki šiol `fundingSources.list` neturėjo tenant
+        // scope'o, org_user matydavo visų tenant'ų funding sources kartu
+        // su `allocatedAmount` agregatu. Po patch'o:
+        //   - AM admin: visi tenant'ai
+        //   - AM user su scope=null: visi tenant'ai
+        //   - AM user su scope=[ids]: tik scope'o tenant'ai
+        //   - Org admin / org user: TIK savo tenant'as
+        if (me.tenantIsApprover) {
+          if (me.role === 'user' && me.amScopeOrgIds !== null) {
+            if (me.amScopeOrgIds.length === 0) {
+              return [];
+            }
+            q.whereIn('tenant_id', me.amScopeOrgIds);
+          }
+        } else {
+          q.where('tenant_id', me.tenantId);
+        }
+
         if (ctx.params.year !== undefined) {
           q.where('metai', ctx.params.year);
         }
@@ -216,7 +237,7 @@ const FundingSourcesService: ServiceSchema = {
       async handler(
         ctx: Context<{ id: number }, AuthMeta>,
       ): Promise<FundingSourceDTO> {
-        requireMe(ctx);
+        const me = requireMe(ctx);
         const fs = await loadFundingSource(ctx.params.id);
         if (!fs) {
           throw new Errors.MoleculerClientError(
@@ -224,6 +245,29 @@ const FundingSourcesService: ServiceSchema = {
             404,
             'FUNDING_SOURCE_NOT_FOUND',
           );
+        }
+        // SAUGUMO PATCH (Iter 13.x agregatinis leak fix, docx §4.4):
+        // Tenant scope — ne-AM admin'ai gali matyti tik savo tenant'ą.
+        // Naudojam 404, kad nepatvirtintume ID egzistavimo.
+        if (!isAmAdminUser(me)) {
+          if (me.tenantIsApprover) {
+            if (
+              me.amScopeOrgIds !== null &&
+              !me.amScopeOrgIds.includes(fs.tenantId)
+            ) {
+              throw new Errors.MoleculerClientError(
+                'Finansavimo šaltinis nerastas',
+                404,
+                'FUNDING_SOURCE_NOT_FOUND',
+              );
+            }
+          } else if (fs.tenantId !== me.tenantId) {
+            throw new Errors.MoleculerClientError(
+              'Finansavimo šaltinis nerastas',
+              404,
+              'FUNDING_SOURCE_NOT_FOUND',
+            );
+          }
         }
         const stats = await loadAllocationStats([fs.id]);
         const s = stats.get(fs.id);

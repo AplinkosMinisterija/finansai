@@ -564,10 +564,20 @@ const ProjectsService: ServiceSchema = {
         }
         requireReadAccess(me, p.tenantId);
         const biudzetasCents = toCents(p.biudzetas);
-        const sumRow = (await Expense.query()
+        const expenseSumQ = Expense.query()
           .where('project_id', p.id)
-          .sum('suma as total')
-          .first()) as unknown as { total: string | null } | undefined;
+          .sum('suma as total');
+        // SAUGUMO PATCH (Iter 13.x agregatinis leak fix, docx §4.4):
+        // Defense-in-depth — DU sistemos projektas jau slepiamas viršuje per
+        // `isDuSystem` flag'ą + 404. Bet edge case: jei org_admin (turintis
+        // DU access) sukurtų DU expense paprastame projekte, org_user vis
+        // tiek nepamatys DU sumos summary'je.
+        if (!canViewPayroll(me)) {
+          expenseSumQ.whereNot('expenses.tipas', 'du');
+        }
+        const sumRow = (await expenseSumQ.first()) as unknown as
+          | { total: string | null }
+          | undefined;
         const panaudotaCents = toCents(sumRow?.total ?? '0');
         const likutisCents = biudzetasCents - panaudotaCents;
         const percentUsed = calculatePercentUsed(biudzetasCents, panaudotaCents);
