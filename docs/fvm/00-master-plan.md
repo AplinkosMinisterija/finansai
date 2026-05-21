@@ -36,7 +36,7 @@ Kiekviena iteracija sudaryta iš 4 fazių:
 - Output: pass/fail per kriterijų + rekomendacijos jeigu nepakanka
 
 ### 4. CTO sprendimas
-- **Pass**: commit'as push'inamas į `dev`, atnaujinama `PROGRESS.md`, sukuriamas commit'as „Iter NN: <pavadinimas>", einame į kitos iter brief'ą
+- **Pass**: commit'as push'inamas į `dev`, atnaujinama `PROGRESS.md`, sukuriamas commit'as „Iter NN: `<pavadinimas>`", einame į kitos iter brief'ą
 - **Fail**: identifikuojami konkretūs gaps, dispatch'inamas fix taskas (gali būti naujas subagentas arba ta pati komanda)
 - **Loop**: tas pats audit'as kartojamas iki pass
 

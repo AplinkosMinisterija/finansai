@@ -10,6 +10,13 @@ export default defineConfig({
   lastUpdated: true,
   outDir: '.vitepress/dist',
 
+  // FVM darbo dokumentai (docs/fvm/) — vidinis CTO/komandos koordinavimo
+  // turinys (master plan, iter brief'ai, ADR'ai). Skaitomi filesystem'e ir
+  // per GitHub UI, bet ne publikuojami per VitePress dokų svetainę.
+  // Skirta išvengti VitePress Vue-kompiliacijos klaidų dėl <placeholder>
+  // šabloninių žymeklių brief'uose.
+  srcExclude: ['fvm/**'],
+
   themeConfig: {
     siteTitle: 'Finansai',
 
