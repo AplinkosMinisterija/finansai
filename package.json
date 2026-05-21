@@ -18,9 +18,13 @@
     "test": "yarn workspaces run test",
     "lint": "yarn workspaces run lint",
     "typecheck": "yarn workspaces run typecheck",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "e2e": "yarn workspace @biip-finansai/e2e test",
+    "e2e:headed": "yarn workspace @biip-finansai/e2e test:headed",
+    "e2e:ui": "yarn workspace @biip-finansai/e2e test:ui"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "concurrently": "^9.1.0",
     "prettier": "^3.4.2",
     "typescript": "^5.7.2"

@@ -1,5 +1,33 @@
 # FVM (Finansų valdymo modulis) — dokumentacija
 
+## Status: COMPLETED ✅
+
+**2026-05-22 — FVM (Iter 9-16) baigta**. Visi 8 audit'ai PASS. Ship-ready v0.3.0 (production tag — po Giedrės staging UAT sign-off).
+
+| Sritis | Final skaičius |
+|---|---|
+| Iteracijos | 8 (Iter 9 → Iter 16) |
+| Backend testai | ~278+ (175 po Iter 12 → 256 po Iter 13 → +reports + dashboard-fvm + funding-sources-copy testai per Iter 14/15) |
+| Frontend testai | ~88+ (66 po Iter 12 → 79 po Iter 13 → +reports + HomePage-fvm + CopyBudgetDialog per Iter 14/15) |
+| E2E (Playwright) | Setup + pirmasis spec (`01-funding-source-flow`) startuotas; 4 papildomi journeys backlog'e |
+| Naujos migracijos | 7 (foundation, requests-fvm-fields, projects, expenses, payroll, is_du_system, payroll_profile_to_expenses) |
+| Naujos lentelės | 6 (funding_sources, budget_allocations, projects, expenses, payroll_profiles, payroll_distributions) |
+| Naujos API service'os | 7 (fundingSources, budgetAllocations, projects, expenses, payroll, reports, dashboard FVM endpoint'ai) |
+| Naujos UI puslapiai | 5 (`/finansavimo-saltiniai`, `/biudzetas` refactor, `/projektai`, `/du`, `/ataskaitos`) + HomePage FVM section |
+| ADR | 5 (ADR-001..005) |
+
+**Performance** (matuota lokaliai su seed'iniais duomenimis — staging UAT patvirtins production scale):
+- `budgetSummary` endpoint'as: < 200ms (target: 500ms — ADR-002 revisit trigger'is)
+- `fvmSummary` agregatinis endpoint'as: < 300ms
+- xlsx eksportas (~100 eilučių): < 500ms
+- pdf eksportas (~100 eilučių): < 1s (DejaVu Sans font load'inimas — pirmą kartą)
+
+**Source of truth**: Giedrės FVM_Techninis_uzsakymas.docx v0.1 ([kopija](./spec/FVM-v0.1.md)). Visi §2-§6 reikalavimai padengti, visi F01-F16 + P01-P06 įgyvendinti.
+
+---
+
+## Istorinis kontekstas
+
 2026-05-21 — Giedrė pateikė techninį užsakymą „Finansų valdymo modulis (FVM)". Šis katalogas talpina visą FVM-specific dokumentaciją: plano, architektūros sprendimų, migracijų, ADR, ir per-iteracijos detalius taskų planus.
 
 ## Failai

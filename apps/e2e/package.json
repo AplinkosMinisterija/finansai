@@ -1,0 +1,14 @@
+{
+  "name": "@biip-finansai/e2e",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:list": "playwright test --reporter=list"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}

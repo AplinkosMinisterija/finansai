@@ -866,6 +866,61 @@ function daysAgoIso(days?: number): string | null {
 }
 
 export async function seed(knex: Knex): Promise<void> {
+  // Iter 16 (FVM-8): jei FVM lentelės egzistuoja ir turi duomenų — pirma
+  // jas išvalom, kad tenant'ų delete'as nelaužtų FK constraint'o
+  // (`funding_sources.tenant_id`, `projects.tenant_id`, etc.). Pilna FK
+  // chain'ą atvirkščiu order'iu valom.
+  const hasExpenses = await knex.schema.hasTable('expenses');
+  if (hasExpenses) {
+    await knex('expenses').del();
+    await knex.raw('ALTER SEQUENCE expenses_id_seq RESTART WITH 1');
+  }
+  const hasPayrollDistributions = await knex.schema.hasTable('payroll_distributions');
+  if (hasPayrollDistributions) {
+    await knex('payroll_distributions').del();
+    await knex.raw('ALTER SEQUENCE payroll_distributions_id_seq RESTART WITH 1');
+  }
+  const hasPayrollProfiles = await knex.schema.hasTable('payroll_profiles');
+  if (hasPayrollProfiles) {
+    await knex('payroll_profiles').del();
+    await knex.raw('ALTER SEQUENCE payroll_profiles_id_seq RESTART WITH 1');
+  }
+  const hasProjects = await knex.schema.hasTable('projects');
+  if (hasProjects) {
+    await knex('projects').del();
+    await knex.raw('ALTER SEQUENCE projects_id_seq RESTART WITH 1');
+  }
+  const hasBudgetAllocationsV2 = await knex.schema.hasTable('budget_allocations_v2');
+  if (hasBudgetAllocationsV2) {
+    await knex('budget_allocations_v2').del();
+    await knex.raw('ALTER SEQUENCE budget_allocations_v2_id_seq RESTART WITH 1');
+  }
+  const hasFundingSources = await knex.schema.hasTable('funding_sources');
+  if (hasFundingSources) {
+    await knex('funding_sources').del();
+    await knex.raw('ALTER SEQUENCE funding_sources_id_seq RESTART WITH 1');
+  }
+
+  // Iter 16: prieš requests delete — išvalom child'us su RESTRICT FK į users
+  // (request_attachments.uploaded_by_user_id, request_reports.created_by_user_id).
+  // CASCADE iš requests automatiškai pašalintų visus subrecords, bet jei
+  // requests ne CASCADE'inami (RESTRICT'as), reikia explicit'iškai.
+  const hasRequestAttachments = await knex.schema.hasTable('request_attachments');
+  if (hasRequestAttachments) {
+    await knex('request_attachments').del();
+    await knex.raw('ALTER SEQUENCE request_attachments_id_seq RESTART WITH 1');
+  }
+  const hasRequestReports = await knex.schema.hasTable('request_reports');
+  if (hasRequestReports) {
+    await knex('request_reports').del();
+    await knex.raw('ALTER SEQUENCE request_reports_id_seq RESTART WITH 1');
+  }
+  const hasApprovalSteps = await knex.schema.hasTable('approval_steps');
+  if (hasApprovalSteps) {
+    await knex('approval_steps').del();
+    await knex.raw('ALTER SEQUENCE approval_steps_id_seq RESTART WITH 1');
+  }
+
   const hasRequests = await knex.schema.hasTable('requests');
   if (hasRequests) {
     await knex('request_comments').del();

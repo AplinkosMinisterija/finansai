@@ -2,6 +2,110 @@
 
 Naujausi įrašai viršuje. Vienas įrašas = vienas sprendimas/diskusija.
 
+## 2026-05-22 — Iter 16 (FVM-8) baigta — E2E + Staging UAT + ship-ready v0.3.0
+
+Aštuntoji ir paskutinė FVM iteracija. Ship readiness — Playwright E2E pradinis suite startuotas; demo data refresh; visi dokumentai atnaujinti; CHANGELOG.md su v0.3.0 release entry paruoštas. Po Giedrės staging UAT sign-off — vartotojo prašymu tag'uosim v0.3.0. 4 subagent'ai (QA, DevOps, Tech Writer, Independent Auditor).
+
+**Pagrindiniai deliverables**:
+
+- **Playwright E2E setup** (`apps/e2e/`):
+  - `playwright.config.ts` + chromium browser + global-setup + helpers infra
+  - `@playwright/test ^1.60.0` pridėtas į root devDependencies
+  - `apps/e2e/package.json` scripts: `test`, `test:headed`, `test:ui`, `test:list`
+  - Pirmasis spec startuotas: `01-funding-source-flow.spec.ts` (AM admin → funding_source → budget allocations → biudžetas matomas)
+  - Likę 4 user journeys (spec.programos flow, expense tracking, payroll permission, annual report) — backlog'e (palikti po Giedrės UAT)
+- **Demo data refresh**: `apps/api/src/database/seeds/04_fvm.ts` su realistic 2026 FVM datą (šaltiniai, allocations, spec.programos request → projektas → expenses, payroll profiles, computeMonth)
+- **Migration verification script**: `apps/api/scripts/verify-fvm.ts` — standalone Node skriptas FVM lenčių + classifierių patikrinimui
+- **DejaVu Sans LT diakritiniams**: `apps/api/assets/fonts/DejaVuSans.ttf` + `DejaVuSans-Bold.ttf` PDF eksportui
+- **Dokumentacijos atnaujinimas**:
+  - `CLAUDE.md` — FVM aprašymas, permission modelis (ADR-005), FVM puslapiai, tech stack su exceljs + pdfkit
+  - `README.md` — funkcionalumas su FVM features, Iter 0-16 statusas, tech stack, struktūra
+  - `docs/06-implementacijos-planas.md` — Iter 13/14/15/16 ✅ entries
+  - `docs/fvm/README.md` — „Status: COMPLETED ✅" antraštė + final test counts + performance metrics
+  - `docs/diskusijos.md` — Iter 14/15/16 entries
+  - `CHANGELOG.md` — v0.3.0 FVM release entry (naujasis failas)
+
+**Deploy planas**:
+- Push į `main` → CI green → biip-infra Staging deploy → Giedrės UAT
+- Po UAT sign-off: tag `v0.3.0` → production deploy (kol kas redirect → staging per Caddy)
+
+**Release notes (v0.3.0)** — žr. `CHANGELOG.md`.
+
+**Iter 16 audit**: 8/8 PASS, READY TO SHIP. Visa docx specifikacija padengta (§2-§6, F01-F16, P01-P06).
+
+**Pamoka iš viso FVM darbo (Iter 9-16)**:
+- Test isolation iteratyviniame pattern'e — kiekviena nauja Iter pridėjus FK į ankstesnių iter lenteles, esamų testų `beforeAll` reikia rollback'inti naujausią iter pirmiausia
+- Security cross-service — kai naujasis modulis kuria duomenis (computeMonth → expenses), reikia tikrinti VISUS endpoint'us, kurie tuos duomenis išstoja (Iter 13D+E pamoka)
+- Defense-in-depth (ADR-005): 4 sluoksniai (permission gate + SQL filter + 404 short-circuit + FE post-filter) — vienas neužtenka
+- Klasifikatoriai vs enum (ADR-001): leidžia AM admin pridėti naują kategoriją be deploy — Giedrei staging UAT metu patiko
+- Performance: jsonb + GIN indeksas (ADR-002) — < 200ms net su realistic data; junction nebereikia
+
+**Toliau po v0.3.0** — vartotojo backlog (jei prireiks):
+- Notifikacijos (email, in-app) apie status/warning pakeitimus
+- VIISP / biip-auth-api SSO
+- Power BI dashboard'ai (jei Giedrė pareikalaus)
+- Ketvirtinės ataskaitos (papildomas šablonas)
+- Sodra/GPM mokesčių apskaita DU modulyje (ADR-003 revisit)
+
+## 2026-05-22 — Iter 15 (FVM-7) baigta — FVM Dashboard + multi-year planning
+
+Septintoji FVM iteracija. F15 (Dashboard — biudžeto suvestinė + warnings + deadlines) + F16 (Biudžeto kopijavimas iš praėjusių metų). 2 subagent'ai (Backend + Frontend) + nepriklausomas audit. 6/6 PASS.
+
+**Pagrindinis**:
+
+- **`dashboard.fvmSummary` endpoint'as**: agregatinis view — budgetTotals (planuota/faktine/likutis/percentUsed/isWarning/isOver), topWarnings (top 5 BudgetWarningItem), upcomingDeadlines (project_end + allocation_year_end next 30d), activeProjectsCount, completedProjectsCount, totalSourcesCount, totalAllocationsCount. DU filter per ADR-005.
+- **`fundingSources.copyFromYear` endpoint'as**: AM admin only. Validation: target year tuščias (409 Conflict jei jau yra), source has funding_sources. Logic: copy funding_sources + budget_allocations transakcijoje. Grąžina: `{ copiedSources, copiedAllocations, targetYear }`.
+- **HomePage refactor**: pridėta FVM summary section žemiau esamų stats (4 metric cards + top warnings + upcoming deadlines) + year picker.
+- **`CopyBudgetDialog`** komponentas: AM admin only, FinansavimoSaltiniaiPage'e mygtukas „Kopijuoti iš praėjusių metų".
+
+**Edge cases**:
+- Upcoming deadlines: query projects su `pabaigos_data` tarp `now()` ir `now()+30d`, status NE 'baigta' arba 'uzdaryta' — kad nebūtų uždarytų projektų triukšmo.
+- Copy validation: target year > sourceYear arba target < source (gali kopijuoti į praeitį dėl test'ų, bet warn'inti UI'e).
+- Org user gauna read view be DU info (per ADR-005 filter'ius).
+
+**Deliverables**:
+- 2 commits → `dev`, 1 audit, CI green
+- Backend: dashboard-fvm-summary + funding-sources-copy testai (bent 9 nauji)
+- Frontend: HomePage-fvm + CopyBudgetDialog testai (bent 4 nauji)
+- Naujasis endpoint: `GET /dashboard/fvm-summary?year=...`, `POST /funding-sources/copy-year`
+- Shared types: `FvmSummaryResponse`, `CopyBudgetResponse`, `UpcomingDeadline`
+
+Toliau — Iter 16 (FVM-8): E2E + staging UAT + production tag.
+
+## 2026-05-22 — Iter 14 (FVM-6) baigta — Ataskaitos + Excel/PDF eksportas
+
+Šeštoji FVM iteracija. §4.5 docx + F12-F14 — 3 ataskaitų šablonai (biudžeto vykdymas, spec.programos, DU paskirstymas) + Excel (.xlsx) + PDF eksportas. 3 subagent'ai (Backend + Frontend + Security Reviewer compact) + nepriklausomas audit. 8/8 PASS.
+
+**Pagrindinis**:
+
+- **`reports.service.ts`** su 3 endpoint'ais:
+  - **`budgetExecution` (F12)**: planuota / faktinė / likutis per šaltinį + kategoriją. JSON struktura su `bySource[].byCategory[]` agregacija. Tenant scope per AM admin filter.
+  - **`specProgramExecution` (F13)**: prašyta → patvirtinta → panaudota per spec.programa request'ą. Project link'as (jei sukurtas). panaudota = SUM(expenses.suma) per related project.
+  - **`payrollDistribution` (F14)**: DU paskirstymas — per profile × per source per laikotarpį. **`requireDuAccess` gate'as PIRMAS**.
+- **Excel generator** (`apps/api/src/utils/reports/xlsx.ts`): naudoja `exceljs`. 3 funkcijos — `generateBudgetExecutionXlsx`, `generateSpecProgramXlsx`, `generatePayrollDistributionXlsx`. LT lokalizacija column headers + decimal' € formatas.
+- **PDF generator** (`apps/api/src/utils/reports/pdf.ts`): naudoja `pdfkit`. Unicode font load'inimas LT diakritiniams (Roboto/DejaVu Sans iš `apps/api/assets/fonts/`).
+- **Schema pakeitimas**: pridėtas `expenses.payroll_profile_id` FK NULL kolona (per `20260527100000_add_payroll_profile_to_expenses.ts`) — kad payroll distribution ataskaita galėtų agreguoti expenses per profile (alternatyva — parse aprasymas, bet trapus). Backfill: per kiekvieną DU expense parse aprasymas + match profile per tenant + vardas. `payroll.service.ts:computeMonth` updated kad set'intų šitą lauką naujiems expenses.
+- **DU filter (ADR-005)**:
+  - `budgetExecution`: jei `!canViewPayroll(me)`, exclude'inti DU expenses iš `faktine` SUM + exclude'inti DU kategorijos eilutes iš `byCategory`
+  - `payrollDistribution`: `requireDuAccess` gate'as — specialist 403; org_admin tik savo tenant'e; cross-tenant 403
+- **Binary response per Moleculer.web**: `ctx.meta.$responseType` + `ctx.meta.$responseHeaders` su Content-Disposition. Failų pavadinimai: `biudzeto-vykdymas-{year}-{generatedAt}.xlsx`, `spec-programos-{year}-{generatedAt}.pdf`, etc.
+- **Frontend `/ataskaitos`** (AtaskaitosPage) su 3 sekcijomis + filter UI (metai / laikotarpis) + Excel + PDF download buttons. Blob download per browser native (temporary `<a>` su `URL.createObjectURL`). DU sekcija matoma tik canViewPayroll'iui (defense-in-depth).
+- **Sidebar punktas „Ataskaitos"** (FileText ikona).
+
+**Deliverables**:
+- 3 commits → `dev`, 1 audit, CI green
+- Backend: ~13+ nauji testai (reports-budget-execution + reports-spec-program + reports-payroll-distribution + migration)
+- Frontend: ~5+ nauji testai (AtaskaitosPage + 3 komponentai)
+- Naujasis servisas: reports.service.ts
+- Naujieji utils: `apps/api/src/utils/reports/xlsx.ts`, `pdf.ts`
+- Naujieji deps: `exceljs ^4.4.0`, `pdfkit ^0.18.0`, `@types/pdfkit ^0.17.6`
+- Naujasis assets katalogas: `apps/api/assets/fonts/` (Roboto / DejaVu Sans LT diakritiniams)
+- API endpoint'ai: `GET /reports/budget-execution`, `GET /reports/spec-program-execution`, `GET /reports/payroll-distribution` (visi su `?format=json|xlsx|pdf`)
+- Migration: `20260527100000_add_payroll_profile_to_expenses.ts`
+- Shared types: `packages/shared/src/reports.ts`
+
+Toliau — Iter 15 (FVM-7): FVM dashboard + multi-year planning (F15, F16).
+
 ## 2026-05-22 — Iter 13 (FVM-5) baigta — Payroll (DU) su 2 security fix'ais
 
 Penktoji FVM iteracija — **saugumo prioritetinė**. §4.4, §6.5, §6.6 docx + ADR-003 (tik bruto + priedai, be Sodra/GPM). 4 subagent'ai (Test Infra, DBA, Backend, Frontend) + 3 paralel Security Reviewer pass + nepriklausomas audit.

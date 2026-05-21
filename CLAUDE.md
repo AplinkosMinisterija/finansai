@@ -6,12 +6,13 @@
 
 Kai gauni pirmą žinutę šiame repo, **prieš atsakymą padaryk šitai**:
 
-1. Perskaityk **visus** `docs/` failus eilės tvarka (01 → 06). Tai pilnas dabartinis kontekstas + implementacijos planas. `docs/06-implementacijos-planas.md` parodo, kur iteracijoje esam ir kas dar laukia.
+1. Perskaityk **visus** `docs/` failus eilės tvarka (01 → 06). Tai pilnas dabartinis kontekstas + implementacijos planas. `docs/06-implementacijos-planas.md` parodo visas iteracijas (Iter 0-16) ir jų statusą.
 2. Peržiūrėk `docs/diskusijos.md` — naujausi sprendimai, ką užbaigėm, kur sustojom. Naujausi įrašai viršuje.
-3. Jei nori pamatyti, kaip live atrodo dabartinė versija — `gh run list --repo AplinkosMinisterija/finansai` parodys paskutinį deploy. URL'ai: `https://dev-finansai.biip.lt`, `staging-finansai.biip.lt`, `finansai.biip.lt`.
-4. Patikrink ar yra `superpowers` skill — naudosi `superpowers:brainstorming` naujų featureų aptarimui ir `superpowers:writing-plans` plano įrašymui prieš implementaciją.
-5. **Lietuvių kalba** — visas turinys lietuviškai. Atsakymai irgi lietuviškai.
-6. Trumpa santrauka vartotojui: *„Esam Iter N. Šiandien užbaigta X, laukia Y. Kuriuo norėtum pradėti?"*
+3. Jei kontekstas susijęs su FVM (finansų valdymo modulis) — perskaityk `docs/fvm/README.md` + `docs/fvm/00-master-plan.md` + `docs/fvm/03-decisions-log.md` (ADR-001..005). `docs/fvm/PROGRESS.md` parodo galutinę FVM statistiką.
+4. Jei nori pamatyti, kaip live atrodo dabartinė versija — `gh run list --repo AplinkosMinisterija/finansai` parodys paskutinį deploy. URL'ai: `https://dev-finansai.biip.lt`, `staging-finansai.biip.lt`, `finansai.biip.lt`.
+5. Patikrink ar yra `superpowers` skill — naudosi `superpowers:brainstorming` naujų featureų aptarimui ir `superpowers:writing-plans` plano įrašymui prieš implementaciją.
+6. **Lietuvių kalba** — visas turinys lietuviškai. Atsakymai irgi lietuviškai.
+7. Trumpa santrauka vartotojui: *„Esam Iter N. Šiandien užbaigta X, laukia Y. Kuriuo norėtum pradėti?"*
 
 ## Workflow taisyklės
 
@@ -80,13 +81,48 @@ Bendras ciklas push → URL atnaujintas: ~2-3 min.
 - Ne atidaryk PR'ų (vienas žmogus = nereikia review)
 - Ne taginuok be aprovalo
 
+## FVM (Finansų valdymo modulis)
+
+Po MVP (Iter 0-8) — pridėtas pilnas finansų valdymo sluoksnis pagal Giedrės techninį užsakymą (`docs/fvm/spec/FVM-v0.1.md`). Iter 9-16 įgyvendino:
+
+- **3 lygių hierarchija**: `funding_sources` (1 lygis) → `budget_allocations` (2 lygis) → `projects` (3 lygis) → `expenses` (faktas)
+- **Multi-source split**: viena išlaida gali būti padalinta tarp kelių šaltinių per `expenses.saltinio_dalis jsonb` lauką
+- **Spec.programos integracija**: AM patvirtinus spec.programa prašymą — vienu mygtuku sukuriamas FVM projektas
+- **DU sluoksnis** (payroll): `payroll_profiles` + `payroll_distributions` + automatinis mėnesio compute → DU expenses
+- **Budget remainder + warnings**: realus likutis per SUM(expenses), 80% threshold flagai
+- **Ataskaitos**: 3 šablonai (biudžeto vykdymas, spec.programos, DU paskirstymas) + Excel (.xlsx) + PDF eksportas
+- **Multi-year planning**: F16 — kopijavimas iš praėjusių metų
+
+FVM dokumentai — `docs/fvm/`:
+- `README.md`, `00-master-plan.md`, `01-architecture.md`, `02-migration-strategy.md`
+- ADR-001..005 (`03-decisions-log.md`)
+- Per-iteracijos brief'ai: `iter-09-foundation.md` → `iter-16-deploy.md`
+- `PROGRESS.md` — live eiga
+
+## Permission modelis (ADR-005)
+
+DU duomenys saugomi per **4-sluoksnis defense**:
+
+1. **DB flag**: `projects.is_du_system boolean` — stabilus identifikatorius (ne pavadinimo match)
+2. **Permission helper'iai**:
+   - `canViewPayroll(user)` (FE+BE): true tik AM admin + org_admin. Specialist visada `false`
+   - `requireDuAccess(meta, tenantId?)` (BE): throw 403 jei `!canViewPayroll` arba cross-tenant
+   - `requireAmDuAccess(meta)` (BE): throw 403 jei ne AM admin (`computeMonth`-only)
+3. **SQL filter'iai per VISUS data endpoint'us**: expenses.list/get, projects.list/get/summary, budgetAllocations.list/summary, fundingSources.list, expenses.budgetSummary, dashboard.fvmSummary, reports.*
+4. **Frontend defense-in-depth**: Sidebar gating + Route guard + Dialog re-check + post-filter
+
+**Svarbu**: kiekvienas naujas endpoint'as, kuris grąžina expenses ar projects, **privalo** turėti DU filter'ą. 404 ne 403 — DU expense/projekto ID egzistavimas neatskleidžiamas. Detalė — `docs/fvm/03-decisions-log.md` (ADR-005).
+
 ## Greitas referencijos taškas
 
 | Klausimas | Atsakymas |
 |---|---|
-| Kam šis įrankis? | Finansavimo prašymų teikimui ir tvirtinimui. AM = tvirtintojas; pavaldžios institucijos = teikėjai |
-| Stack | Moleculer.js + TS + Knex + Objection + PostgreSQL + Redis (backend); React 18 + Vite + Tailwind + shadcn/ui + React Query (frontend); VitePress (docs) |
+| Kam šis įrankis? | Finansavimo prašymų teikimui ir tvirtinimui + pilnas FVM (finansų valdymo modulis): šaltiniai, biudžetas, projektai, išlaidos, DU, ataskaitos |
+| Stack | Moleculer.js + TS + Knex + Objection + PostgreSQL + Redis (backend); React 18 + Vite + Tailwind + shadcn/ui + React Query + recharts (frontend); exceljs + pdfkit (ataskaitos); VitePress (docs); Playwright (E2E) |
 | MVP fokusas | Vartotojų valdymas (tenant→user) + prašymo wizard'as + tvirtinimo ping-pong |
+| FVM fokusas | 3 lygių finansų hierarchija (šaltinis → biudžetas → projektas → išlaidos), DU sluoksnis, ataskaitos su xlsx/pdf eksportu, FVM dashboard, multi-year planning |
 | Auth (MVP) | session-based, `demo`/demo. Vėliau biip-auth-api SSO |
-| Dabartinis statusas | Iter 0-5 baigti — MVP ready. Žiūrėk `docs/06-implementacijos-planas.md` |
+| Dabartinis statusas | Iter 0-16 baigti — MVP + FVM ready. Žiūrėk `docs/06-implementacijos-planas.md` ir `docs/fvm/PROGRESS.md` |
+| Permission modelis | ADR-005: `canViewPayroll` + `is_du_system` + 4-sluoksnis defense. Specialistas DU duomenų NEMATO |
 | Local dev | `yarn install && yarn dev:db && yarn dev` (api 3000, web 5173, docs 5174) |
+| FVM puslapiai | `/finansavimo-saltiniai`, `/biudzetas`, `/projektai`, `/projektai/:id`, `/du`, `/ataskaitos` |
