@@ -15,6 +15,7 @@
 | 11 (FVM-3) | Projects + auto-create | 🟢 done | `iter-11-projects.md` | 8/8 PASS | ✅ 2026-05-21 |
 | 12 (FVM-4) | Expenses + budget remainder | 🟢 done | `iter-12-expenses.md` | 8/8 PASS | ✅ 2026-05-21 |
 | 13 (FVM-5) | Payroll (DU) — su 2 security fix'ais | 🟢 done | `iter-13-payroll.md` | 8/8 PASS + SECURE | ✅ 2026-05-22 |
+| 14 (FVM-6) | Reports + Excel/PDF Export | 🟢 done | `iter-14-reports.md` | 8/8 PASS | ✅ 2026-05-22 |
 | 11 (FVM-3) | Projects + auto-create | ⏸️ | — | — | — |
 | 12 (FVM-4) | Expenses + budget remainder | ⏸️ | — | — | — |
 | 13 (FVM-5) | Payroll (DU) | ⏸️ | — | — | — |
