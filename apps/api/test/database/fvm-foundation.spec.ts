@@ -147,12 +147,16 @@ describe('FVM foundation migration', () => {
       // Rollback FVM migration only (nepaliekam senųjų po setup'o).
       // currentVersion turi būti FVM — global-setup paleido latest.
       //
-      // PASTABA (Iter 11): nuo Iter 11 yra `projects` lentelė su FK į
-      // `budget_allocations_v2`. Norint rollback'inti Iter 9 (foundation),
-      // pirma reikia rollback'inti vėlesnes migracijas. Patikimiausias kelias —
-      // eksplicitiškai drop'inti `projects` lentelę jei ji egzistuoja
-      // (Iter 11 down'as) ir `fvm_project_id` FK iš requests, paskui
-      // rollback'inti Iter 10 ir Iter 9 per `migrate.down`.
+      // PASTABA (Iter 11+12): nuo Iter 12 yra `expenses` lentelė su FK į
+      // `projects` ir `budget_allocations_v2`. Nuo Iter 11 yra `projects`
+      // lentelė su FK į `budget_allocations_v2`. Norint rollback'inti Iter 9
+      // (foundation), pirma reikia rollback'inti vėlesnes migracijas —
+      // pradėdami nuo naujausios (expenses), kitaip FK constraint'ai užkirs
+      // kelią DROP TABLE komandoms.
+      const hasExpenses = await knex.schema.hasTable('expenses');
+      if (hasExpenses) {
+        await knex.migrate.down({ name: '20260525100000_create_expenses.ts' });
+      }
       const hasProjects = await knex.schema.hasTable('projects');
       if (hasProjects) {
         await knex.migrate.down({ name: '20260524100000_create_projects.ts' });
@@ -305,10 +309,15 @@ describe('FVM foundation migration', () => {
       expect(hasBav2).toBe(true);
 
       // Roll'inam migraciją down.
-      // PASTABA (Iter 11): nuo Iter 11 yra `projects` lentelė su FK į
+      // PASTABA (Iter 11+12): nuo Iter 12 yra `expenses` su FK į `projects`
+      // ir `budget_allocations_v2`. Nuo Iter 11 yra `projects` su FK į
       // `budget_allocations_v2`. Pirma rollback'inam vėlesnes migracijas
-      // (Iter 10, Iter 11), tada pačią Iter 9 (foundation). Žr. analogišką
-      // paaiškinimą Test 1.
+      // (nuo naujausios atgal), tada pačią Iter 9 (foundation). Žr.
+      // analogišką paaiškinimą Test 1.
+      const hasExpensesHere = await knex.schema.hasTable('expenses');
+      if (hasExpensesHere) {
+        await knex.migrate.down({ name: '20260525100000_create_expenses.ts' });
+      }
       const hasProjectsHere = await knex.schema.hasTable('projects');
       if (hasProjectsHere) {
         await knex.migrate.down({ name: '20260524100000_create_projects.ts' });

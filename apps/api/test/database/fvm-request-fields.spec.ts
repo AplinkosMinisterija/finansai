@@ -276,12 +276,18 @@ describe('FVM request fields migration (Iter 10)', () => {
 
       // Roll'inam šią migraciją down.
       //
-      // PASTABA (Iter 11): Iter 11 sukūrė FK `requests.fvm_project_id ->
+      // PASTABA (Iter 11+12): Iter 12 sukūrė `expenses` su FK į `projects`.
+      // Iter 11 sukūrė `projects` su FK `requests.fvm_project_id ->
       // projects.id`. Drop'inant Iter 10 (kuri sukūrė `fvm_project_id`
-      // koloną), kartu drop'inasi ir Iter 11 sukurtas FK. Tai būtų pažeidė
-      // Iter 11 schema konsistencija. Todėl pirma rollback'inam Iter 11
-      // (`projects` + FK), tik paskui Iter 10. Po `afterAll` `migrate.latest()`
-      // abi atstatomos.
+      // koloną), reikia visų vėlesnių migracijų rollback'o. Tvarka — nuo
+      // naujausios atgal: Iter 12 (expenses) → Iter 11 (projects) → Iter 10.
+      // Po `afterAll` `migrate.latest()` visos atstatomos.
+      const hasExpenses = await knex.schema.hasTable('expenses');
+      if (hasExpenses) {
+        await knex.migrate.down({
+          name: '20260525100000_create_expenses.ts',
+        });
+      }
       const hasProjects = await knex.schema.hasTable('projects');
       if (hasProjects) {
         await knex.migrate.down({

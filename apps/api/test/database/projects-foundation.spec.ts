@@ -563,6 +563,17 @@ describe('FVM projects migration (Iter 11)', () => {
       const hasProjects = await knex.schema.hasTable('projects');
       expect(hasProjects).toBe(true);
 
+      // PASTABA (Iter 12): nuo Iter 12 yra `expenses` lentelė su FK į
+      // `projects(id)` ON DELETE RESTRICT. Norint rollback'inti Iter 11
+      // (projects), pirma reikia rollback'inti Iter 12 (expenses) — kitaip
+      // `DROP TABLE projects` fail'ins dėl FK constraint'o.
+      const hasExpenses = await knex.schema.hasTable('expenses');
+      if (hasExpenses) {
+        await knex.migrate.down({
+          name: '20260525100000_create_expenses.ts',
+        });
+      }
+
       // Roll'inam šią migraciją down.
       await knex.migrate.down({ name: PROJECTS_MIGRATION });
     });
