@@ -673,6 +673,9 @@ export type {
   PayrollDistributionUpdateDTO,
   PayrollDistributionListQuery,
   ComputeMonthResponse,
+  UpcomingDeadline,
+  FvmSummaryResponse,
+  CopyBudgetResponse,
 } from './fvm';
 
 // ---------- Reports (Iter 14, FVM-6) ----------

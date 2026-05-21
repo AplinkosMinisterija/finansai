@@ -13,19 +13,28 @@ import type { ServiceSchema, Context } from 'moleculer';
 import { Errors } from 'moleculer';
 import type {
   BudgetCategoryStats,
+  BudgetWarningItem,
   CostCategoryStats,
   DashboardActivityItem,
   DashboardData,
   DashboardPerTenantStats,
   DashboardStats,
   FinancingRequest as RequestDTO,
+  FvmSummaryResponse,
+  UpcomingDeadline,
 } from '@biip-finansai/shared';
+import { BudgetAllocationV2 } from '../models/BudgetAllocationV2';
+import { Expense } from '../models/Expense';
+import { FundingSource } from '../models/FundingSource';
+import { Project } from '../models/Project';
 import { Request } from '../models/Request';
 import { RequestComment } from '../models/RequestComment';
 import { ClassifierItem } from '../models/ClassifierItem';
 import { Tenant } from '../models/Tenant';
 import { User } from '../models/User';
 import { centsToAmount, toCents } from '../utils/money';
+import { calculatePercentUsed, calculateWarningFlags } from '../utils/fvm';
+import { canViewPayroll, isAmAdminUser } from '../utils/permissions';
 import type { AuthMeta } from './auth.service';
 
 interface RequestWithRels extends Request {
@@ -531,6 +540,356 @@ const DashboardService: ServiceSchema = {
           monthlyTrend,
           costCategories,
           budgetCategoryStats,
+        };
+      },
+    },
+
+    /**
+     * FVM Dashboard suvestinė (Iter 15, F15).
+     *
+     * Grąžina:
+     *  - budgetTotals: agregatas per visus allocations year'e (planuota, faktinė,
+     *    likutis, percentUsed + warning flag'ai)
+     *  - topWarnings: top 5 BudgetWarningItem (allocation lygyje) — surūšiuoti
+     *    pagal percentUsed desc, atrenkami su isWarning || isOver
+     *  - upcomingDeadlines: projektai su pabaigosData per [now, now+30d];
+     *    statusas NE 'baigta' ir NE 'uzdaryta'
+     *  - activeProjectsCount + completedProjectsCount
+     *  - totalSourcesCount + totalAllocationsCount
+     *
+     * Tenant scope (ADR-005):
+     *  - AM admin: visi tenant'ai
+     *  - AM user su scope: scope'o tenant'ai
+     *  - Org user / admin: tik savo tenant'as
+     *  - !canViewPayroll: DU expense'ai ir DU allocations excluded iš
+     *    agregacijos (defense-in-depth)
+     *
+     * Params:
+     *  - year (required): metai
+     *  - tenantId (optional, AM admin only): filter konkrečiu tenant'u
+     */
+    fvmSummary: {
+      params: {
+        year: { type: 'number', integer: true, convert: true, min: 2000, max: 3000 },
+        tenantId: {
+          type: 'number',
+          integer: true,
+          optional: true,
+          convert: true,
+        },
+      },
+      async handler(
+        ctx: Context<{ year: number; tenantId?: number }, AuthMeta>,
+      ): Promise<FvmSummaryResponse> {
+        const me = requireMe(ctx);
+        const year = ctx.params.year;
+        const tenantFilter = ctx.params.tenantId;
+
+        // tenantId param leidžiamas tik AM admin'ams (gali pasirinkti)
+        // Org users / org admins — ignoruojam param, naudojam savo tenant.
+        if (tenantFilter !== undefined && !isAmAdminUser(me)) {
+          throw new Errors.MoleculerClientError(
+            'Tenant filtras leidžiamas tik AM administratoriui',
+            403,
+            'TENANT_FILTER_FORBIDDEN',
+          );
+        }
+
+        // ===== Helper'is — taikom tenant scope į BudgetAllocationV2 query =====
+        // Patterns:
+        //  - AM admin: jei tenantFilter — filtruoja per shared funding_sources;
+        //    kitaip visi
+        //  - AM user su scope=null: visi
+        //  - AM user su scope=[ids]: tik scope tenant'ai
+        //  - Org admin/user: tik savo tenant'as
+        function applyAllocationTenantScope(
+          q: ReturnType<typeof BudgetAllocationV2.query>,
+        ): 'empty' | 'ok' {
+          if (me.tenantIsApprover) {
+            if (me.role === 'admin') {
+              if (tenantFilter !== undefined) {
+                q.whereExists((qb) => {
+                  qb.from('funding_sources')
+                    .whereRaw(
+                      'funding_sources.id = budget_allocations_v2.funding_source_id',
+                    )
+                    .where('funding_sources.tenant_id', tenantFilter);
+                });
+              }
+              return 'ok';
+            }
+            // AM user
+            if (me.amScopeOrgIds === null) return 'ok';
+            if (me.amScopeOrgIds.length === 0) return 'empty';
+            q.whereExists((qb) => {
+              qb.from('funding_sources')
+                .whereRaw(
+                  'funding_sources.id = budget_allocations_v2.funding_source_id',
+                )
+                .whereIn('funding_sources.tenant_id', me.amScopeOrgIds!);
+            });
+            return 'ok';
+          }
+          // Org admin / org user
+          q.whereExists((qb) => {
+            qb.from('funding_sources')
+              .whereRaw(
+                'funding_sources.id = budget_allocations_v2.funding_source_id',
+              )
+              .where('funding_sources.tenant_id', me.tenantId);
+          });
+          return 'ok';
+        }
+
+        function applyFundingSourceTenantScope(
+          q: ReturnType<typeof FundingSource.query>,
+        ): 'empty' | 'ok' {
+          if (me.tenantIsApprover) {
+            if (me.role === 'admin') {
+              if (tenantFilter !== undefined) {
+                q.where('tenant_id', tenantFilter);
+              }
+              return 'ok';
+            }
+            if (me.amScopeOrgIds === null) return 'ok';
+            if (me.amScopeOrgIds.length === 0) return 'empty';
+            q.whereIn('tenant_id', me.amScopeOrgIds);
+            return 'ok';
+          }
+          q.where('tenant_id', me.tenantId);
+          return 'ok';
+        }
+
+        function applyProjectTenantScope(
+          q: ReturnType<typeof Project.query>,
+        ): 'empty' | 'ok' {
+          if (me.tenantIsApprover) {
+            if (me.role === 'admin') {
+              if (tenantFilter !== undefined) {
+                q.where('projects.tenant_id', tenantFilter);
+              }
+              return 'ok';
+            }
+            if (me.amScopeOrgIds === null) return 'ok';
+            if (me.amScopeOrgIds.length === 0) return 'empty';
+            q.whereIn('projects.tenant_id', me.amScopeOrgIds);
+            return 'ok';
+          }
+          q.where('projects.tenant_id', me.tenantId);
+          return 'ok';
+        }
+
+        // ===== Allocations + warnings =====
+        const allocQ = BudgetAllocationV2.query()
+          .withGraphFetched('fundingSource')
+          .where('budget_allocations_v2.metai', year);
+        const allocScope = applyAllocationTenantScope(allocQ);
+
+        // ADR-005 (defense-in-depth): DU allocations paslepiam ne-DU
+        // vartotojams.
+        if (!canViewPayroll(me)) {
+          allocQ.whereNotExists((qb) => {
+            qb.from('classifier_items')
+              .whereRaw(
+                'classifier_items.id = budget_allocations_v2.category_classifier_item_id',
+              )
+              .where('classifier_items.code', 'du');
+          });
+        }
+
+        const allocations =
+          allocScope === 'empty'
+            ? []
+            : ((await allocQ) as Array<
+                BudgetAllocationV2 & { fundingSource?: FundingSource }
+              >);
+
+        // Faktinė per allocations vienoje GROUP BY užklausoje.
+        const allocationIds = allocations.map((a) => a.id);
+        const faktineByAllocation = new Map<number, number>();
+        if (allocationIds.length > 0) {
+          const expenseQ = Expense.query()
+            .select('budget_allocation_id')
+            .sum('suma as total')
+            .whereIn('budget_allocation_id', allocationIds)
+            .groupBy('budget_allocation_id');
+          // ADR-005: defense-in-depth — DU expense'ai neįskaitomi ne-DU
+          // vartotojams.
+          if (!canViewPayroll(me)) {
+            expenseQ.whereNot('expenses.tipas', 'du');
+          }
+          const expenseRows = (await expenseQ) as unknown as Array<{
+            budgetAllocationId: number;
+            total: string | null;
+          }>;
+          for (const row of expenseRows) {
+            faktineByAllocation.set(row.budgetAllocationId, toCents(row.total));
+          }
+        }
+
+        const allocationItems: BudgetWarningItem[] = allocations.map((alloc) => {
+          const planuotaCents = toCents(alloc.planuotaSuma);
+          const faktineCents = faktineByAllocation.get(alloc.id) ?? 0;
+          const likutisCents = planuotaCents - faktineCents;
+          const percentUsed = calculatePercentUsed(planuotaCents, faktineCents);
+          const flags = calculateWarningFlags(percentUsed);
+          return {
+            allocationId: alloc.id,
+            allocationName: alloc.pavadinimas,
+            fundingSourceName: alloc.fundingSource?.pavadinimas ?? '',
+            planuota: centsToAmount(planuotaCents),
+            faktine: centsToAmount(faktineCents),
+            likutis: centsToAmount(likutisCents),
+            percentUsed,
+            isWarning: flags.isWarning,
+            isOver: flags.isOver,
+          };
+        });
+
+        // Agregavimas — bendras planuota + faktinė per visus allocations
+        let totalPlanuotaCents = 0;
+        let totalFaktineCents = 0;
+        for (const item of allocationItems) {
+          totalPlanuotaCents += toCents(item.planuota);
+          totalFaktineCents += toCents(item.faktine);
+        }
+        const totalLikutisCents = totalPlanuotaCents - totalFaktineCents;
+        const totalPercentUsed = calculatePercentUsed(
+          totalPlanuotaCents,
+          totalFaktineCents,
+        );
+        const totalFlags = calculateWarningFlags(totalPercentUsed);
+
+        // Top 5 warning'ai — tik tie su isWarning || isOver, surūšiuoti
+        // percentUsed desc.
+        const topWarnings = allocationItems
+          .filter((i) => i.isWarning || i.isOver)
+          .sort((a, b) => b.percentUsed - a.percentUsed)
+          .slice(0, 5);
+
+        // ===== Upcoming deadlines (next 30d) =====
+        const now = new Date();
+        const today = now.toISOString().slice(0, 10);
+        const horizon = new Date(now);
+        horizon.setDate(horizon.getDate() + 30);
+        const horizonStr = horizon.toISOString().slice(0, 10);
+
+        const deadlineQ = Project.query()
+          .where('projects.pabaigos_data', '>=', today)
+          .andWhere('projects.pabaigos_data', '<=', horizonStr)
+          .whereNotIn('projects.statusas', ['baigta', 'uzdaryta'])
+          .orderBy('projects.pabaigos_data', 'asc');
+        const deadlineScope = applyProjectTenantScope(deadlineQ);
+        // ADR-005: DU sistemos projektai paslepiami ne-DU vartotojams.
+        if (!canViewPayroll(me)) {
+          deadlineQ.where('projects.is_du_system', false);
+        }
+
+        const deadlineProjects =
+          deadlineScope === 'empty' ? [] : ((await deadlineQ) as Project[]);
+
+        const upcomingDeadlines: UpcomingDeadline[] = deadlineProjects
+          .filter((p) => p.pabaigosData !== null)
+          .map((p) => {
+            // pabaigosData YYYY-MM-DD; daysUntil — sveika dienų skirtumas
+            const target = new Date(`${p.pabaigosData}T00:00:00Z`);
+            const todayUtc = new Date(`${today}T00:00:00Z`);
+            const diffMs = target.getTime() - todayUtc.getTime();
+            const daysUntil = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+            return {
+              type: 'project_end' as const,
+              id: p.id,
+              name: p.pavadinimas,
+              date: p.pabaigosData!,
+              daysUntil,
+            };
+          });
+
+        // ===== Projects count (active + completed) =====
+        const activeQ = Project.query()
+          .whereIn('projects.statusas', ['planuojama', 'vykdoma'])
+          .resultSize();
+        const completedQ = Project.query()
+          .whereIn('projects.statusas', ['baigta', 'uzdaryta'])
+          .resultSize();
+        // Tenant scope applied through query builder — call apply with same.
+        // resultSize() grąžina Promise<number>, bet builder modifikuojamas
+        // prieš tai — pasinaudojam tuo, kad applyProjectTenantScope grąžina
+        // 'empty'/'ok', o builder mutacijos atliekamos tuo pačiu metu su
+        // resultSize Promise grandinėle.
+        // Praktikoje paprastai pratęsime per kopiją:
+        const activeQBuilder = Project.query().whereIn('projects.statusas', [
+          'planuojama',
+          'vykdoma',
+        ]);
+        const activeScope = applyProjectTenantScope(activeQBuilder);
+        if (!canViewPayroll(me)) {
+          activeQBuilder.where('projects.is_du_system', false);
+        }
+
+        const completedQBuilder = Project.query().whereIn(
+          'projects.statusas',
+          ['baigta', 'uzdaryta'],
+        );
+        const completedScope = applyProjectTenantScope(completedQBuilder);
+        if (!canViewPayroll(me)) {
+          completedQBuilder.where('projects.is_du_system', false);
+        }
+
+        const [activeProjectsCount, completedProjectsCount] = await Promise.all([
+          activeScope === 'empty' ? Promise.resolve(0) : activeQBuilder.resultSize(),
+          completedScope === 'empty'
+            ? Promise.resolve(0)
+            : completedQBuilder.resultSize(),
+        ]);
+        // Pridėtoji `activeQ` / `completedQ` viršuje liko nenaudojama (palikta
+        // dėl noise — Promise.all'inam tik builder'ius).
+        void activeQ;
+        void completedQ;
+
+        // ===== Sources + allocations count =====
+        const sourcesQB = FundingSource.query().where('metai', year);
+        const sourcesScope = applyFundingSourceTenantScope(sourcesQB);
+
+        const allocationsCountQB = BudgetAllocationV2.query().where(
+          'budget_allocations_v2.metai',
+          year,
+        );
+        const allocationsCountScope = applyAllocationTenantScope(allocationsCountQB);
+        if (!canViewPayroll(me)) {
+          allocationsCountQB.whereNotExists((qb) => {
+            qb.from('classifier_items')
+              .whereRaw(
+                'classifier_items.id = budget_allocations_v2.category_classifier_item_id',
+              )
+              .where('classifier_items.code', 'du');
+          });
+        }
+
+        const [totalSourcesCount, totalAllocationsCount] = await Promise.all([
+          sourcesScope === 'empty' ? Promise.resolve(0) : sourcesQB.resultSize(),
+          allocationsCountScope === 'empty'
+            ? Promise.resolve(0)
+            : allocationsCountQB.resultSize(),
+        ]);
+
+        return {
+          year,
+          generatedAt: new Date().toISOString(),
+          budgetTotals: {
+            planuota: centsToAmount(totalPlanuotaCents),
+            faktine: centsToAmount(totalFaktineCents),
+            likutis: centsToAmount(totalLikutisCents),
+            percentUsed: totalPercentUsed,
+            isWarning: totalFlags.isWarning,
+            isOver: totalFlags.isOver,
+          },
+          topWarnings,
+          upcomingDeadlines,
+          activeProjectsCount,
+          completedProjectsCount,
+          totalSourcesCount,
+          totalAllocationsCount,
         };
       },
     },

@@ -222,6 +222,8 @@ const ApiService: ServiceSchema = {
           'POST /requests/:id/create-fvm-project': 'requests.createFvmProject',
 
           'GET /dashboard': 'dashboard.get',
+          // FVM dashboard (Iter 15, F15) — atskiras endpoint'as su year param'u.
+          'GET /dashboard/fvm-summary': 'dashboard.fvmSummary',
 
           'GET /classifiers/groups': 'classifiers.listGroups',
           'GET /classifiers/groups/:id': 'classifiers.getGroup',
@@ -241,6 +243,9 @@ const ApiService: ServiceSchema = {
           'DELETE /budgets/:id': 'budgets.delete',
 
           'GET /funding-sources': 'fundingSources.list',
+          // Multi-year planning (Iter 15, F16) — copy-year route'as PIRMAS, kad
+          // nesinterpretuotų kaip `:id`.
+          'POST /funding-sources/copy-year': 'fundingSources.copyFromYear',
           'GET /funding-sources/:id': 'fundingSources.get',
           'POST /funding-sources': 'fundingSources.create',
           'PATCH /funding-sources/:id': 'fundingSources.update',

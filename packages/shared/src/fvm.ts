@@ -577,3 +577,91 @@ export type ComputeMonthResponse = {
   /** Suvestinė bendra suma. Decimal string formatas. */
   totalAmount: string;
 };
+
+// ---------- FVM Dashboard (Iter 15, F15) ----------
+
+/**
+ * Artėjantis terminas — projekto pabaigos arba allocation metų pabaigos data.
+ * Naudojama `dashboard.fvmSummary.upcomingDeadlines` sąraše.
+ *
+ * - `type='project_end'` — projekto `pabaigosData` (planuojama arba vykdoma)
+ * - `type='allocation_year_end'` — kalendoriniai metų-pabaigos termini'ai
+ *   (rezervuota plėtimui; iteracijoje 15 grąžinami tik projektų terminai)
+ *
+ * `daysUntil` skaičiuojamas nuo `now()` iki nurodytos datos (whole days,
+ * floor). Neigiamos reikšmės reiškia, kad terminas jau praleistas, bet
+ * default'inė query grąžina TIK ateities terminus (0–30 d).
+ */
+export type UpcomingDeadline = {
+  type: 'project_end' | 'allocation_year_end';
+  /** Entity ID (projekto ID arba allocation ID). */
+  id: number;
+  name: string;
+  /** ISO 8601 data (YYYY-MM-DD). */
+  date: string;
+  /** Dienų skaičius nuo dabar iki datos (whole days). */
+  daysUntil: number;
+};
+
+/**
+ * FVM dashboard suvestinė nurodytiems metams. Apima:
+ *  - bendrus biudžeto totals (planuota / faktinė / likutis / percentUsed)
+ *  - top 5 warning'us (vykdomi allocations su isWarning arba isOver)
+ *  - artėjančius terminus (30 d horizontas)
+ *  - projektų skaičius (aktyvūs + baigti)
+ *  - šaltinių ir paskirstymų skaičius
+ *
+ * Tenant scope per ADR-005 (canViewPayroll filter):
+ *  - AM admin: visi tenant'ai
+ *  - AM user su scope: scope tenant'ai
+ *  - Org admin / user: tik savo tenant
+ *  - !canViewPayroll: DU expense'ai / allocations excluded iš totals
+ *    (defense-in-depth)
+ */
+export type FvmSummaryResponse = {
+  year: number;
+  /** Užklausos generavimo laikas (ISO 8601). */
+  generatedAt: string;
+  budgetTotals: {
+    planuota: string;
+    faktine: string;
+    likutis: string;
+    percentUsed: number;
+    isWarning: boolean;
+    isOver: boolean;
+  };
+  /**
+   * Top 5 warning'ai — allocations su `isWarning` arba `isOver`, surūšiuoti
+   * pagal `percentUsed` desc. Naudoja tą patį tipą kaip
+   * `expenses.budgetSummary`.
+   */
+  topWarnings: BudgetWarningItem[];
+  /**
+   * Projektai, kurių `pabaigosData` patenka į [now, now+30d] intervalą.
+   * Status'as NE 'baigta' ir NE 'uzdaryta' — tik vykdomi arba planuojami.
+   */
+  upcomingDeadlines: UpcomingDeadline[];
+  /** Projektai su status'ais 'planuojama' arba 'vykdoma'. */
+  activeProjectsCount: number;
+  /** Projektai su status'ais 'baigta' arba 'uzdaryta'. */
+  completedProjectsCount: number;
+  /** Visi tenant scope funding_sources nurodytais metais. */
+  totalSourcesCount: number;
+  /** Visi tenant scope budget_allocations nurodytais metais. */
+  totalAllocationsCount: number;
+};
+
+/**
+ * Biudžeto kopijavimo iš praėjusių metų atsakymas (Iter 15, F16).
+ *
+ * `fundingSources.copyFromYear` endpoint'as kopijuoja visus tenant'o funding
+ * sources + budget_allocations iš `sourceYear` į `targetYear`. Visa transakcijoje.
+ */
+export type CopyBudgetResponse = {
+  /** Kiek funding_sources sukurta target year'e. */
+  copiedSources: number;
+  /** Kiek budget_allocations sukurta target year'e. */
+  copiedAllocations: number;
+  /** Tikslo metai (echo iš request'o). */
+  targetYear: number;
+};

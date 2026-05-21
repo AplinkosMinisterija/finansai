@@ -25,6 +25,7 @@
 import type { ServiceSchema, Context } from 'moleculer';
 import { Errors } from 'moleculer';
 import type {
+  CopyBudgetResponse,
   FundingSource as FundingSourceDTO,
   FundingSourceCreateDTO,
   FundingSourceUpdateDTO,
@@ -469,6 +470,153 @@ const FundingSourcesService: ServiceSchema = {
         }
         await FundingSource.query().deleteById(target.id);
         return { ok: true };
+      },
+    },
+
+    /**
+     * Kopijuoja praėjusių metų biudžetą į naujus metus (Iter 15, F16).
+     *
+     * Per kiekvieną tenant'ą (default — visi tenant'ai; arba konkretus, jei
+     * `tenantId` nurodytas) kopijuojama:
+     *  - visi `funding_sources` įrašai iš `sourceYear` → nauji su `targetYear`
+     *  - visi `budget_allocations_v2` įrašai sucija — su naujai sukurtu
+     *    funding_source ID
+     *
+     * Validacija:
+     *  - AM admin only (per `requireAmAdmin`)
+     *  - sourceYear, targetYear required (param validation level)
+     *  - sourceYear != targetYear (kitaip 400)
+     *  - sourceYear turi turėti bent vieną funding_source (kitaip 400)
+     *  - targetYear funding_sources turi būti tušti per tenant scope
+     *    (jei jau yra — 409 Conflict; AM admin gali kopijuoti vienoms metoms
+     *    tik kartą per tenant)
+     *
+     * Visa transakcijoje. Pakartotinis kvietimas su tais pačiais metais
+     * negalimas (409) — kad nedubliuotume.
+     */
+    copyFromYear: {
+      params: {
+        sourceYear: {
+          type: 'number',
+          integer: true,
+          convert: true,
+          min: 2000,
+          max: 3000,
+        },
+        targetYear: {
+          type: 'number',
+          integer: true,
+          convert: true,
+          min: 2000,
+          max: 3000,
+        },
+        tenantId: {
+          type: 'number',
+          integer: true,
+          optional: true,
+          convert: true,
+        },
+      },
+      async handler(
+        ctx: Context<
+          { sourceYear: number; targetYear: number; tenantId?: number },
+          AuthMeta
+        >,
+      ): Promise<CopyBudgetResponse> {
+        const me = requireMe(ctx);
+        requireAmAdmin(me);
+        const { sourceYear, targetYear, tenantId } = ctx.params;
+
+        if (sourceYear === targetYear) {
+          throw new Errors.MoleculerClientError(
+            'Šaltinio ir tikslo metai turi skirtis',
+            400,
+            'COPY_SAME_YEAR',
+          );
+        }
+
+        // Surenkam šaltinio funding_sources
+        const sourceQ = FundingSource.query().where('metai', sourceYear);
+        if (tenantId !== undefined) {
+          sourceQ.where('tenant_id', tenantId);
+        }
+        const sourceSources = (await sourceQ) as FundingSource[];
+        if (sourceSources.length === 0) {
+          throw new Errors.MoleculerClientError(
+            `${sourceYear} metais nėra finansavimo šaltinių, kuriuos būtų galima kopijuoti`,
+            400,
+            'COPY_SOURCE_EMPTY',
+          );
+        }
+
+        // Patikrinam, ar targetYear nėra funding_sources tame pat tenant scope.
+        const tenantIds = Array.from(
+          new Set(sourceSources.map((s) => s.tenantId)),
+        );
+        const existingTargetQ = FundingSource.query()
+          .where('metai', targetYear)
+          .whereIn('tenant_id', tenantIds);
+        const existingTarget = (await existingTargetQ.resultSize()) as number;
+        if (existingTarget > 0) {
+          throw new Errors.MoleculerClientError(
+            `${targetYear} metais jau yra finansavimo šaltinių. Pirma juos pašalinkite arba pasirinkite kitus tikslo metus.`,
+            409,
+            'COPY_TARGET_NOT_EMPTY',
+          );
+        }
+
+        // Surenkam allocations per source funding_source ID'us — vienoje
+        // užklausoje.
+        const sourceIds = sourceSources.map((s) => s.id);
+        const sourceAllocations = (await BudgetAllocationV2.query()
+          .whereIn('funding_source_id', sourceIds)
+          .where('metai', sourceYear)) as BudgetAllocationV2[];
+
+        // Transakcijoje — sukurim naujus funding_sources, build'in
+        // sourceId→newId mapping, paskui sukurim allocations.
+        const knex = FundingSource.knex();
+        const result = await knex.transaction(async (trx) => {
+          const sourceIdToNewId = new Map<number, number>();
+          let copiedSources = 0;
+          for (const src of sourceSources) {
+            const inserted = await FundingSource.query(trx).insert({
+              tenantId: src.tenantId,
+              pavadinimas: src.pavadinimas,
+              kodas: src.kodas,
+              tipasClassifierItemId: src.tipasClassifierItemId,
+              metai: targetYear,
+              metineSuma: src.metineSuma,
+              aprasymas: src.aprasymas,
+              aktyvus: src.aktyvus,
+            });
+            sourceIdToNewId.set(src.id, inserted.id);
+            copiedSources += 1;
+          }
+
+          let copiedAllocations = 0;
+          for (const alloc of sourceAllocations) {
+            const newSourceId = sourceIdToNewId.get(alloc.fundingSourceId);
+            if (newSourceId === undefined) continue;
+            await BudgetAllocationV2.query(trx).insert({
+              fundingSourceId: newSourceId,
+              categoryClassifierItemId: alloc.categoryClassifierItemId,
+              pavadinimas: alloc.pavadinimas,
+              specProgTipas: alloc.specProgTipas,
+              planuotaSuma: alloc.planuotaSuma,
+              metai: targetYear,
+              pastabos: alloc.pastabos,
+            });
+            copiedAllocations += 1;
+          }
+
+          return { copiedSources, copiedAllocations };
+        });
+
+        return {
+          copiedSources: result.copiedSources,
+          copiedAllocations: result.copiedAllocations,
+          targetYear,
+        };
       },
     },
   },
