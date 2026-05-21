@@ -14,6 +14,7 @@ const PrasymoDetailPage = lazy(() => import('@/pages/PrasymoDetailPage'));
 const PrasymoEditPage = lazy(() => import('@/pages/PrasymoEditPage'));
 const KlasifikatoriaiPage = lazy(() => import('@/pages/KlasifikatoriaiPage'));
 const BiudzetasPage = lazy(() => import('@/pages/BiudzetasPage'));
+const FinansavimoSaltiniaiPage = lazy(() => import('@/pages/FinansavimoSaltiniaiPage'));
 
 function RouteFallback(): JSX.Element {
   return (
@@ -48,6 +49,7 @@ export default function App(): JSX.Element {
           <Route path="/prasymai/:id/redaguoti" element={<PrasymoEditPage />} />
           <Route path="/klasifikatoriai" element={<KlasifikatoriaiPage />} />
           <Route path="/biudzetas" element={<BiudzetasPage />} />
+          <Route path="/finansavimo-saltiniai" element={<FinansavimoSaltiniaiPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
