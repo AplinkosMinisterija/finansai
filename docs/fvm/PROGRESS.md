@@ -1,17 +1,17 @@
 # FVM eiga (live)
 
-**Last update**: 2026-05-21 16:10 UTC (CTO Claude — Iter 9 baigta)
+**Last update**: 2026-05-21 17:05 UTC (CTO Claude — Iter 10 baigta)
 
 ## Statusas
 
-🟢 **Iter 9 (FVM-1) PASS — push'inta į dev**. dev-finansai.biip.lt deploy success. Ruošiu Iter 10 brief.
+🟢 **Iter 10 (FVM-2) PASS — push'inta į dev**. Ruošiu Iter 11 brief.
 
 ## Iteracijų statusas
 
 | Iter | Pavadinimas | Status | Brief | Audit | Push'inta |
 |---|---|---|---|---|---|
 | 9 (FVM-1) | Foundation: funding_sources + budget_allocations | 🟢 done | `iter-09-foundation.md` | 8/8 PASS | ✅ 2026-05-21 |
-| 10 (FVM-2) | Stream 1: Request integration | ⏸️ pending | — | — | — |
+| 10 (FVM-2) | Stream 1: Request integration | 🟢 done | `iter-10-request-integration.md` | 8/8 PASS | ✅ 2026-05-21 |
 | 11 (FVM-3) | Projects + auto-create | ⏸️ | — | — | — |
 | 12 (FVM-4) | Expenses + budget remainder | ⏸️ | — | — | — |
 | 13 (FVM-5) | Payroll (DU) | ⏸️ | — | — | — |
@@ -34,6 +34,7 @@ Originalas: 8 iter × ~1.5 sav = 12 sav.
 | Iter | Plan | Real | Delta |
 |---|---|---|---|
 | 9 | 1.5 sav. | ~2 val. (Claude sesija) | -1.5 sav. |
+| 10 | 1.5 sav. | ~1 val. (Claude sesija) | -1.5 sav. |
 
 Claude vykdomas paraleliai daug subagent'ais — realus laikas daug trumpesnis nei žmogui. Adjustments po kiekvieno iter.
 
@@ -56,3 +57,11 @@ Claude vykdomas paraleliai daug subagent'ais — realus laikas daug trumpesnis n
 - 4 commit'ai push'inti į `dev`. CI green. dev-finansai.biip.lt deploy success.
 - Auditorius: 8/8 audit kriterijai PASS. READY TO SHIP.
 - Test counts: backend 54 (3 sanity + 11 migration + 40 service); frontend 42 (32 baseline + 10 nauji).
+
+### 2026-05-21 (šiandien, vakaras)
+- **Iter 10 (FVM-2) BAIGTA**. 3 subagent'ai (A/B/C) + nepriklausomas auditas.
+- Sub A (DBA): migracija `20260523100000_add_fvm_fields_to_requests.ts` — 4 nauji nullable laukai + CHECK constraint + index. 10 testų PASS.
+- Sub B (Backend): Request modelis papildytas, requests.service.ts + decision validation, naujas createFvmProject placeholder action, dashboard.service.ts budgetCategoryStats agregacija. Pre-existing bug fix: ApprovalStep.$beforeUpdate no-op (lentelė be updated_at). 20 nauji testai (16 requests-fvm + 4 dashboard-fvm).
+- Sub C (Frontend): RequestWizard 6 žingsniai (naujas „Biudžetas"), conditional spec.programa/funding_source_type sekcijos, ClassifierSelectById nauja variant, PrasymoDetailPage „Sukurti FVM projektą" placeholder mygtukas, BudgetCategoryChart StatistikaPage'e, 6 nauji testai.
+- Auditorius: 8/8 PASS.
+- Test counts (po Iter 10): backend 84 (54 + 30); frontend 48 (42 + 6).

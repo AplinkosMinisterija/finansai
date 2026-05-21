@@ -171,3 +171,21 @@
 - [x] Nepriklausomas auditas: 8/8 PASS
 
 FVM Iter 9-16 detalus planas — `docs/fvm/00-master-plan.md`. Iter 10 (FVM-2) — prašymo modelio papildymai (Stream 1 §3 docx).
+
+## Iter 10 — FVM-2: Stream 1 — Request integration ✅
+
+**Tikslas:** docx §3 (P01-P06) — esamos sistemos pakeitimai, kad prašymo modelis turėtų FVM laukus, wizard'as — biudžeto žingsnį, AM ekranas — kategorijos korekciją, dashboard'as — kategorijų breakdown'ą.
+
+- [x] Migracija: requests papildyta 4 naujais nullable laukais (budget_category_id, funding_source_type_id, spec_program_funding_type, fvm_project_id)
+- [x] Backend: requests.service.ts handle'ina FVM laukus + grupės validation + spec.programa conditional
+- [x] Backend: decision endpoint'as palaiko AM korekciją (budgetCategoryId, fundingSourceTypeId, specProgramFundingType)
+- [x] Backend: dashboard.service.ts grąžina budgetCategoryStats agregaciją
+- [x] Backend: createFvmProject placeholder action (real Iter 11)
+- [x] Frontend: RequestWizard 6 žingsniai (naujas „Biudžetas") + conditional UI
+- [x] Frontend: PrasymoDetailPage „Biudžeto informacija" read-only sekcija
+- [x] Frontend: Decision dialog su AM korekcija + „Sukurti FVM projektą" mygtuku
+- [x] Frontend: BudgetCategoryChart StatistikaPage'e
+- [x] Testai: backend 30 nauji (10 migration + 16 service + 4 dashboard); frontend 6 nauji
+- [x] Backward compat: prašymai be FVM laukų toliau veikia
+- [x] Pre-existing bug fix: ApprovalStep.$beforeUpdate no-op (lentelė neturi updated_at)
+- [x] Nepriklausomas auditas: 8/8 PASS

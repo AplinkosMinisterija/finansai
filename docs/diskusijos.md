@@ -2,6 +2,28 @@
 
 Naujausi įrašai viršuje. Vienas įrašas = vienas sprendimas/diskusija.
 
+## 2026-05-21 — Iter 10 (FVM-2) baigta — Stream 1 request integration
+
+Antroji FVM iteracija užbaigta. §3 docx (P01-P06) — esamos sistemos pakeitimai. 3 paralelinės komandos (DBA → Backend → Frontend) + nepriklausomas auditas. 8/8 PASS.
+
+**Svarbu**:
+- **Wizard turi 6 žingsnius** (anksčiau 5): pridėtas „Biudžetas" tarp Finansavimas ir Ketvirčiai. Visi nauji laukai opcionalūs (backward compat seniems prašymams).
+- **AM patvirtinimo ekrane** AM gali pakeisti budgetCategory/specProgramFundingType/fundingSourceType per decision dialog'ą — institucijos pasirinkimas pre-fill'inamas, bet AM gali koreguoti.
+- **Nauja `ClassifierSelectById` variant** (numeric ID-based) FVM laukams — senas `ClassifierSelect` (code-based) lieka backward compat'ui.
+- **`createFvmProject` placeholder endpoint** + UI mygtukas — backend grąžina pending message, real implementation Iter 11.
+- **Pre-existing bug** (ApprovalStep.$beforeUpdate naudoja BaseModel'o updated_at, bet approval_steps lentelė tos kolonos neturi) — ištaisytas (no-op override). Reikalingas Iter 10 testams; niekada nebuvo trigger'inamas anksčiau, nes nebuvo testų.
+- **`fvm_project_id` kol kas be FK** į projects (lentelės nėra iki Iter 11). FK pridėsim Iter 11 migracijoje.
+
+**Deliverables**:
+- 3 commits → `dev` → CI in progress
+- Backend: 30 nauji testai (84 viso)
+- Frontend: 6 nauji testai (48 viso)
+- Migration: `20260523100000_add_fvm_fields_to_requests.ts`
+- API endpoint: `POST /requests/:id/create-fvm-project` (placeholder)
+- Naujas chart: `BudgetCategoryChart` StatistikaPage'e
+
+Toliau — Iter 11 (FVM-3): projektų lentelė, project.service, auto-create iš patvirtinto spec.programa prašymo, /projektai UI.
+
 ## 2026-05-21 — Iter 9 (FVM-1) baigta — Foundation tables
 
 Pirmoji FVM iteracija užbaigta. 4 paralelinės komandos (Test Infra → DBA → Backend → Frontend) + nepriklausomas auditas. 8/8 audit kriterijai PASS.
