@@ -17,6 +17,7 @@ import type {
   ClassifierItem,
   ClassifierItemCreateRequest,
   ClassifierItemUpdateRequest,
+  CreateFvmProjectResponse,
   DashboardData,
   FinancingRequest,
   FinancingRequestDetail,
@@ -212,6 +213,20 @@ export async function requestAddComment(
   body: string,
 ): Promise<RequestComment> {
   const { data } = await api.post<RequestComment>(`/requests/${id}/comments`, { body });
+  return data;
+}
+
+/**
+ * `createFvmProject` — Iter 10 placeholder endpoint'as. Iter 11 metu sukurs
+ * realų `projects` įrašą iš patvirtinto prašymo. Kol kas grąžina pending
+ * status'ą su message'u, ką UI gali parodyti vartotojui.
+ */
+export async function requestCreateFvmProject(
+  id: number,
+): Promise<CreateFvmProjectResponse> {
+  const { data } = await api.post<CreateFvmProjectResponse>(
+    `/requests/${id}/create-fvm-project`,
+  );
   return data;
 }
 

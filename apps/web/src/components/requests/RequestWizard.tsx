@@ -2,15 +2,16 @@
  * RequestWizard — multi-step prašymo forma (kaip GPAIS).
  * Naudojama tiek naujam prašymui (po create), tiek esamam DRAFT/RETURNED redagavimui.
  *
- * 5 žingsniai:
+ * 6 žingsniai (FVM Iter 10):
  *   1. Pagrindinė informacija
  *   2. Finansavimas
- *   3. Ketvirtinis paskirstymas (validacija — suma turi atitikti viso prašoma)
- *   4. Atsakingi asmenys
- *   5. Peržiūra + Pateikti
+ *   3. Biudžetas (FVM lygmens kategorija + spec.programa conditional)
+ *   4. Ketvirtinis paskirstymas (validacija — suma turi atitikti viso prašoma)
+ *   5. Atsakingi asmenys
+ *   6. Peržiūra + Pateikti
  *
  * Auto-save: po kiekvieno žingsnio (Toliau / Atgal) PATCH'ina į backend.
- * Submit: 5-am žingsnyje paspaudus „Pateikti" — POST /requests/:id/submit.
+ * Submit: paskutiniame žingsnyje paspaudus „Pateikti" — POST /requests/:id/submit.
  */
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -20,6 +21,7 @@ import { ChevronLeft, ChevronRight, Loader2, Send } from 'lucide-react';
 import type {
   FinancingRequest,
   RequestPayload,
+  SpecProgramFundingType,
 } from '@biip-finansai/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,22 +30,47 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { requestSubmit, requestUpdate } from '@/lib/api';
 import { fmtEur } from '@/lib/requests';
-import { ClassifierSelect } from '@/components/classifiers/ClassifierSelect';
+import {
+  ClassifierSelect,
+  ClassifierSelectById,
+} from '@/components/classifiers/ClassifierSelect';
 import { classifierLabel, useClassifier } from '@/lib/classifiers';
+import { toast } from '@/lib/use-toast';
 import { cn } from '@/lib/utils';
 
 interface StepDef {
-  key: 'info' | 'financing' | 'quarterly' | 'responsible' | 'review';
+  key: 'info' | 'financing' | 'budget' | 'quarterly' | 'responsible' | 'review';
   label: string;
 }
 
 const STEPS: StepDef[] = [
   { key: 'info', label: 'Pagrindinė informacija' },
   { key: 'financing', label: 'Finansavimas' },
+  { key: 'budget', label: 'Biudžetas' },
   { key: 'quarterly', label: 'Ketvirtinis paskirstymas' },
   { key: 'responsible', label: 'Atsakingi asmenys' },
   { key: 'review', label: 'Peržiūra' },
 ];
+
+const SPEC_PROGRAMA_CODE = 'spec_programa';
+
+const SPEC_FUNDING_LABELS: Record<SpecProgramFundingType, string> = {
+  atskiras: 'Su atskiru finansavimu',
+  biudzeto_dalis: 'Iš bendrojo biudžeto',
+};
+
+function specFundingTypeLabel(t: SpecProgramFundingType | null): string {
+  if (t === null) return 'Nenurodyta';
+  return SPEC_FUNDING_LABELS[t];
+}
+
+function classifierItemNameById(
+  lookup: import('@/lib/classifiers').ClassifierLookup,
+  id: number,
+): string {
+  const item = lookup.items.find((it) => it.id === id);
+  return item?.name ?? `#${id}`;
+}
 
 interface FormState {
   year: string;
@@ -77,7 +104,23 @@ interface FormState {
   executorEmail: string;
   implementationDeadline: string;
   submitterNotes: string;
+
+  // FVM laukai (Iter 10)
+  budgetCategoryId: number | null;
+  /** Denormalizuotas code, naudojamas conditional UI logikai (spec_programa). */
+  budgetCategoryCode: string | null;
+  fundingSourceTypeId: number | null;
+  specProgramFundingType: SpecProgramFundingType | null;
 }
+
+/**
+ * Form state keys, kurių tipas yra `string` — tinka generinei input'o vertei
+ * (`e.target.value` visada string). Non-string laukai (FVM ID'ai, enum'ai)
+ * yra valdomi atskirai per ClassifierSelectById ir specifinius callback'us.
+ */
+type StringFormKey = {
+  [K in keyof FormState]: FormState[K] extends string ? K : never;
+}[keyof FormState];
 
 function s(v: string | number | null | undefined): string {
   if (v === null || v === undefined) return '';
@@ -114,6 +157,11 @@ function fromRequest(r: FinancingRequest): FormState {
     executorEmail: r.executorEmail ?? '',
     implementationDeadline: r.implementationDeadline ?? '',
     submitterNotes: r.submitterNotes ?? '',
+    // FVM Iter 10
+    budgetCategoryId: r.budgetCategoryId ?? null,
+    budgetCategoryCode: r.budgetCategoryCode ?? null,
+    fundingSourceTypeId: r.fundingSourceTypeId ?? null,
+    specProgramFundingType: r.specProgramFundingType ?? null,
   };
 }
 
@@ -156,6 +204,11 @@ function toPayload(state: FormState): RequestPayload {
     executorEmail: state.executorEmail || null,
     implementationDeadline: state.implementationDeadline || null,
     submitterNotes: state.submitterNotes || null,
+
+    // FVM laukai (Iter 10)
+    budgetCategoryId: state.budgetCategoryId,
+    fundingSourceTypeId: state.fundingSourceTypeId,
+    specProgramFundingType: state.specProgramFundingType,
   };
 }
 
@@ -188,8 +241,9 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
   const [state, setState] = React.useState<FormState>(() => fromRequest(request));
   const [error, setError] = React.useState<string | null>(null);
 
-  const update = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setState((prev) => ({ ...prev, [k]: e.target.value }));
+  const update = (k: StringFormKey) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setState((prev) => ({ ...prev, [k]: e.target.value }));
 
   const totalReq = totalRequestedFrom(state);
   const totalQ = totalQuarterlyFrom(state);
@@ -197,6 +251,8 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
 
   const isLookup = useClassifier('is_system');
   const ptLookup = useClassifier('project_type');
+  const budgetCategoryLookup = useClassifier('budget_category');
+  const fundingSourceTypeLookup = useClassifier('funding_source_type');
 
   const saveMutation = useMutation({
     mutationFn: (): Promise<FinancingRequest> => requestUpdate(request.id, toPayload(state)),
@@ -227,15 +283,31 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
 
   function validateStep(): string | null {
     setError(null);
+    // info step
     if (step === 0) {
       if (!state.projectName.trim()) return 'Projekto pavadinimas privalomas.';
     }
+    // budget step (FVM Iter 10): spec_program_funding_type be spec_programa
+    // kategorijos — toast'as ir block'as.
     if (step === 2) {
+      if (
+        state.specProgramFundingType !== null &&
+        state.budgetCategoryCode !== SPEC_PROGRAMA_CODE
+      ) {
+        const msg =
+          'Specialiosios programos finansavimo tipą galima nurodyti tik kai kategorija = Specialioji programa';
+        toast({ title: msg, variant: 'error' });
+        return msg;
+      }
+    }
+    // quarterly step (po Biudžeto)
+    if (step === 3) {
       if (Math.abs(quarterlyDiff) > 0.01) {
         return `Ketvirčių suma ${fmtEur(totalQ)} nesutampa su prašoma ${fmtEur(totalReq)}.`;
       }
     }
-    if (step === 3) {
+    // responsible step
+    if (step === 4) {
       if (state.executorEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(state.executorEmail)) {
         return 'Patikrinkite el. paštą.';
       }
@@ -477,6 +549,133 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
               <>
                 <h2 className="text-lg font-semibold">{STEPS[2]?.label}</h2>
                 <p className="text-xs text-muted-foreground">
+                  FVM lygmens kategorizacija — naudojama biudžeto sekimui ir spec.
+                  programų valdymui. Visi laukai neprivalomi seniems prašymams.
+                </p>
+
+                <div className="space-y-2">
+                  <Label htmlFor="budgetCategoryId">Biudžeto kategorija</Label>
+                  <ClassifierSelectById
+                    id="budgetCategoryId"
+                    groupCode="budget_category"
+                    value={state.budgetCategoryId}
+                    onChange={(v) =>
+                      setState((s) => {
+                        const item =
+                          v === null
+                            ? null
+                            : budgetCategoryLookup.items.find((it) => it.id === v) ??
+                              null;
+                        const newCode = item?.code ?? null;
+                        // Jei kategorija pakeičiama iš spec_programa į kitką —
+                        // null'inam ir specProgramFundingType + fundingSourceTypeId
+                        // (jie buvo prasmingi tik spec_programa kontekste).
+                        const resetSpec =
+                          s.budgetCategoryCode === SPEC_PROGRAMA_CODE &&
+                          newCode !== SPEC_PROGRAMA_CODE;
+                        return {
+                          ...s,
+                          budgetCategoryId: v,
+                          budgetCategoryCode: newCode,
+                          specProgramFundingType: resetSpec
+                            ? null
+                            : s.specProgramFundingType,
+                          fundingSourceTypeId: resetSpec
+                            ? null
+                            : s.fundingSourceTypeId,
+                        };
+                      })
+                    }
+                    emptyLabel="— Nepasirinkta —"
+                    placeholder="Pasirinkite kategoriją"
+                  />
+                </div>
+
+                {state.budgetCategoryCode === SPEC_PROGRAMA_CODE && (
+                  <fieldset
+                    className="space-y-3 rounded-md border border-border bg-muted/30 p-3"
+                    data-testid="spec-program-section"
+                  >
+                    <legend className="px-1 text-sm font-medium">
+                      Specialiosios programos finansavimas
+                    </legend>
+                    <p className="text-xs text-muted-foreground">
+                      Pasirinkite, kaip ši spec.programa bus finansuojama.
+                    </p>
+
+                    <div
+                      role="radiogroup"
+                      aria-label="Spec.programos finansavimo tipas"
+                      className="space-y-2"
+                    >
+                      <SpecFundingRadio
+                        id="spft-atskiras"
+                        checked={state.specProgramFundingType === 'atskiras'}
+                        onChange={() =>
+                          setState((s) => ({
+                            ...s,
+                            specProgramFundingType: 'atskiras',
+                          }))
+                        }
+                        label="Su atskiru finansavimu (rinkliavos, mokesčiai, spec. fondai)"
+                      />
+                      <SpecFundingRadio
+                        id="spft-biudzeto-dalis"
+                        checked={state.specProgramFundingType === 'biudzeto_dalis'}
+                        onChange={() =>
+                          setState((s) => ({
+                            ...s,
+                            specProgramFundingType: 'biudzeto_dalis',
+                            // Jei „iš bendrojo biudžeto" — finansavimo šaltinio
+                            // tipas neaktualus, null'inam.
+                            fundingSourceTypeId: null,
+                          }))
+                        }
+                        label="Iš bendrojo biudžeto"
+                      />
+                      <SpecFundingRadio
+                        id="spft-none"
+                        checked={state.specProgramFundingType === null}
+                        onChange={() =>
+                          setState((s) => ({
+                            ...s,
+                            specProgramFundingType: null,
+                            fundingSourceTypeId: null,
+                          }))
+                        }
+                        label="Nenurodyta"
+                      />
+                    </div>
+
+                    {state.specProgramFundingType === 'atskiras' && (
+                      <div className="space-y-2">
+                        <Label htmlFor="fundingSourceTypeId">
+                          Finansavimo šaltinio tipas
+                        </Label>
+                        <ClassifierSelectById
+                          id="fundingSourceTypeId"
+                          groupCode="funding_source_type"
+                          value={state.fundingSourceTypeId}
+                          onChange={(v) =>
+                            setState((s) => ({
+                              ...s,
+                              fundingSourceTypeId: v,
+                            }))
+                          }
+                          emptyLabel="— Nepasirinkta —"
+                          placeholder="Pasirinkite šaltinio tipą"
+                        />
+                      </div>
+                    )}
+                  </fieldset>
+                )}
+              </>
+            )}
+
+            {step === 3 && (
+              <>
+                <h2 className="text-lg font-semibold">{STEPS[3]?.label}</h2>
+                <p className="text-xs text-muted-foreground">
                   Įveskite planuojamą lėšų panaudojimą pagal ketvirčius. Suma turi atitikti
                   „Iš viso prašoma" = {fmtEur(totalReq)}.
                 </p>
@@ -507,9 +706,9 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
               </>
             )}
 
-            {step === 3 && (
+            {step === 4 && (
               <>
-                <h2 className="text-lg font-semibold">{STEPS[3]?.label}</h2>
+                <h2 className="text-lg font-semibold">{STEPS[4]?.label}</h2>
                 <div className="space-y-2">
                   <Label htmlFor="responsibleInstitution">Atsakinga įstaiga</Label>
                   <Input
@@ -554,9 +753,9 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
               </>
             )}
 
-            {step === 4 && (
+            {step === 5 && (
               <>
-                <h2 className="text-lg font-semibold">{STEPS[4]?.label}</h2>
+                <h2 className="text-lg font-semibold">{STEPS[5]?.label}</h2>
                 <p className="text-xs text-muted-foreground">
                   Patikrinkite duomenis ir paspauskite „Pateikti". Po pateikimo prašymas keliauja AM tvirtinimui.
                 </p>
@@ -579,6 +778,31 @@ export function RequestWizard({ request, onSaved }: RequestWizardProps): JSX.Ele
                   <KV label="Iš viso prašoma" emph>{fmtEur(totalReq)}</KV>
                   <KV label="Finansavimas iš IT">{fmtEur(state.fundingFromIt)}</KV>
                   <KV label="Kitos lėšos">{fmtEur(state.otherFunds)}</KV>
+                </ReviewSection>
+                <ReviewSection title="Biudžeto informacija">
+                  <KV label="Kategorija">
+                    {state.budgetCategoryId === null
+                      ? 'Nenurodyta'
+                      : classifierItemNameById(
+                          budgetCategoryLookup,
+                          state.budgetCategoryId,
+                        )}
+                  </KV>
+                  {state.budgetCategoryCode === SPEC_PROGRAMA_CODE && (
+                    <KV label="Spec.prog. finansavimo tipas">
+                      {specFundingTypeLabel(state.specProgramFundingType)}
+                    </KV>
+                  )}
+                  {state.specProgramFundingType === 'atskiras' && (
+                    <KV label="Finansavimo šaltinio tipas">
+                      {state.fundingSourceTypeId === null
+                        ? '—'
+                        : classifierItemNameById(
+                            fundingSourceTypeLookup,
+                            state.fundingSourceTypeId,
+                          )}
+                    </KV>
+                  )}
                 </ReviewSection>
                 <ReviewSection title="Ketvirtinis paskirstymas">
                   <KV label="I ketv.">{fmtEur(state.q1Amount)}</KV>
@@ -677,9 +901,9 @@ function CostField({
   onChange,
 }: {
   label: string;
-  k: keyof FormState;
+  k: StringFormKey;
   state: FormState;
-  onChange: (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onChange: (k: StringFormKey) => (e: React.ChangeEvent<HTMLInputElement>) => void;
 }): JSX.Element {
   return (
     <div className="space-y-2">
@@ -726,5 +950,37 @@ function KV({
       <dt className="text-muted-foreground">{label}</dt>
       <dd className={cn('text-right tabular-nums', emph && 'font-semibold')}>{children}</dd>
     </>
+  );
+}
+
+/**
+ * Native radio input wrap'ininkas su a11y label association. Shadcn neturi
+ * radio primitive — naudojam HTML input'ą su stiliais, kad išliktų konsistencija.
+ */
+function SpecFundingRadio({
+  id,
+  checked,
+  onChange,
+  label,
+}: {
+  id: string;
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+}): JSX.Element {
+  return (
+    <div className="flex items-start gap-2">
+      <input
+        type="radio"
+        id={id}
+        name="spec-program-funding-type"
+        checked={checked}
+        onChange={onChange}
+        className="mt-1 h-4 w-4 cursor-pointer"
+      />
+      <Label htmlFor={id} className="cursor-pointer text-sm font-normal leading-snug">
+        {label}
+      </Label>
+    </div>
   );
 }

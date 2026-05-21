@@ -20,6 +20,7 @@ import {
 import { PerTenantBarChart } from '@/components/charts/PerTenantBarChart';
 import { StatusCountAmountChart } from '@/components/charts/StatusCountAmountChart';
 import { CostCategoryChart } from '@/components/charts/CostCategoryChart';
+import { BudgetCategoryChart } from '@/components/charts/BudgetCategoryChart';
 import { dashboardGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { fmtEur } from '@/lib/requests';
@@ -164,6 +165,27 @@ export default function StatistikaPage(): JSX.Element {
           </CardContent>
         </Card>
       )}
+
+      {/* Pjūvis pagal FVM biudžeto kategoriją (Iter 10, P06 docx §3.4) */}
+      <Card>
+        <CardContent className="p-4">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <Layers className="h-4 w-4" />
+            Pagal biudžeto kategoriją (€)
+          </h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            FVM lygmens kategorija (du, spec.programa, prekės_paslaugos, ...).
+            Į pjūvį įtraukti tik prašymai su nustatyta biudžeto kategorija.
+          </p>
+          <BudgetCategoryChart
+            data={d.budgetCategoryStats}
+            height={Math.max(
+              260,
+              d.budgetCategoryStats.length * 40 + 80,
+            )}
+          />
+        </CardContent>
+      </Card>
 
       {/* Monthly trend full-width */}
       <Card>

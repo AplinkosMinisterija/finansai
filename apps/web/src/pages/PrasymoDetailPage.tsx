@@ -20,7 +20,10 @@ import {
   requestSubmit,
 } from '@/lib/api';
 import { classifierLabel, useClassifier } from '@/lib/classifiers';
-import { ClassifierSelect } from '@/components/classifiers/ClassifierSelect';
+import {
+  ClassifierSelect,
+  ClassifierSelectById,
+} from '@/components/classifiers/ClassifierSelect';
 import { AttachmentList } from '@/components/requests/AttachmentList';
 import { ApprovalStepsList } from '@/components/requests/ApprovalStepsList';
 import { ReportsSection } from '@/components/requests/ReportsSection';
@@ -76,6 +79,8 @@ export default function PrasymoDetailPage(): JSX.Element {
   const isLookup = useClassifier('is_system');
   const ptLookup = useClassifier('project_type');
   const spLookup = useClassifier('source_program');
+  const budgetCategoryLookup = useClassifier('budget_category');
+  const fundingSourceTypeLookup = useClassifier('funding_source_type');
 
   const convertMutation = useMutation({
     mutationFn: () => import('@/lib/api').then((m) => m.requestConvertToCurrentYear(requestId)),
@@ -87,21 +92,34 @@ export default function PrasymoDetailPage(): JSX.Element {
   });
 
   const [commentBody, setCommentBody] = React.useState('');
-  const [decisionForm, setDecisionForm] = React.useState<{
+  type DecisionFormState = {
     open: 'approve' | 'reject' | 'return' | null;
     comment: string;
     grantedAmount: string;
     fundingSource: string;
     protocol: string;
     order: string;
-  }>({
+    // FVM Iter 10 (P03) — AM korekcija
+    budgetCategoryId: number | null;
+    budgetCategoryCode: string | null;
+    fundingSourceTypeId: number | null;
+    specProgramFundingType: import('@biip-finansai/shared').SpecProgramFundingType | null;
+  };
+  const EMPTY_DECISION_FORM: DecisionFormState = {
     open: null,
     comment: '',
     grantedAmount: '',
     fundingSource: '',
     protocol: '',
     order: '',
-  });
+    budgetCategoryId: null,
+    budgetCategoryCode: null,
+    fundingSourceTypeId: null,
+    specProgramFundingType: null,
+  };
+  const [decisionForm, setDecisionForm] = React.useState<DecisionFormState>(
+    EMPTY_DECISION_FORM,
+  );
   const [error, setError] = React.useState<string | null>(null);
 
   const addComment = useMutation({
@@ -141,19 +159,50 @@ export default function PrasymoDetailPage(): JSX.Element {
         fundingSource: decisionForm.fundingSource || undefined,
         protocol: decisionForm.protocol || undefined,
         order: decisionForm.order || undefined,
+        // FVM Iter 10 — AM korekcija per decision payload
+        budgetCategoryId: decisionForm.budgetCategoryId,
+        fundingSourceTypeId: decisionForm.fundingSourceTypeId,
+        specProgramFundingType: decisionForm.specProgramFundingType,
       });
     },
     onSuccess: () => {
-      setDecisionForm({
-        open: null,
-        comment: '',
-        grantedAmount: '',
-        fundingSource: '',
-        protocol: '',
-        order: '',
-      });
+      setDecisionForm(EMPTY_DECISION_FORM);
       void qc.invalidateQueries({ queryKey: ['requests', requestId] });
       void qc.invalidateQueries({ queryKey: ['requests'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  /**
+   * Atidaro decision dialog'ą su pre-filled institucijos pasirinkimu (FVM Iter 10).
+   * AM mato kas buvo nurodyta ir gali pakeisti prieš patvirtinant.
+   */
+  function openDecisionDialog(
+    mode: 'approve' | 'reject' | 'return',
+    r: import('@biip-finansai/shared').FinancingRequestDetail,
+  ): void {
+    setDecisionForm({
+      open: mode,
+      comment: '',
+      grantedAmount: '',
+      fundingSource: '',
+      protocol: '',
+      order: '',
+      budgetCategoryId: r.budgetCategoryId,
+      budgetCategoryCode: r.budgetCategoryCode ?? null,
+      fundingSourceTypeId: r.fundingSourceTypeId,
+      specProgramFundingType: r.specProgramFundingType,
+    });
+  }
+
+  const createFvmProjectMutation = useMutation({
+    mutationFn: () =>
+      import('@/lib/api').then((m) => m.requestCreateFvmProject(requestId)),
+    onSuccess: (resp) => {
+      // Iter 10 placeholder — backend grąžina pending message'ą; Iter 11 šitas
+      // mutation'as sukurs realų `projects` įrašą.
+      setError(resp.message);
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -304,7 +353,7 @@ export default function PrasymoDetailPage(): JSX.Element {
             <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
-                onClick={() => setDecisionForm((f) => ({ ...f, open: 'approve' }))}
+                onClick={() => openDecisionDialog('approve', r)}
                 className="bg-emerald-700 hover:bg-emerald-700/90"
               >
                 <CheckCircle2 className="h-4 w-4" />
@@ -313,7 +362,7 @@ export default function PrasymoDetailPage(): JSX.Element {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setDecisionForm((f) => ({ ...f, open: 'return' }))}
+                onClick={() => openDecisionDialog('return', r)}
               >
                 <RotateCcw className="h-4 w-4" />
                 Grąžinti pataisymui
@@ -322,7 +371,7 @@ export default function PrasymoDetailPage(): JSX.Element {
                 size="sm"
                 variant="outline"
                 className="text-destructive hover:text-destructive"
-                onClick={() => setDecisionForm((f) => ({ ...f, open: 'reject' }))}
+                onClick={() => openDecisionDialog('reject', r)}
               >
                 <XCircle className="h-4 w-4" />
                 Atmesti
@@ -396,6 +445,120 @@ export default function PrasymoDetailPage(): JSX.Element {
                         requestStatus={r.status}
                       />
                     </div>
+
+                    {/* FVM Iter 10 (P03) — AM korekcija */}
+                    <div className="col-span-2 space-y-3 rounded-md border border-border bg-muted/30 p-3">
+                      <p className="text-xs font-medium">
+                        Biudžeto kategorizacija (galima koreguoti)
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Institucijos pasirinkimas pre-fill'inamas. AM gali pakeisti
+                        prieš patvirtindama.
+                      </p>
+                      <div className="space-y-1">
+                        <Label htmlFor="d-budget-category">Biudžeto kategorija</Label>
+                        <ClassifierSelectById
+                          id="d-budget-category"
+                          groupCode="budget_category"
+                          value={decisionForm.budgetCategoryId}
+                          onChange={(v) =>
+                            setDecisionForm((f) => {
+                              const item =
+                                v === null
+                                  ? null
+                                  : budgetCategoryLookup.items.find(
+                                      (it) => it.id === v,
+                                    ) ?? null;
+                              const newCode = item?.code ?? null;
+                              const isSpec = newCode === 'spec_programa';
+                              return {
+                                ...f,
+                                budgetCategoryId: v,
+                                budgetCategoryCode: newCode,
+                                // Reset spec funding type jei kategorija nebe spec_programa
+                                specProgramFundingType: isSpec
+                                  ? f.specProgramFundingType
+                                  : null,
+                                fundingSourceTypeId: isSpec
+                                  ? f.fundingSourceTypeId
+                                  : null,
+                              };
+                            })
+                          }
+                          emptyLabel="— Nenurodyta —"
+                          placeholder="Pasirinkite kategoriją"
+                        />
+                      </div>
+
+                      {decisionForm.budgetCategoryCode === 'spec_programa' && (
+                        <div
+                          className="space-y-2"
+                          data-testid="decision-spec-program-section"
+                        >
+                          <Label>Spec.prog. finansavimo tipas</Label>
+                          <div role="radiogroup" className="space-y-1.5">
+                            <DecisionFundingRadio
+                              id="d-spft-atskiras"
+                              checked={decisionForm.specProgramFundingType === 'atskiras'}
+                              onChange={() =>
+                                setDecisionForm((f) => ({
+                                  ...f,
+                                  specProgramFundingType: 'atskiras',
+                                }))
+                              }
+                              label="Su atskiru finansavimu"
+                            />
+                            <DecisionFundingRadio
+                              id="d-spft-biudzeto"
+                              checked={
+                                decisionForm.specProgramFundingType === 'biudzeto_dalis'
+                              }
+                              onChange={() =>
+                                setDecisionForm((f) => ({
+                                  ...f,
+                                  specProgramFundingType: 'biudzeto_dalis',
+                                  fundingSourceTypeId: null,
+                                }))
+                              }
+                              label="Iš bendrojo biudžeto"
+                            />
+                            <DecisionFundingRadio
+                              id="d-spft-none"
+                              checked={decisionForm.specProgramFundingType === null}
+                              onChange={() =>
+                                setDecisionForm((f) => ({
+                                  ...f,
+                                  specProgramFundingType: null,
+                                  fundingSourceTypeId: null,
+                                }))
+                              }
+                              label="Nenurodyta"
+                            />
+                          </div>
+
+                          {decisionForm.specProgramFundingType === 'atskiras' && (
+                            <div className="space-y-1">
+                              <Label htmlFor="d-funding-source-type">
+                                Finansavimo šaltinio tipas
+                              </Label>
+                              <ClassifierSelectById
+                                id="d-funding-source-type"
+                                groupCode="funding_source_type"
+                                value={decisionForm.fundingSourceTypeId}
+                                onChange={(v) =>
+                                  setDecisionForm((f) => ({
+                                    ...f,
+                                    fundingSourceTypeId: v,
+                                  }))
+                                }
+                                emptyLabel="— Nenurodyta —"
+                                placeholder="Pasirinkite šaltinio tipą"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
                 <div className="space-y-1">
@@ -444,6 +607,39 @@ export default function PrasymoDetailPage(): JSX.Element {
         </Card>
       )}
 
+      {/* FVM projekto sukūrimas — TIK AM tenant'as, TIK kai status=APPROVED (P04 Iter 10 placeholder).
+          Mygtukas vizualiai pažymimas „placeholder" tooltip'u — backend kviečiamas, bet grąžina
+          pending status'ą su LT žinute (real impl. Iter 11). */}
+      {r.status === 'APPROVED' &&
+        user?.tenantIsApprover === true && (
+          <Card className="mb-4">
+            <CardContent className="p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">FVM projekto sukūrimas</p>
+                  <p className="text-xs text-muted-foreground">
+                    Iš patvirtinto prašymo automatiškai sukuriamas FVM projektas
+                    su biudžetu = patvirtinta suma.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  title="FVM projektas — Iter 11"
+                  onClick={() => createFvmProjectMutation.mutate()}
+                  disabled={createFvmProjectMutation.isPending}
+                  data-testid="create-fvm-project-btn"
+                >
+                  {createFvmProjectMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  Sukurti FVM projektą (Iter 11)
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-4">
           <Section title="Pagrindinė informacija">
@@ -472,6 +668,37 @@ export default function PrasymoDetailPage(): JSX.Element {
             <KV label="Finansavimas iš IT">{fmtEur(r.fundingFromIt)}</KV>
             <KV label="Kitos lėšos">{fmtEur(r.otherFunds)}</KV>
             <KV label="Kitų lėšų šaltinis">{r.otherFundsSource ?? '—'}</KV>
+          </Section>
+
+          {/* FVM Iter 10 — biudžeto informacija (read-only; redaguoja wizard'as). */}
+          <Section title="Biudžeto informacija">
+            <KV label="Biudžeto kategorija">
+              {r.budgetCategoryId === null
+                ? 'Nenurodyta'
+                : r.budgetCategoryName ?? classifierItemNameByIdFromLookup(
+                    budgetCategoryLookup,
+                    r.budgetCategoryId,
+                  )}
+            </KV>
+            {r.budgetCategoryCode === 'spec_programa' && (
+              <KV label="Spec.prog. finansavimo tipas">
+                {r.specProgramFundingType === null
+                  ? 'Nenurodyta'
+                  : r.specProgramFundingType === 'atskiras'
+                    ? 'Su atskiru finansavimu'
+                    : 'Iš bendrojo biudžeto'}
+              </KV>
+            )}
+            {r.specProgramFundingType === 'atskiras' && (
+              <KV label="Finansavimo šaltinio tipas">
+                {r.fundingSourceTypeId === null
+                  ? '—'
+                  : r.fundingSourceTypeName ?? classifierItemNameByIdFromLookup(
+                      fundingSourceTypeLookup,
+                      r.fundingSourceTypeId,
+                    )}
+              </KV>
+            )}
           </Section>
 
           <Section title="Ketvirtinis paskirstymas">
@@ -635,5 +862,45 @@ function KV({
         {children}
       </dd>
     </>
+  );
+}
+
+/**
+ * Fallback'ininkas, kai backend negrąžino `budgetCategoryName` (legacy ar
+ * lookup'as ne-prefetched). Naudoja React Query cache su lookup'u.
+ */
+function classifierItemNameByIdFromLookup(
+  lookup: import('@/lib/classifiers').ClassifierLookup,
+  id: number,
+): string {
+  const item = lookup.items.find((it) => it.id === id);
+  return item?.name ?? `#${id}`;
+}
+
+function DecisionFundingRadio({
+  id,
+  checked,
+  onChange,
+  label,
+}: {
+  id: string;
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+}): JSX.Element {
+  return (
+    <div className="flex items-start gap-2">
+      <input
+        type="radio"
+        id={id}
+        name="d-spec-program-funding"
+        checked={checked}
+        onChange={onChange}
+        className="mt-1 h-4 w-4 cursor-pointer"
+      />
+      <Label htmlFor={id} className="cursor-pointer text-sm font-normal leading-snug">
+        {label}
+      </Label>
+    </div>
   );
 }
