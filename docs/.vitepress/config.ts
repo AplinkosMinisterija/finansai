@@ -24,6 +24,7 @@ export default defineConfig({
       { text: 'Pradžia', link: '/' },
       { text: 'Architektūra', link: '/03-architektura' },
       { text: 'Implementacija', link: '/06-implementacijos-planas' },
+      { text: 'FVM UAT', link: '/07-fvm-uat' },
       { text: 'Diskusijos', link: '/diskusijos' },
       { text: 'GitHub', link: 'https://github.com/AplinkosMinisterija/finansai' },
     ],
@@ -49,6 +50,7 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Planas (visos iteracijos)', link: '/06-implementacijos-planas' },
+          { text: '07 — FVM UAT (Giedrei)', link: '/07-fvm-uat' },
         ],
       },
       {
