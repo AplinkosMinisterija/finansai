@@ -94,9 +94,7 @@ function requireAmAdmin(me: NonNullable<AuthMeta['user']>): void {
  * yra aktyvus. Throw'ina LT klaidos žinutę, jei ne.
  */
 async function validateFundingSourceTypeItem(itemId: number): Promise<void> {
-  const item = await ClassifierItem.query()
-    .findById(itemId)
-    .withGraphFetched('group');
+  const item = await ClassifierItem.query().findById(itemId).withGraphFetched('group');
   if (!item) {
     throw new Errors.MoleculerClientError(
       'Finansavimo šaltinio tipas nerastas klasifikatoriuje',
@@ -121,9 +119,7 @@ async function validateFundingSourceTypeItem(itemId: number): Promise<void> {
   }
 }
 
-async function loadFundingSource(
-  id: number,
-): Promise<FundingSourceWithRels | undefined> {
+async function loadFundingSource(id: number): Promise<FundingSourceWithRels | undefined> {
   const fs = await FundingSource.query()
     .findById(id)
     .withGraphFetched('[tenant, tipasClassifierItem]');
@@ -139,9 +135,7 @@ interface AllocationStats {
  * Per kiekvieną pateiktą funding source ID — apskaičiuoja allocations count
  * ir sumą (centsais, kad išvengtume float drift'o).
  */
-async function loadAllocationStats(
-  sourceIds: number[],
-): Promise<Map<number, AllocationStats>> {
+async function loadAllocationStats(sourceIds: number[]): Promise<Map<number, AllocationStats>> {
   const stats = new Map<number, AllocationStats>();
   for (const id of sourceIds) {
     stats.set(id, { count: 0, allocatedAmount: '0.00' });
@@ -235,9 +229,7 @@ const FundingSourcesService: ServiceSchema = {
 
     get: {
       params: { id: { type: 'number', integer: true, convert: true } },
-      async handler(
-        ctx: Context<{ id: number }, AuthMeta>,
-      ): Promise<FundingSourceDTO> {
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<FundingSourceDTO> {
         const me = requireMe(ctx);
         const fs = await loadFundingSource(ctx.params.id);
         if (!fs) {
@@ -252,10 +244,7 @@ const FundingSourcesService: ServiceSchema = {
         // Naudojam 404, kad nepatvirtintume ID egzistavimo.
         if (!isAmAdminUser(me)) {
           if (me.tenantIsApprover) {
-            if (
-              me.amScopeOrgIds !== null &&
-              !me.amScopeOrgIds.includes(fs.tenantId)
-            ) {
+            if (me.amScopeOrgIds !== null && !me.amScopeOrgIds.includes(fs.tenantId)) {
               throw new Errors.MoleculerClientError(
                 'Finansavimo šaltinis nerastas',
                 404,
@@ -290,20 +279,14 @@ const FundingSourcesService: ServiceSchema = {
         aprasymas: { type: 'string', optional: true, nullable: true, max: 4000 },
         aktyvus: { type: 'boolean', optional: true, default: true },
       },
-      async handler(
-        ctx: Context<FundingSourceCreateDTO, AuthMeta>,
-      ): Promise<FundingSourceDTO> {
+      async handler(ctx: Context<FundingSourceCreateDTO, AuthMeta>): Promise<FundingSourceDTO> {
         const me = requireMe(ctx);
         requireAmAdmin(me);
         const p = ctx.params;
 
         const tenant = await Tenant.query().findById(p.tenantId);
         if (!tenant) {
-          throw new Errors.MoleculerClientError(
-            'Organizacija nerasta',
-            400,
-            'INVALID_TENANT',
-          );
+          throw new Errors.MoleculerClientError('Organizacija nerasta', 400, 'INVALID_TENANT');
         }
         await validateFundingSourceTypeItem(p.tipasClassifierItemId);
         const normalized = normalizeAmount(p.metineSuma);
@@ -338,12 +321,8 @@ const FundingSourcesService: ServiceSchema = {
             constraint?: string;
             name?: string;
           };
-          const isUniqueViolation =
-            e.code === '23505' || e.name === 'UniqueViolationError';
-          if (
-            isUniqueViolation &&
-            (e.constraint?.includes('tenant_id_kodas_metai') ?? false)
-          ) {
+          const isUniqueViolation = e.code === '23505' || e.name === 'UniqueViolationError';
+          if (isUniqueViolation && (e.constraint?.includes('tenant_id_kodas_metai') ?? false)) {
             throw new Errors.MoleculerClientError(
               'Šios organizacijos finansavimo šaltinis su tokiu kodu šiems metams jau egzistuoja',
               409,
@@ -419,11 +398,11 @@ const FundingSourcesService: ServiceSchema = {
         try {
           await FundingSource.query().findById(target.id).patch(patch);
         } catch (err: unknown) {
-          const e = err as { code?: string; constraint?: string };
-          if (
-            e.code === '23505' &&
-            (e.constraint?.includes('tenant_id_kodas_metai') ?? false)
-          ) {
+          // Simetriškai create'ui (UAT auditas P7): tikrinam ir raw pg
+          // (code='23505') ir Objection wrapper'į (UniqueViolationError).
+          const e = err as { code?: string; constraint?: string; name?: string };
+          const isUniqueViolation = e.code === '23505' || e.name === 'UniqueViolationError';
+          if (isUniqueViolation && (e.constraint?.includes('tenant_id_kodas_metai') ?? false)) {
             throw new Errors.MoleculerClientError(
               'Šios organizacijos finansavimo šaltinis su tokiu kodu šiems metams jau egzistuoja',
               409,
@@ -445,9 +424,7 @@ const FundingSourcesService: ServiceSchema = {
 
     delete: {
       params: { id: { type: 'number', integer: true, convert: true } },
-      async handler(
-        ctx: Context<{ id: number }, AuthMeta>,
-      ): Promise<{ ok: true }> {
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<{ ok: true }> {
         const me = requireMe(ctx);
         requireAmAdmin(me);
         const target = await FundingSource.query().findById(ctx.params.id);
@@ -518,10 +495,7 @@ const FundingSourcesService: ServiceSchema = {
         },
       },
       async handler(
-        ctx: Context<
-          { sourceYear: number; targetYear: number; tenantId?: number },
-          AuthMeta
-        >,
+        ctx: Context<{ sourceYear: number; targetYear: number; tenantId?: number }, AuthMeta>,
       ): Promise<CopyBudgetResponse> {
         const me = requireMe(ctx);
         requireAmAdmin(me);
@@ -550,9 +524,7 @@ const FundingSourcesService: ServiceSchema = {
         }
 
         // Patikrinam, ar targetYear nėra funding_sources tame pat tenant scope.
-        const tenantIds = Array.from(
-          new Set(sourceSources.map((s) => s.tenantId)),
-        );
+        const tenantIds = Array.from(new Set(sourceSources.map((s) => s.tenantId)));
         const existingTargetQ = FundingSource.query()
           .where('metai', targetYear)
           .whereIn('tenant_id', tenantIds);
