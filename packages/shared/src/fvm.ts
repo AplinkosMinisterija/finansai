@@ -134,7 +134,11 @@ export type BudgetAllocation = {
 export type BudgetAllocationCreateDTO = {
   fundingSourceId: number;
   categoryClassifierItemId: number;
-  pavadinimas: string;
+  /**
+   * UAT #40 BP-001: pavadinimas pašalintas iš formos (kategorija jau nusako
+   * turinį). Backend auto-užpildo iš kategorijos pavadinimo, jei neperduota.
+   */
+  pavadinimas?: string;
   specProgTipas?: SpecProgTipas | null;
   planuotaSuma: string;
   metai: number;
@@ -202,11 +206,7 @@ export type ProjectType = 'projektas' | 'spec_programa' | 'veikla';
  * Forward tranzicijas leidžia tiek AM admin, tiek org admin. Reverse
  * tranzicijos (pvz. „uzdaryta → baigta") tik AM admin.
  */
-export type ProjectStatus =
-  | 'planuojama'
-  | 'vykdoma'
-  | 'baigta'
-  | 'uzdaryta';
+export type ProjectStatus = 'planuojama' | 'vykdoma' | 'baigta' | 'uzdaryta';
 
 /**
  * Projektas — 3 FVM lygio entitetas. Atsako į klausimą „Kas konkrečiai

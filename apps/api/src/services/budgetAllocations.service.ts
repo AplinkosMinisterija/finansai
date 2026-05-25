@@ -45,10 +45,7 @@ import type { AuthMeta } from './auth.service';
 
 const BUDGET_CATEGORY_GROUP_CODE = 'budget_category';
 const SPEC_PROGRAMA_CODE = 'spec_programa';
-const SPEC_PROG_TIPAS_VALUES: readonly SpecProgTipas[] = [
-  'atskiras',
-  'biudzeto_dalis',
-];
+const SPEC_PROG_TIPAS_VALUES: readonly SpecProgTipas[] = ['atskiras', 'biudzeto_dalis'];
 
 type BudgetAllocationWithRels = BudgetAllocationV2 & {
   categoryClassifierItem?: ClassifierItem;
@@ -96,9 +93,7 @@ function requireAmAdmin(me: NonNullable<AuthMeta['user']>): void {
  * yra aktyvus. Grąžina patikrintą item'ą.
  */
 async function validateCategoryItem(itemId: number): Promise<ClassifierItem> {
-  const item = await ClassifierItem.query()
-    .findById(itemId)
-    .withGraphFetched('group');
+  const item = await ClassifierItem.query().findById(itemId).withGraphFetched('group');
   if (!item) {
     throw new Errors.MoleculerClientError(
       'Biudžeto kategorija nerasta klasifikatoriuje',
@@ -160,9 +155,7 @@ function normalizeSpecProgTipas(
   return null;
 }
 
-async function loadAllocation(
-  id: number,
-): Promise<BudgetAllocationWithRels | undefined> {
+async function loadAllocation(id: number): Promise<BudgetAllocationWithRels | undefined> {
   const a = await BudgetAllocationV2.query()
     .findById(id)
     .withGraphFetched('[categoryClassifierItem, fundingSource]');
@@ -195,9 +188,7 @@ const BudgetAllocationsService: ServiceSchema = {
           convert: true,
         },
       },
-      async handler(
-        ctx: Context<ListParams, AuthMeta>,
-      ): Promise<BudgetAllocationDTO[]> {
+      async handler(ctx: Context<ListParams, AuthMeta>): Promise<BudgetAllocationDTO[]> {
         const me = requireMe(ctx);
         const q = BudgetAllocationV2.query()
           .withGraphFetched('[categoryClassifierItem, fundingSource]')
@@ -222,18 +213,14 @@ const BudgetAllocationsService: ServiceSchema = {
             }
             q.whereExists((qb) => {
               qb.from('funding_sources')
-                .whereRaw(
-                  'funding_sources.id = budget_allocations_v2.funding_source_id',
-                )
+                .whereRaw('funding_sources.id = budget_allocations_v2.funding_source_id')
                 .whereIn('funding_sources.tenant_id', me.amScopeOrgIds!);
             });
           }
         } else {
           q.whereExists((qb) => {
             qb.from('funding_sources')
-              .whereRaw(
-                'funding_sources.id = budget_allocations_v2.funding_source_id',
-              )
+              .whereRaw('funding_sources.id = budget_allocations_v2.funding_source_id')
               .where('funding_sources.tenant_id', me.tenantId);
           });
         }
@@ -246,9 +233,7 @@ const BudgetAllocationsService: ServiceSchema = {
         if (!canViewPayroll(me)) {
           q.whereNotExists((qb) => {
             qb.from('classifier_items')
-              .whereRaw(
-                'classifier_items.id = budget_allocations_v2.category_classifier_item_id',
-              )
+              .whereRaw('classifier_items.id = budget_allocations_v2.category_classifier_item_id')
               .where('classifier_items.code', 'du');
           });
         }
@@ -269,9 +254,7 @@ const BudgetAllocationsService: ServiceSchema = {
 
     get: {
       params: { id: { type: 'number', integer: true, convert: true } },
-      async handler(
-        ctx: Context<{ id: number }, AuthMeta>,
-      ): Promise<BudgetAllocationDTO> {
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<BudgetAllocationDTO> {
         const me = requireMe(ctx);
         const a = await loadAllocation(ctx.params.id);
         if (!a) {
@@ -290,8 +273,7 @@ const BudgetAllocationsService: ServiceSchema = {
             // AM user su scope
             if (
               me.amScopeOrgIds !== null &&
-              (ownerTenantId === undefined ||
-                !me.amScopeOrgIds.includes(ownerTenantId))
+              (ownerTenantId === undefined || !me.amScopeOrgIds.includes(ownerTenantId))
             ) {
               throw new Errors.MoleculerClientError(
                 'Biudžeto paskirstymas nerastas',
@@ -337,15 +319,13 @@ const BudgetAllocationsService: ServiceSchema = {
      */
     summary: {
       params: { id: { type: 'number', integer: true, convert: true } },
-      async handler(
-        ctx: Context<{ id: number }, AuthMeta>,
-      ): Promise<BudgetAllocationSummary> {
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<BudgetAllocationSummary> {
         const me = requireMe(ctx);
         const a = (await BudgetAllocationV2.query()
           .findById(ctx.params.id)
-          .withGraphFetched(
-            '[categoryClassifierItem, fundingSource]',
-          )) as BudgetAllocationWithRels | undefined;
+          .withGraphFetched('[categoryClassifierItem, fundingSource]')) as
+          | BudgetAllocationWithRels
+          | undefined;
         if (!a) {
           throw new Errors.MoleculerClientError(
             'Biudžeto paskirstymas nerastas',
@@ -361,8 +341,7 @@ const BudgetAllocationsService: ServiceSchema = {
           if (me.tenantIsApprover) {
             if (
               me.amScopeOrgIds !== null &&
-              (ownerTenantId === undefined ||
-                !me.amScopeOrgIds.includes(ownerTenantId))
+              (ownerTenantId === undefined || !me.amScopeOrgIds.includes(ownerTenantId))
             ) {
               throw new Errors.MoleculerClientError(
                 'Biudžeto paskirstymas nerastas',
@@ -381,10 +360,7 @@ const BudgetAllocationsService: ServiceSchema = {
         // DU kategorijos allocation summary — 404 ne-DU vartotojams. Kitaip
         // org_user pamatytų DU planuota + faktinė sumą per direktinį
         // `GET /budget-allocations/:duId/summary` route.
-        if (
-          !canViewPayroll(me) &&
-          a.categoryClassifierItem?.code === 'du'
-        ) {
+        if (!canViewPayroll(me) && a.categoryClassifierItem?.code === 'du') {
           throw new Errors.MoleculerClientError(
             'Biudžeto paskirstymas nerastas',
             404,
@@ -392,9 +368,7 @@ const BudgetAllocationsService: ServiceSchema = {
           );
         }
         const planuotaCents = toCents(a.planuotaSuma);
-        const expenseQ = Expense.query()
-          .where('budget_allocation_id', a.id)
-          .sum('suma as total');
+        const expenseQ = Expense.query().where('budget_allocation_id', a.id).sum('suma as total');
         // SAUGUMO PATCH (Iter 13.x agregatinis leak fix, docx §4.4):
         // Defense-in-depth — SUM užklausoje neįskaitom DU expense'ų ne-DU
         // vartotojams. Edge case: jei DU expense kažkaip atsidurtų ne-DU
@@ -402,9 +376,7 @@ const BudgetAllocationsService: ServiceSchema = {
         if (!canViewPayroll(me)) {
           expenseQ.whereNot('expenses.tipas', 'du');
         }
-        const sumRow = (await expenseQ.first()) as unknown as
-          | { total: string | null }
-          | undefined;
+        const sumRow = (await expenseQ.first()) as unknown as { total: string | null } | undefined;
         const faktineCents = toCents(sumRow?.total ?? '0');
         const likutisCents = planuotaCents - faktineCents;
         const percentUsed = calculatePercentUsed(planuotaCents, faktineCents);
@@ -428,7 +400,9 @@ const BudgetAllocationsService: ServiceSchema = {
           integer: true,
           convert: true,
         },
-        pavadinimas: { type: 'string', min: 1, max: 200 },
+        // UAT #40 BP-001: pavadinimas pašalintas iš formos. Optional — jei
+        // neperduotas, auto-užpildomas iš kategorijos pavadinimo.
+        pavadinimas: { type: 'string', optional: true, min: 1, max: 200 },
         specProgTipas: {
           type: 'enum',
           values: ['atskiras', 'biudzeto_dalis'],
@@ -455,10 +429,7 @@ const BudgetAllocationsService: ServiceSchema = {
           );
         }
         const categoryItem = await validateCategoryItem(p.categoryClassifierItemId);
-        const specProgTipas = normalizeSpecProgTipas(
-          categoryItem.code,
-          p.specProgTipas,
-        );
+        const specProgTipas = normalizeSpecProgTipas(categoryItem.code, p.specProgTipas);
         const normalized = normalizeAmount(p.planuotaSuma);
         if (toCents(normalized) <= 0) {
           throw new Errors.MoleculerClientError(
@@ -468,10 +439,17 @@ const BudgetAllocationsService: ServiceSchema = {
           );
         }
 
+        // UAT #40 BP-001: jei pavadinimas neperduotas (forma jo nebeturi),
+        // naudojam kategorijos pavadinimą — stulpelis lieka prasmingas, o DB
+        // NOT NULL constraint'as tenkinamas be migracijos.
+        const pavadinimas =
+          p.pavadinimas?.trim() && p.pavadinimas.trim() !== ''
+            ? p.pavadinimas.trim()
+            : categoryItem.name;
         const inserted = await BudgetAllocationV2.query().insert({
           fundingSourceId: p.fundingSourceId,
           categoryClassifierItemId: p.categoryClassifierItemId,
-          pavadinimas: p.pavadinimas,
+          pavadinimas,
           specProgTipas,
           planuotaSuma: normalized,
           metai: p.metai,
@@ -531,21 +509,26 @@ const BudgetAllocationsService: ServiceSchema = {
         // arba esamas, jei nekeičiamas. Reikalingas specProgTipas validacijai.
         let effectiveCategoryCode =
           (target as BudgetAllocationWithRels).categoryClassifierItem?.code ?? '';
+        let newCategoryName: string | null = null;
         if (p.categoryClassifierItemId !== undefined) {
           const newCategory = await validateCategoryItem(p.categoryClassifierItemId);
           effectiveCategoryCode = newCategory.code;
+          newCategoryName = newCategory.name;
         }
 
         const patch: Record<string, unknown> = {};
         if (p.categoryClassifierItemId !== undefined) {
           patch['categoryClassifierItemId'] = p.categoryClassifierItemId;
         }
-        if (p.pavadinimas !== undefined) patch['pavadinimas'] = p.pavadinimas;
+        if (p.pavadinimas !== undefined) {
+          patch['pavadinimas'] = p.pavadinimas;
+        } else if (newCategoryName !== null) {
+          // UAT #40 BP-001: forma nebeperduoda pavadinimo. Keičiant kategoriją
+          // sinchronizuojam pavadinimą su nauja kategorija, kad neliktų stale.
+          patch['pavadinimas'] = newCategoryName;
+        }
         if (p.specProgTipas !== undefined) {
-          patch['specProgTipas'] = normalizeSpecProgTipas(
-            effectiveCategoryCode,
-            p.specProgTipas,
-          );
+          patch['specProgTipas'] = normalizeSpecProgTipas(effectiveCategoryCode, p.specProgTipas);
         } else if (
           p.categoryClassifierItemId !== undefined &&
           effectiveCategoryCode !== SPEC_PROGRAMA_CODE &&
@@ -579,9 +562,7 @@ const BudgetAllocationsService: ServiceSchema = {
 
     delete: {
       params: { id: { type: 'number', integer: true, convert: true } },
-      async handler(
-        ctx: Context<{ id: number }, AuthMeta>,
-      ): Promise<{ ok: true }> {
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<{ ok: true }> {
         const me = requireMe(ctx);
         requireAmAdmin(me);
         const target = await BudgetAllocationV2.query().findById(ctx.params.id);

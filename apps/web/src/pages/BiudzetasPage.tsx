@@ -22,14 +22,7 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import {
-  AlertTriangle,
-  Pencil,
-  Plus,
-  Trash2,
-  TriangleAlert,
-  Wallet,
-} from 'lucide-react';
+import { AlertTriangle, Pencil, Plus, Trash2, TriangleAlert, Wallet } from 'lucide-react';
 import type {
   BudgetAllocation,
   BudgetWarningItem,
@@ -54,11 +47,7 @@ import { BudgetAllocationDialog } from '@/components/budget-allocations/BudgetAl
 import { useAuth } from '@/lib/auth';
 import { canManageBudget } from '@/lib/roles';
 import { classifierItemsList } from '@/lib/api';
-import {
-  budgetAllocationsApi,
-  expensesApi,
-  fundingSourcesApi,
-} from '@/lib/api/fvm';
+import { budgetAllocationsApi, expensesApi, fundingSourcesApi } from '@/lib/api/fvm';
 import { cn } from '@/lib/utils';
 
 const ALL_VALUE = '__all__';
@@ -137,7 +126,8 @@ export default function BiudzetasPage(): JSX.Element {
   });
 
   function handleDelete(a: BudgetAllocation): void {
-    if (!window.confirm(`Ar tikrai ištrinti paskirstymą „${a.pavadinimas}"?`)) return;
+    const label = a.categoryName ?? a.pavadinimas;
+    if (!window.confirm(`Ar tikrai ištrinti paskirstymą „${label}"?`)) return;
     deleteMutation.mutate(a.id);
   }
 
@@ -154,10 +144,7 @@ export default function BiudzetasPage(): JSX.Element {
     return m;
   }, [summaryQ.data]);
 
-  const totalPlanuota = items.reduce(
-    (acc, a) => acc + (Number.parseFloat(a.planuotaSuma) || 0),
-    0,
-  );
+  const totalPlanuota = items.reduce((acc, a) => acc + (Number.parseFloat(a.planuotaSuma) || 0), 0);
   const totalFaktine = items.reduce((acc, a) => {
     const s = summaryByAllocation.get(a.id);
     return acc + (s ? Number.parseFloat(s.faktine) || 0 : 0);
@@ -178,8 +165,8 @@ export default function BiudzetasPage(): JSX.Element {
             Biudžeto paskirstymai
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            2 FVM lygis: „Kam skiriama?". Kiekvienas paskirstymas priklauso vienam
-            finansavimo šaltiniui.
+            2 FVM lygis: „Kam skiriama?". Kiekvienas paskirstymas priklauso vienam finansavimo
+            šaltiniui.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -203,9 +190,7 @@ export default function BiudzetasPage(): JSX.Element {
             </Label>
             <Select
               value={year === null ? ALL_VALUE : String(year)}
-              onValueChange={(v) =>
-                setYear(v === ALL_VALUE ? null : Number.parseInt(v, 10))
-              }
+              onValueChange={(v) => setYear(v === ALL_VALUE ? null : Number.parseInt(v, 10))}
             >
               <SelectTrigger id="ba-flt-year">
                 <SelectValue />
@@ -301,7 +286,6 @@ export default function BiudzetasPage(): JSX.Element {
                   <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                     <th className="px-3 py-2 font-semibold">Šaltinis</th>
                     <th className="px-3 py-2 font-semibold">Kategorija</th>
-                    <th className="px-3 py-2 font-semibold">Pavadinimas</th>
                     <th className="px-3 py-2 text-right font-semibold">Planuota</th>
                     <th className="px-3 py-2 text-right font-semibold">Faktinė</th>
                     <th className="px-3 py-2 text-right font-semibold">Likutis</th>
@@ -312,11 +296,7 @@ export default function BiudzetasPage(): JSX.Element {
                 <tbody className="divide-y divide-border">
                   {items.map((a) => {
                     const s = summaryByAllocation.get(a.id);
-                    const tone = s?.isOver
-                      ? 'destructive'
-                      : s?.isWarning
-                        ? 'warning'
-                        : 'default';
+                    const tone = s?.isOver ? 'destructive' : s?.isWarning ? 'warning' : 'default';
                     return (
                       <tr
                         key={a.id}
@@ -336,17 +316,14 @@ export default function BiudzetasPage(): JSX.Element {
                           </div>
                         </td>
                         <td className="px-3 py-2">
-                          {a.categoryName ? (
-                            <Badge variant="secondary" className="text-[10px]">
-                              {a.categoryName}
-                            </Badge>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                        <td className="px-3 py-2 font-medium">
                           <div className="flex flex-col gap-1">
-                            <span>{a.pavadinimas}</span>
+                            {a.categoryName ? (
+                              <Badge variant="secondary" className="w-fit text-[10px]">
+                                {a.categoryName}
+                              </Badge>
+                            ) : (
+                              '—'
+                            )}
                             {a.specProgTipas && (
                               <span className="text-[10px] text-muted-foreground">
                                 {a.specProgTipas === 'atskiras'
@@ -407,19 +384,14 @@ export default function BiudzetasPage(): JSX.Element {
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </td>
-                        <td
-                          className="px-3 py-2 text-right"
-                          onClick={(e) => e.stopPropagation()}
-                        >
+                        <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                           {canEdit ? (
                             <div className="inline-flex gap-1">
                               <Button
                                 type="button"
                                 size="sm"
                                 variant="ghost"
-                                onClick={() =>
-                                  setDialog({ mode: 'edit', allocation: a })
-                                }
+                                onClick={() => setDialog({ mode: 'edit', allocation: a })}
                                 title="Redaguoti"
                               >
                                 <Pencil className="h-3.5 w-3.5" />
@@ -445,7 +417,7 @@ export default function BiudzetasPage(): JSX.Element {
                 </tbody>
                 <tfoot className="border-t border-border bg-muted/30">
                   <tr>
-                    <td colSpan={3} className="px-3 py-2 text-right font-semibold">
+                    <td colSpan={2} className="px-3 py-2 text-right font-semibold">
                       Iš viso:
                     </td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums">
@@ -480,8 +452,7 @@ export default function BiudzetasPage(): JSX.Element {
               Įspėjimai ({year} m.)
             </h2>
             <p className="mb-3 text-xs text-muted-foreground">
-              Biudžeto paskirstymai, kurių panaudojimas siekia 80% arba viršija
-              planuotą sumą.
+              Biudžeto paskirstymai, kurių panaudojimas siekia 80% arba viršija planuotą sumą.
             </p>
             <BudgetWarningsList year={year} topN={50} onlyWarnings={true} />
           </CardContent>

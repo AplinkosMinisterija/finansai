@@ -5,9 +5,11 @@
  * Validation:
  *  - fundingSource: privalomas
  *  - kategorija (klasifikatorius `budget_category`): privaloma
- *  - pavadinimas: privalomas
- *  - metai: > 2000
+ *  - metai: > 2000 (dropdown — UAT #40 BP-002)
  *  - planuota suma: > 0
+ *
+ * UAT #40 BP-001: laukas „Pavadinimas" pašalintas (kategorija nusako turinį).
+ * Backend auto-užpildo pavadinimą iš kategorijos pavadinimo.
  *
  * Spec.programos tipas (`atskiras` / `biudzeto_dalis`) — RODYTI TIK kai
  * pasirinkta kategorija = `spec_programa` (kodas).
@@ -47,13 +49,13 @@ import {
 } from '@/components/ui/select';
 import { classifierItemsList } from '@/lib/api';
 import { budgetAllocationsApi, fundingSourcesApi } from '@/lib/api/fvm';
+import { yearOptions } from '@/lib/years';
 
 const SPEC_PROGRAMA_CODE = 'spec_programa';
 
 interface FormState {
   fundingSourceId: string;
   categoryClassifierItemId: string;
-  pavadinimas: string;
   specProgTipas: SpecProgTipas | '';
   planuotaSuma: string;
   metai: string;
@@ -62,10 +64,8 @@ interface FormState {
 
 function emptyForm(defaults: { fundingSourceId: number | null; year: number }): FormState {
   return {
-    fundingSourceId:
-      defaults.fundingSourceId !== null ? String(defaults.fundingSourceId) : '',
+    fundingSourceId: defaults.fundingSourceId !== null ? String(defaults.fundingSourceId) : '',
     categoryClassifierItemId: '',
-    pavadinimas: '',
     specProgTipas: '',
     planuotaSuma: '',
     metai: String(defaults.year),
@@ -77,7 +77,6 @@ function fromAllocation(a: BudgetAllocation): FormState {
   return {
     fundingSourceId: String(a.fundingSourceId),
     categoryClassifierItemId: String(a.categoryClassifierItemId),
-    pavadinimas: a.pavadinimas,
     specProgTipas: a.specProgTipas ?? '',
     planuotaSuma: a.planuotaSuma,
     metai: String(a.metai),
@@ -173,7 +172,6 @@ export function BudgetAllocationDialog({
         const body: BudgetAllocationCreateDTO = {
           fundingSourceId,
           categoryClassifierItemId,
-          pavadinimas: state.pavadinimas.trim(),
           specProgTipas,
           planuotaSuma,
           metai,
@@ -184,7 +182,6 @@ export function BudgetAllocationDialog({
       if (!allocation) throw new Error('No allocation to update');
       const patch: BudgetAllocationUpdateDTO = {
         categoryClassifierItemId,
-        pavadinimas: state.pavadinimas.trim(),
         specProgTipas,
         planuotaSuma,
         metai,
@@ -208,7 +205,6 @@ export function BudgetAllocationDialog({
   function validate(): string | null {
     if (state.fundingSourceId === '') return 'Pasirinkite finansavimo šaltinį.';
     if (state.categoryClassifierItemId === '') return 'Pasirinkite kategoriją.';
-    if (state.pavadinimas.trim() === '') return 'Įveskite pavadinimą.';
     const metai = Number.parseInt(state.metai, 10);
     if (!Number.isFinite(metai) || metai <= 2000) {
       return 'Metai turi būti didesni nei 2000.';
@@ -244,7 +240,7 @@ export function BudgetAllocationDialog({
             <DialogTitle>
               {isCreate
                 ? 'Naujas biudžeto paskirstymas'
-                : `Redaguoti — ${allocation?.pavadinimas ?? ''}`}
+                : `Redaguoti — ${allocation?.categoryName ?? allocation?.pavadinimas ?? ''}`}
             </DialogTitle>
             <DialogDescription>
               {isCreate
@@ -258,9 +254,7 @@ export function BudgetAllocationDialog({
               <Label htmlFor="ba-source">Finansavimo šaltinis</Label>
               <Select
                 value={state.fundingSourceId}
-                onValueChange={(v) =>
-                  setState((s) => ({ ...s, fundingSourceId: v }))
-                }
+                onValueChange={(v) => setState((s) => ({ ...s, fundingSourceId: v }))}
                 disabled={mode === 'edit'}
               >
                 <SelectTrigger id="ba-source">
@@ -286,9 +280,7 @@ export function BudgetAllocationDialog({
                 <Label htmlFor="ba-category">Kategorija</Label>
                 <Select
                   value={state.categoryClassifierItemId}
-                  onValueChange={(v) =>
-                    setState((s) => ({ ...s, categoryClassifierItemId: v }))
-                  }
+                  onValueChange={(v) => setState((s) => ({ ...s, categoryClassifierItemId: v }))}
                 >
                   <SelectTrigger id="ba-category">
                     <SelectValue placeholder="Pasirinkite kategoriją" />
@@ -304,28 +296,24 @@ export function BudgetAllocationDialog({
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ba-metai">Metai</Label>
-                <Input
-                  id="ba-metai"
-                  type="number"
-                  min={2001}
-                  max={3000}
-                  required
+                <Select
                   value={state.metai}
-                  onChange={(e) => setState((s) => ({ ...s, metai: e.target.value }))}
-                />
+                  onValueChange={(v) => setState((s) => ({ ...s, metai: v }))}
+                >
+                  <SelectTrigger id="ba-metai">
+                    <SelectValue placeholder="Pasirinkite metus" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {yearOptions({
+                      include: state.metai === '' ? null : Number.parseInt(state.metai, 10),
+                    }).map((y) => (
+                      <SelectItem key={y} value={String(y)}>
+                        {y}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="ba-pavadinimas">Pavadinimas</Label>
-              <Input
-                id="ba-pavadinimas"
-                required
-                maxLength={200}
-                placeholder="DU darbuotojams"
-                value={state.pavadinimas}
-                onChange={(e) => setState((s) => ({ ...s, pavadinimas: e.target.value }))}
-              />
             </div>
 
             <div className="space-y-2">
@@ -338,9 +326,7 @@ export function BudgetAllocationDialog({
                 value={state.planuotaSuma}
                 onChange={(e) => setState((s) => ({ ...s, planuotaSuma: e.target.value }))}
               />
-              <p className="text-[11px] text-muted-foreground">
-                Galima ir kableliu (500000,00).
-              </p>
+              <p className="text-[11px] text-muted-foreground">Galima ir kableliu (500000,00).</p>
             </div>
 
             {showSpecProg && (
@@ -353,9 +339,7 @@ export function BudgetAllocationDialog({
                       name="ba-specprog"
                       value="atskiras"
                       checked={state.specProgTipas === 'atskiras'}
-                      onChange={() =>
-                        setState((s) => ({ ...s, specProgTipas: 'atskiras' }))
-                      }
+                      onChange={() => setState((s) => ({ ...s, specProgTipas: 'atskiras' }))}
                     />
                     <span>Atskiras</span>
                   </label>
@@ -365,9 +349,7 @@ export function BudgetAllocationDialog({
                       name="ba-specprog"
                       value="biudzeto_dalis"
                       checked={state.specProgTipas === 'biudzeto_dalis'}
-                      onChange={() =>
-                        setState((s) => ({ ...s, specProgTipas: 'biudzeto_dalis' }))
-                      }
+                      onChange={() => setState((s) => ({ ...s, specProgTipas: 'biudzeto_dalis' }))}
                     />
                     <span>Biudžeto dalis</span>
                   </label>
@@ -383,8 +365,9 @@ export function BudgetAllocationDialog({
                   </label>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  „Atskiras" — kuriama atskira spec.programa (auto-create projekto įrašas).
-                  „Biudžeto dalis" — yra dalis bendro biudžeto.
+                  „Atskiras" — spec.programa administruojama kaip atskiras finansavimas. „Biudžeto
+                  dalis" — yra dalis bendro biudžeto. Tai tik klasifikacijos žyma — projekto įrašas
+                  šiame žingsnyje nekuriamas (jis sukuriamas patvirtinus spec.programos prašymą).
                 </p>
               </fieldset>
             )}

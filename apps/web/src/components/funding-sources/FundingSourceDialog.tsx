@@ -45,6 +45,7 @@ import {
 } from '@/components/ui/select';
 import { classifierItemsList, tenantsList } from '@/lib/api';
 import { fundingSourcesApi } from '@/lib/api/fvm';
+import { yearOptions } from '@/lib/years';
 
 interface FormState {
   tenantId: string;
@@ -57,10 +58,7 @@ interface FormState {
   aktyvus: boolean;
 }
 
-function emptyForm(defaults: {
-  tenantId: number | null;
-  year: number;
-}): FormState {
+function emptyForm(defaults: { tenantId: number | null; year: number }): FormState {
   return {
     tenantId: defaults.tenantId !== null ? String(defaults.tenantId) : '',
     pavadinimas: '',
@@ -282,9 +280,7 @@ export function FundingSourceDialog({
                 <Label htmlFor="fs-tipas">Tipas</Label>
                 <Select
                   value={state.tipasClassifierItemId}
-                  onValueChange={(v) =>
-                    setState((s) => ({ ...s, tipasClassifierItemId: v }))
-                  }
+                  onValueChange={(v) => setState((s) => ({ ...s, tipasClassifierItemId: v }))}
                 >
                   <SelectTrigger id="fs-tipas">
                     <SelectValue placeholder="Pasirinkite tipą" />
@@ -303,15 +299,23 @@ export function FundingSourceDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="fs-metai">Metai</Label>
-                <Input
-                  id="fs-metai"
-                  type="number"
-                  min={2001}
-                  max={3000}
-                  required
+                <Select
                   value={state.metai}
-                  onChange={(e) => setState((s) => ({ ...s, metai: e.target.value }))}
-                />
+                  onValueChange={(v) => setState((s) => ({ ...s, metai: v }))}
+                >
+                  <SelectTrigger id="fs-metai">
+                    <SelectValue placeholder="Pasirinkite metus" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {yearOptions({
+                      include: state.metai === '' ? null : Number.parseInt(state.metai, 10),
+                    }).map((y) => (
+                      <SelectItem key={y} value={String(y)}>
+                        {y}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="fs-suma">Metinė suma (€)</Label>

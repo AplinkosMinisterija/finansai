@@ -136,6 +136,46 @@ describe('budgetAllocations service', () => {
       expect(alloc.fundingSourceCode).toBe('VB-2026');
     });
 
+    it('UAT #40 BP-001: be pavadinimo — auto-užpildoma iš kategorijos pavadinimo', async () => {
+      const alloc = (await broker.call(
+        'budgetAllocations.create',
+        {
+          fundingSourceId: sourceId,
+          categoryClassifierItemId: cls.budgetCategoryItemIds.du,
+          planuotaSuma: '500000.00',
+          metai: 2026,
+        },
+        { meta: { user: amAdmin() } },
+      )) as BudgetAllocationDTO;
+      expect(alloc.id).toBeDefined();
+      // Pavadinimas nebuvo perduotas → lygus kategorijos pavadinimui.
+      expect(alloc.pavadinimas).toBe(alloc.categoryName);
+      expect(alloc.categoryCode).toBe('du');
+    });
+
+    it('UAT #40 BP-001: keičiant kategoriją be pavadinimo — sinchronizuojama', async () => {
+      const alloc = (await broker.call(
+        'budgetAllocations.create',
+        {
+          fundingSourceId: sourceId,
+          categoryClassifierItemId: cls.budgetCategoryItemIds.du,
+          planuotaSuma: '500000.00',
+          metai: 2026,
+        },
+        { meta: { user: amAdmin() } },
+      )) as BudgetAllocationDTO;
+      const updated = (await broker.call(
+        'budgetAllocations.update',
+        {
+          id: alloc.id,
+          categoryClassifierItemId: cls.budgetCategoryItemIds.spec_programa,
+        },
+        { meta: { user: amAdmin() } },
+      )) as BudgetAllocationDTO;
+      expect(updated.categoryCode).toBe('spec_programa');
+      expect(updated.pavadinimas).toBe(updated.categoryName);
+    });
+
     it('Org user (ne-admin) gauna 403 prie POST', async () => {
       await expect(
         createAllocation(
@@ -168,18 +208,14 @@ describe('budgetAllocations service', () => {
     });
 
     it('Neegzistuojantis fundingSourceId → 400 INVALID_FUNDING_SOURCE', async () => {
-      await expect(
-        createAllocation({ fundingSourceId: 99999 }),
-      ).rejects.toMatchObject({
+      await expect(createAllocation({ fundingSourceId: 99999 })).rejects.toMatchObject({
         code: 400,
         type: 'INVALID_FUNDING_SOURCE',
       });
     });
 
     it('planuotaSuma = 0 → 400 INVALID_AMOUNT', async () => {
-      await expect(
-        createAllocation({ planuotaSuma: '0' }),
-      ).rejects.toMatchObject({
+      await expect(createAllocation({ planuotaSuma: '0' })).rejects.toMatchObject({
         code: 400,
         type: 'INVALID_AMOUNT',
       });
@@ -259,7 +295,7 @@ describe('budgetAllocations service', () => {
       expect(updated.specProgTipas).toBeNull();
     });
 
-    it('Update: kai keičiama kategorija iš spec_programa į kitą, specProgTipas null\'inamas', async () => {
+    it("Update: kai keičiama kategorija iš spec_programa į kitą, specProgTipas null'inamas", async () => {
       const created = await createAllocation({
         categoryClassifierItemId: cls.budgetCategoryItemIds.spec_programa,
         specProgTipas: 'atskiras',
@@ -376,11 +412,7 @@ describe('budgetAllocations service', () => {
 
     it('summary neegzistuojančio → 404', async () => {
       await expect(
-        broker.call(
-          'budgetAllocations.summary',
-          { id: 99999 },
-          { meta: { user: amAdmin() } },
-        ),
+        broker.call('budgetAllocations.summary', { id: 99999 }, { meta: { user: amAdmin() } }),
       ).rejects.toMatchObject({
         code: 404,
         type: 'BUDGET_ALLOCATION_NOT_FOUND',
