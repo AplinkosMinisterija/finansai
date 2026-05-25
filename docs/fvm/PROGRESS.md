@@ -1,10 +1,10 @@
 # FVM eiga (live)
 
-**Last update**: 2026-05-21 17:05 UTC (CTO Claude — Iter 10 baigta)
+**Last update**: 2026-05-22 (CTO Claude — Iter 16 baigta, FVM COMPLETED)
 
 ## Statusas
 
-🟢 **Iter 10 (FVM-2) PASS — push'inta į dev**. Ruošiu Iter 11 brief.
+🟢 **Iter 16 (FVM-8) PASS — push'inta į dev**. Visos 8 FVM iteracijos (9–16) baigtos, v0.3.0 paruošta. Laukia Giedrės staging UAT sign-off → tag `v0.3.0` į production.
 
 ## Iteracijų statusas
 
@@ -17,12 +17,7 @@
 | 13 (FVM-5) | Payroll (DU) — su 2 security fix'ais | 🟢 done | `iter-13-payroll.md` | 8/8 PASS + SECURE | ✅ 2026-05-22 |
 | 14 (FVM-6) | Reports + Excel/PDF Export | 🟢 done | `iter-14-reports.md` | 8/8 PASS | ✅ 2026-05-22 |
 | 15 (FVM-7) | Dashboard + multi-year | 🟢 done | `iter-15-dashboard.md` | 6/6 PASS | ✅ 2026-05-22 |
-| 11 (FVM-3) | Projects + auto-create | ⏸️ | — | — | — |
-| 12 (FVM-4) | Expenses + budget remainder | ⏸️ | — | — | — |
-| 13 (FVM-5) | Payroll (DU) | ⏸️ | — | — | — |
-| 14 (FVM-6) | Reports + Excel/PDF | ⏸️ | — | — | — |
-| 15 (FVM-7) | Dashboard + multi-year | ⏸️ | — | — | — |
-| 16 (FVM-8) | E2E + Staging + Prod | ⏸️ | — | — | — |
+| 16 (FVM-8) | E2E + Staging UAT + Prod deploy | 🟢 done | `iter-16-deploy.md` | 8/8 PASS | ✅ 2026-05-22 |
 
 Legend: ⏸️ pending • 🟡 in progress • 🟢 done • 🔴 blocked/failing audit
 
@@ -78,6 +73,13 @@ Claude vykdomas paraleliai daug subagent'ais — realus laikas daug trumpesnis n
 - **Security Reviewer (3-iasis pass): SECURE** — visi 4 sluoksniai apsaugos veikia (permission gate'ai + SQL filter'ai + 404 short-circuits + FE defense).
 - Auditorius (final): 8/8 PASS. READY TO SHIP.
 - Test counts (po Iter 13 + 13D + 13E): backend 256 (175 + 81); frontend 79 (66 + 13).
+
+### 2026-05-22 (Iter 14–16 — FVM finišas)
+- **Iter 14 (FVM-6) BAIGTA** — Ataskaitos + Excel/PDF eksportas. 3 šablonai (biudžeto vykdymas, spec.programos, DU paskirstymas), `reports.service.ts`, exceljs + pdfkit generatoriai, DU filter per ADR-005, `/ataskaitos` UI. 8/8 PASS.
+- **Iter 15 (FVM-7) BAIGTA** — FVM Dashboard + multi-year. `dashboard.fvmSummary` (budgetTotals + topWarnings + upcomingDeadlines), `fundingSources.copyFromYear` (AM admin), HomePage FVM summary section + year picker, `CopyBudgetDialog`. 6/6 PASS.
+- **Iter 16 (FVM-8) BAIGTA** — E2E + ship readiness. Playwright setup (`apps/e2e/`) + pirmas spec (funding-source flow), demo data refresh (`seeds/04_fvm.ts`), `verify-fvm.ts`, DejaVu Sans LT PDF fontas, visi dokai atnaujinti, `CHANGELOG.md` v0.3.0. 8/8 PASS, READY TO SHIP.
+- **Visa docx specifikacija padengta** (§2–§6, F01–F16, P01–P06). Laukia Giedrės staging UAT → tag v0.3.0.
+- Detalės — `docs/diskusijos.md` (Iter 14/15/16 įrašai).
 
 ### 2026-05-21 (ilgas vakaras)
 - **Iter 12 (FVM-4) BAIGTA**. 3 subagent'ai + nepriklausomas auditas.
