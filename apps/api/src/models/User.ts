@@ -18,6 +18,8 @@ export class User extends BaseModel {
   tenantId!: number;
   /** AM userio scope. NULL = visos org'os. */
   amScopeOrgIds!: number[] | null;
+  /** #9: AM tvirtintojo aprobacijos lygiai (approval_levels kodai). Default `[]`. */
+  approvalLevelCodes!: string[];
   active!: boolean;
   createdAt!: string;
   updatedAt!: string;

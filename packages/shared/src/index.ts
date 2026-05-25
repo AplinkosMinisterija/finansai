@@ -101,6 +101,8 @@ export type AuthUser = {
   tenantIsApprover: boolean;
   /** Kuriose org'ose AM specialistas mato prašymus. NULL = visos (arba neaktualu). */
   amScopeOrgIds: number[] | null;
+  /** #9: kuriuos aprobacijos lygius (approval_levels kodai) gali tvirtinti AM tvirtintojas. */
+  approvalLevelCodes: string[];
 };
 
 export type AuthLoginRequest = {
@@ -129,6 +131,8 @@ export type User = {
   tenantName: string;
   tenantIsApprover: boolean;
   amScopeOrgIds: number[] | null;
+  /** #9: AM tvirtintojo aprobacijos lygiai (approval_levels kodai). */
+  approvalLevelCodes: string[];
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -142,6 +146,7 @@ export type UserCreateRequest = {
   role: UserRole;
   tenantId: number;
   amScopeOrgIds?: number[] | null;
+  approvalLevelCodes?: string[];
   active?: boolean;
 };
 
@@ -153,6 +158,7 @@ export type UserUpdateRequest = {
   role?: UserRole;
   tenantId?: number;
   amScopeOrgIds?: number[] | null;
+  approvalLevelCodes?: string[];
   active?: boolean;
 };
 

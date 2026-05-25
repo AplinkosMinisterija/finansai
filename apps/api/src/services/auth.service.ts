@@ -61,6 +61,7 @@ function toAuthUser(user: UserWithTenant): AuthUser {
     tenantName: tenant.name,
     tenantIsApprover: tenant.isApprover,
     amScopeOrgIds: user.amScopeOrgIds,
+    approvalLevelCodes: user.approvalLevelCodes ?? [],
   };
 }
 

@@ -48,6 +48,7 @@ const AM_ADMIN: AuthUser = {
   tenantName: 'Aplinkos ministerija',
   tenantIsApprover: true,
   amScopeOrgIds: null,
+  approvalLevelCodes: [],
 };
 
 const ORG_ADMIN: AuthUser = {
@@ -61,6 +62,7 @@ const ORG_ADMIN: AuthUser = {
   tenantName: 'AAD',
   tenantIsApprover: false,
   amScopeOrgIds: null,
+  approvalLevelCodes: [],
 };
 
 const ORG_USER: AuthUser = {
@@ -74,6 +76,7 @@ const ORG_USER: AuthUser = {
   tenantName: 'AAD',
   tenantIsApprover: false,
   amScopeOrgIds: null,
+  approvalLevelCodes: [],
 };
 
 describe('AtaskaitosPage — tabai, permission gating, download mygtukai', () => {

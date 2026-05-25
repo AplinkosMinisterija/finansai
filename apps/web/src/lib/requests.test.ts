@@ -29,6 +29,7 @@ function makeSubmitter(overrides: Partial<AuthUser> = {}): AuthUser {
     tenantName: 'AAD',
     tenantIsApprover: false,
     amScopeOrgIds: null,
+    approvalLevelCodes: [],
     ...overrides,
   };
 }
@@ -45,6 +46,7 @@ function makeApprover(overrides: Partial<AuthUser> = {}): AuthUser {
     tenantName: 'Aplinkos ministerija',
     tenantIsApprover: true,
     amScopeOrgIds: null,
+    approvalLevelCodes: [],
     ...overrides,
   };
 }

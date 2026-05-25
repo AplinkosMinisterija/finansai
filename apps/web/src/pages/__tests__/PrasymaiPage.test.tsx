@@ -94,6 +94,7 @@ const amAdmin: AuthUser = {
   tenantName: 'Aplinkos ministerija',
   tenantIsApprover: true,
   amScopeOrgIds: null,
+  approvalLevelCodes: [],
 };
 
 const orgUser: AuthUser = {
@@ -107,6 +108,7 @@ const orgUser: AuthUser = {
   tenantName: 'AAD',
   tenantIsApprover: false,
   amScopeOrgIds: null,
+  approvalLevelCodes: [],
 };
 
 describe('PrasymaiPage — UAT #42', () => {

@@ -64,6 +64,7 @@ const AM_ADMIN: AuthUser = {
   tenantName: 'Aplinkos ministerija',
   tenantIsApprover: true,
   amScopeOrgIds: null,
+  approvalLevelCodes: [],
 };
 
 function makeProfile(overrides: Partial<PayrollProfile> = {}): PayrollProfile {

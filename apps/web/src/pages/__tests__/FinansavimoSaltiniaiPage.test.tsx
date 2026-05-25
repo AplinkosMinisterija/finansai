@@ -76,6 +76,7 @@ const AM_ADMIN: AuthUser = {
   tenantName: 'Aplinkos ministerija',
   tenantIsApprover: true,
   amScopeOrgIds: null,
+  approvalLevelCodes: [],
 };
 
 const ORG_USER: AuthUser = {
@@ -89,6 +90,7 @@ const ORG_USER: AuthUser = {
   tenantName: 'AAD',
   tenantIsApprover: false,
   amScopeOrgIds: null,
+  approvalLevelCodes: [],
 };
 
 describe('FinansavimoSaltiniaiPage', () => {

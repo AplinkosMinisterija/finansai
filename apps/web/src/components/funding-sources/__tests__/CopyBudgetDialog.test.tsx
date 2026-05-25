@@ -46,6 +46,7 @@ const AM_ADMIN: AuthUser = {
   tenantName: 'Aplinkos ministerija',
   tenantIsApprover: true,
   amScopeOrgIds: null,
+  approvalLevelCodes: [],
 };
 
 function makeTenant(overrides: Partial<Tenant> = {}): Tenant {

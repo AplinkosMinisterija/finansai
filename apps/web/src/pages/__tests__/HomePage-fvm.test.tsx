@@ -60,6 +60,7 @@ const AM_ADMIN: AuthUser = {
   tenantName: 'Aplinkos ministerija',
   tenantIsApprover: true,
   amScopeOrgIds: null,
+  approvalLevelCodes: [],
 };
 
 function makeDashboard(overrides: Partial<DashboardData> = {}): DashboardData {

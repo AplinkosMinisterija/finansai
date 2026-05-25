@@ -27,6 +27,7 @@ export interface MockAuthUserOpts {
   tenantName?: string;
   tenantIsApprover?: boolean;
   amScopeOrgIds?: number[] | null;
+  approvalLevelCodes?: string[];
 }
 
 const DEFAULT_AM_ADMIN: AuthUser = {
@@ -40,6 +41,7 @@ const DEFAULT_AM_ADMIN: AuthUser = {
   tenantName: 'Aplinkos ministerija',
   tenantIsApprover: true,
   amScopeOrgIds: null,
+  approvalLevelCodes: [],
 };
 
 export function mockAuthUser(opts: MockAuthUserOpts = {}): AuthUser {

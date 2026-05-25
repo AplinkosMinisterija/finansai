@@ -42,6 +42,7 @@ function toDTO(u: UserWithTenant): UserDTO {
     tenantName: tenant.name,
     tenantIsApprover: tenant.isApprover,
     amScopeOrgIds: u.amScopeOrgIds,
+    approvalLevelCodes: u.approvalLevelCodes ?? [],
     active: u.active,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,

@@ -20,6 +20,7 @@ export const TEST_AUTH_USER: AuthUser = {
   tenantName: 'Aplinkos ministerija',
   tenantIsApprover: true,
   amScopeOrgIds: null,
+  approvalLevelCodes: [],
 };
 
 export function makeAuthValue(
