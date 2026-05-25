@@ -18,7 +18,45 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useClassifier } from '@/lib/classifiers';
+import { useClassifier, type ClassifierLookup } from '@/lib/classifiers';
+
+type OrderedItem = {
+  item: import('@biip-finansai/shared').ClassifierItem;
+  isChild: boolean;
+};
+
+/**
+ * Sudaro dropdown'o eilučių tvarką.
+ *
+ * UAT auditas P1: kai `showHierarchy`, anksčiau būdavo rodomi tik top-level
+ * (parentId===null) + jų children TOJE PAČIOJE grupėje. Po PA-005 `source_program`
+ * item'ai gavo `parentId`, rodantį į KITOS grupės (`funding_source_type`) item'ą —
+ * tad jie tapdavo nei top-level, nei child → tyliai nukrisdavo (rodoma tik „Kita").
+ * Fix: po hierarchijos surinkimo dar pridedam visus dar neįtrauktus item'us
+ * („našlaičius", kurių tėvas ne šios grupės top-level) kaip top-level — niekas
+ * nebenukrenta.
+ */
+export function buildOrderedItems(lookup: ClassifierLookup, showHierarchy: boolean): OrderedItem[] {
+  if (!showHierarchy) {
+    return lookup.items.map((item) => ({ item, isChild: false }));
+  }
+  const ordered: OrderedItem[] = [];
+  const seen = new Set<number>();
+  for (const top of lookup.topLevel) {
+    ordered.push({ item: top, isChild: false });
+    seen.add(top.id);
+    const children = lookup.items.filter((i) => i.parentId === top.id);
+    for (const c of children) {
+      ordered.push({ item: c, isChild: true });
+      seen.add(c.id);
+    }
+  }
+  // Našlaičiai (tėvas ne šioje grupėje / neaktyvus) — rodomi kaip top-level.
+  for (const it of lookup.items) {
+    if (!seen.has(it.id)) ordered.push({ item: it, isChild: false });
+  }
+  return ordered;
+}
 
 export interface ClassifierSelectProps {
   groupCode: string;
@@ -47,38 +85,21 @@ export function ClassifierSelect({
 }: ClassifierSelectProps): JSX.Element {
   const lookup = useClassifier(groupCode);
 
-  const currentValue =
-    value === null || value === undefined || value === '' ? NONE_VALUE : value;
+  const currentValue = value === null || value === undefined || value === '' ? NONE_VALUE : value;
 
-  // Stable order: top-level, paskui jų children. Backend grąžina jau pagal sort.
-  const ordered: { item: import('@biip-finansai/shared').ClassifierItem; isChild: boolean }[] = [];
-  if (showHierarchy) {
-    for (const top of lookup.topLevel) {
-      ordered.push({ item: top, isChild: false });
-      const children = lookup.items.filter((i) => i.parentId === top.id);
-      for (const c of children) ordered.push({ item: c, isChild: true });
-    }
-  } else {
-    for (const it of lookup.items) ordered.push({ item: it, isChild: false });
-  }
+  const ordered = buildOrderedItems(lookup, showHierarchy);
 
   return (
-    <Select
-      value={currentValue}
-      onValueChange={(v) => onChange(v === NONE_VALUE ? null : v)}
-    >
+    <Select value={currentValue} onValueChange={(v) => onChange(v === NONE_VALUE ? null : v)}>
       <SelectTrigger id={id} className={className}>
         <SelectValue placeholder={placeholder ?? 'Pasirinkite…'} />
       </SelectTrigger>
       <SelectContent>
-        {emptyLabel !== undefined && (
-          <SelectItem value={NONE_VALUE}>{emptyLabel}</SelectItem>
-        )}
+        {emptyLabel !== undefined && <SelectItem value={NONE_VALUE}>{emptyLabel}</SelectItem>}
         {ordered.map(({ item, isChild }) => (
           <SelectItem key={item.id} value={item.code}>
             <span className={isChild ? 'pl-3' : ''}>
-              {item.name}{' '}
-              <span className="text-[10px] text-muted-foreground">({item.code})</span>
+              {item.name} <span className="text-[10px] text-muted-foreground">({item.code})</span>
             </span>
           </SelectItem>
         ))}
@@ -124,19 +145,9 @@ export function ClassifierSelectById({
 }: ClassifierSelectByIdProps): JSX.Element {
   const lookup = useClassifier(groupCode);
 
-  const currentValue =
-    value === null || value === undefined ? NONE_VALUE : String(value);
+  const currentValue = value === null || value === undefined ? NONE_VALUE : String(value);
 
-  const ordered: { item: import('@biip-finansai/shared').ClassifierItem; isChild: boolean }[] = [];
-  if (showHierarchy) {
-    for (const top of lookup.topLevel) {
-      ordered.push({ item: top, isChild: false });
-      const children = lookup.items.filter((i) => i.parentId === top.id);
-      for (const c of children) ordered.push({ item: c, isChild: true });
-    }
-  } else {
-    for (const it of lookup.items) ordered.push({ item: it, isChild: false });
-  }
+  const ordered = buildOrderedItems(lookup, showHierarchy);
 
   return (
     <Select
@@ -162,14 +173,11 @@ export function ClassifierSelectById({
         <SelectValue placeholder={placeholder ?? 'Pasirinkite…'} />
       </SelectTrigger>
       <SelectContent>
-        {emptyLabel !== undefined && (
-          <SelectItem value={NONE_VALUE}>{emptyLabel}</SelectItem>
-        )}
+        {emptyLabel !== undefined && <SelectItem value={NONE_VALUE}>{emptyLabel}</SelectItem>}
         {ordered.map(({ item, isChild }) => (
           <SelectItem key={item.id} value={String(item.id)}>
             <span className={isChild ? 'pl-3' : ''}>
-              {item.name}{' '}
-              <span className="text-[10px] text-muted-foreground">({item.code})</span>
+              {item.name} <span className="text-[10px] text-muted-foreground">({item.code})</span>
             </span>
           </SelectItem>
         ))}
