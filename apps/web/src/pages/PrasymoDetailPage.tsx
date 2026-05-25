@@ -39,11 +39,13 @@ import { ApprovalStepsList } from '@/components/requests/ApprovalStepsList';
 import { ReportsSection } from '@/components/requests/ReportsSection';
 import {
   canDecide,
+  canDecideStep,
   canDelete,
   canEdit,
   canMarkNotRelevant,
   canReactivate,
   canSubmit,
+  currentPendingStep,
   fmtDate,
   fmtDateTime,
   fmtEur,
@@ -332,7 +334,12 @@ export default function PrasymoDetailPage(): JSX.Element {
   const totalQ = totalQuarterly(r);
   const canEditNow = canEdit(user, r);
   const canSubmitNow = canSubmit(user, r);
-  const canDecideNow = canDecide(user, r);
+  // Issue #9: dabartinis PENDING žingsnis + per-žingsnį sprendimo teisė.
+  const pendingStep = currentPendingStep(r.approvalSteps);
+  const canDecideNow = canDecideStep(user, r, pendingStep);
+  // AM tvirtintojas mato prašymą (canDecide), bet dabartinis žingsnis — kito
+  // lygio → vietoj veiksmų rodom informacinę juostą „Laukia: {levelName}".
+  const awaitingOtherLevel = canDecide(user, r) && !canDecideNow;
   const canDeleteNow = canDelete(user, r);
   // Issue #9: NEAKTUALU perėjimai.
   const canMarkNotRelevantNow = canMarkNotRelevant(user, r);
@@ -468,6 +475,20 @@ export default function PrasymoDetailPage(): JSX.Element {
         >
           {error}
         </div>
+      )}
+
+      {/* Issue #9: AM tvirtintojas mato prašymą, bet dabar tvirtina kitas lygis. */}
+      {awaitingOtherLevel && pendingStep && (
+        <Card className="mb-4 border-amber-300/60 bg-amber-50/50">
+          <CardContent className="p-4">
+            <p className="text-sm">
+              <span className="font-medium">Laukia:</span> {pendingStep.levelName}
+              <span className="ml-1 text-muted-foreground">
+                — šį žingsnį tvirtina kitas aprobacijos lygis.
+              </span>
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {/* AM decision actions */}
@@ -980,7 +1001,14 @@ export default function PrasymoDetailPage(): JSX.Element {
                     <CheckCircle2 className="h-4 w-4" />
                     Aprobacijos eiga
                   </h3>
-                  <ApprovalStepsList steps={r.approvalSteps ?? []} />
+                  <ApprovalStepsList
+                    steps={r.approvalSteps ?? []}
+                    viewer={
+                      user?.tenantIsApprover
+                        ? { role: user.role, approvalLevelCodes: user.approvalLevelCodes ?? [] }
+                        : undefined
+                    }
+                  />
                 </CardContent>
               </Card>
 

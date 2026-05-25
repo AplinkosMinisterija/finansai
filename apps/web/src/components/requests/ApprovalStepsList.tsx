@@ -39,12 +39,30 @@ function fmtDate(value: string | null): string {
 
 export interface ApprovalStepsListProps {
   steps: ApprovalStep[];
+  /**
+   * Issue #9: dabartinis žiūrėtojas (AM tvirtintojas). Naudojamas „Jūsų eilė"
+   * žymai prie dabartinio PENDING žingsnio, jei jo lygis ∈ vartotojo lygiai
+   * (arba vartotojas yra AM admin = super-approver).
+   */
+  viewer?: { role: string; approvalLevelCodes: string[] };
 }
 
-export function ApprovalStepsList({ steps }: ApprovalStepsListProps): JSX.Element {
+export function ApprovalStepsList({ steps, viewer }: ApprovalStepsListProps): JSX.Element {
   if (steps.length === 0) {
     return <p className="text-xs text-muted-foreground">Aprobacijos žingsnių nėra (prašymas dar nepateiktas).</p>;
   }
+
+  // Dabartinis PENDING žingsnis — mažiausio sequence PENDING. „Jūsų eilė" žyma
+  // rodoma tik prie jo, kai viewer'is gali jį tvirtinti.
+  const currentPending = [...steps]
+    .filter((s) => s.status === 'PENDING')
+    .sort((a, b) => a.sequence - b.sequence)[0];
+  const viewerCanDecideCurrent = (step: ApprovalStep): boolean => {
+    if (!viewer) return false;
+    if (!currentPending || step.id !== currentPending.id) return false;
+    if (viewer.role === 'admin') return true;
+    return viewer.approvalLevelCodes.includes(step.levelCode);
+  };
 
   // Iteracijos dydis = unique levelCode count'as. Jei tik 1 level — 1 step per round.
   const levelsPerRound = Math.max(1, new Set(steps.map((s) => s.levelCode)).size);
@@ -114,6 +132,11 @@ export function ApprovalStepsList({ steps }: ApprovalStepsListProps): JSX.Elemen
                       >
                         {v.label}
                       </Badge>
+                      {viewerCanDecideCurrent(step) && (
+                        <Badge variant="default" className="text-[10px]">
+                          Jūsų eilė
+                        </Badge>
+                      )}
                     </div>
                     {step.decidedAt && (
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
