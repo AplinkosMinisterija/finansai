@@ -13,12 +13,7 @@
 import type { JSONSchema, RelationMappings } from 'objection';
 import { BaseModel } from './Base';
 
-export type RequestStatus =
-  | 'DRAFT'
-  | 'SUBMITTED'
-  | 'RETURNED'
-  | 'APPROVED'
-  | 'REJECTED';
+export type RequestStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REJECTED';
 
 /**
  * Spec.programos finansavimo tipas (Iter 10).
@@ -81,6 +76,8 @@ export class Request extends BaseModel {
   decisionFundingSource!: string | null;
   decisionProtocol!: string | null;
   decisionOrder!: string | null;
+  /** Įsakymo/sprendimo data (UAT #42 / PA-006). ISO data (YYYY-MM-DD). */
+  decisionOrderDate!: string | null;
   decidedAt!: string | null;
   decidedByUserId!: number | null;
 
@@ -134,8 +131,7 @@ export class Request extends BaseModel {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { ApprovalStep } = require('./ApprovalStep') as typeof import('./ApprovalStep');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { ClassifierItem } =
-      require('./ClassifierItem') as typeof import('./ClassifierItem');
+    const { ClassifierItem } = require('./ClassifierItem') as typeof import('./ClassifierItem');
 
     return {
       tenant: {

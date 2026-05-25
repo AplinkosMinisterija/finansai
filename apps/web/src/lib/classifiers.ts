@@ -49,3 +49,18 @@ export function classifierLabel(lookup: ClassifierLookup, code: string | null | 
   const it = lookup.byCode.get(code);
   return it?.name ?? code;
 }
+
+/**
+ * UAT #42 (PA-007): trumpas label'as sąrašams/badge'ams — grąžina `code`
+ * (Trumpinį, pvz. „IAMS"), o ne pilną pavadinimą. Naudoti IS sistemos
+ * stulpeliuose, badge'uose ir kitur, kur reikia kompaktiško žymens. Detali
+ * peržiūra naudoja `classifierLabel` (pilnas pavadinimas).
+ */
+export function classifierShortLabel(
+  lookup: ClassifierLookup,
+  code: string | null | undefined,
+): string {
+  if (!code) return '—';
+  const it = lookup.byCode.get(code);
+  return it?.code ?? code;
+}

@@ -212,6 +212,16 @@ export interface FvmClassifierFixtures {
     investicijos: number;
     kita: number;
   };
+  /** UAT #42 (PA-005): source_program grupė su tėvais (funding_source_type). */
+  sourceProgramGroupId: number;
+  sourceProgramItemIds: {
+    /** Tėvas = funding_source_type.biudzetas */
+    am_it_budget: number;
+    /** Tėvas = funding_source_type.es */
+    eu_funds: number;
+    /** Be tėvo (legacy). */
+    kita: number;
+  };
 }
 
 interface ClassifierItemSeed {
@@ -227,9 +237,9 @@ async function ensureGroup(
   description: string,
   items: ClassifierItemSeed[],
 ): Promise<{ groupId: number; itemIdsByCode: Record<string, number> }> {
-  const existing = (await knex('classifier_groups')
-    .where({ code })
-    .first<{ id: number }>()) as { id: number } | undefined;
+  const existing = (await knex('classifier_groups').where({ code }).first<{ id: number }>()) as
+    | { id: number }
+    | undefined;
   let groupId: number;
   if (existing) {
     groupId = existing.id;
@@ -280,9 +290,7 @@ async function ensureGroup(
  *
  * Idempotent — jei grupė ar item'as jau yra, naudoja esamą ID.
  */
-export async function seedFvmClassifiers(
-  knex: Knex,
-): Promise<FvmClassifierFixtures> {
+export async function seedFvmClassifiers(knex: Knex): Promise<FvmClassifierFixtures> {
   const fundingSourceType = await ensureGroup(
     knex,
     'funding_source_type',
@@ -307,6 +315,28 @@ export async function seedFvmClassifiers(
       { code: 'kita', name: 'Kita', sortOrder: 99 },
     ],
   );
+
+  // UAT #42 (PA-005): source_program grupė. Dvi programos susietos su
+  // funding_source_type tėvais (per parent_id), viena — be tėvo (legacy).
+  const sourceProgram = await ensureGroup(
+    knex,
+    'source_program',
+    'Finansavimo šaltinio programos',
+    'Test fixture — source_program group',
+    [
+      { code: 'AM_IT_BUDGET', name: 'AM IT biudžetas', sortOrder: 10 },
+      { code: 'EU_FUNDS', name: 'ES struktūriniai fondai', sortOrder: 20 },
+      { code: 'OTHER', name: 'Kita', sortOrder: 99 },
+    ],
+  );
+  // Priskiriam tėvus (funding_source_type) source_program reikšmėms.
+  await knex('classifier_items')
+    .where({ id: sourceProgram.itemIdsByCode['AM_IT_BUDGET']! })
+    .update({ parent_id: fundingSourceType.itemIdsByCode['biudzetas']! });
+  await knex('classifier_items')
+    .where({ id: sourceProgram.itemIdsByCode['EU_FUNDS']! })
+    .update({ parent_id: fundingSourceType.itemIdsByCode['es']! });
+
   return {
     fundingSourceTypeGroupId: fundingSourceType.groupId,
     fundingSourceTypeItemIds: {
@@ -321,6 +351,12 @@ export async function seedFvmClassifiers(
       prekes_paslaugos: budgetCategory.itemIdsByCode['prekes_paslaugos']!,
       investicijos: budgetCategory.itemIdsByCode['investicijos']!,
       kita: budgetCategory.itemIdsByCode['kita']!,
+    },
+    sourceProgramGroupId: sourceProgram.groupId,
+    sourceProgramItemIds: {
+      am_it_budget: sourceProgram.itemIdsByCode['AM_IT_BUDGET']!,
+      eu_funds: sourceProgram.itemIdsByCode['EU_FUNDS']!,
+      kita: sourceProgram.itemIdsByCode['OTHER']!,
     },
   };
 }

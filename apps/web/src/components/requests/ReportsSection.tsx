@@ -22,13 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  reportDelete,
-  reportSubmit,
-  reportUpsert,
-  reportsList,
-} from '@/lib/api';
-import { useAuth } from '@/lib/auth';
+import { reportDelete, reportSubmit, reportUpsert, reportsList } from '@/lib/api';
 import { fmtEur } from '@/lib/requests';
 
 export interface ReportsSectionProps {
@@ -49,9 +43,11 @@ export function ReportsSection({
   isApproved,
   isSubmitterSide,
 }: ReportsSectionProps): JSX.Element {
-  const { user } = useAuth();
   const qc = useQueryClient();
-  const [dialog, setDialog] = React.useState<{ mode: 'create' | 'edit'; report: RequestReport | null } | null>(null);
+  const [dialog, setDialog] = React.useState<{
+    mode: 'create' | 'edit';
+    report: RequestReport | null;
+  } | null>(null);
 
   const q = useQuery<RequestReport[]>({
     queryKey: ['reports', requestId],
@@ -82,8 +78,10 @@ export function ReportsSection({
   }
 
   const items = q.data ?? [];
-  const canManage =
-    isSubmitterSide || (user?.tenantIsApprover === true && user.role === 'admin');
+  // UAT #42 (PA-009): atsiskaitymą valdo (kuria/redaguoja/teikia) TIK teikėjo
+  // pusė. AM (tvirtintojas) — tik peržiūri (read-only). `isSubmitterSide` jau
+  // perduodamas false AM vartotojui (žr. PrasymoDetailPage).
+  const canManage = isSubmitterSide;
 
   return (
     <div className="space-y-3">
@@ -226,18 +224,14 @@ function ReportDialog({
     report ? String(report.periodYear) : String(now.getFullYear()),
   );
   const [periodKind, setPeriodKind] = React.useState<'quarterly' | 'annual'>(
-    report
-      ? report.periodQuarter === null
-        ? 'annual'
-        : 'quarterly'
-      : 'quarterly',
+    report ? (report.periodQuarter === null ? 'annual' : 'quarterly') : 'quarterly',
   );
   const [quarter, setQuarter] = React.useState<string>(
-    report?.periodQuarter ? String(report.periodQuarter) : String(Math.floor(now.getMonth() / 3) + 1),
+    report?.periodQuarter
+      ? String(report.periodQuarter)
+      : String(Math.floor(now.getMonth() / 3) + 1),
   );
-  const [amountUsed, setAmountUsed] = React.useState<string>(
-    report ? report.amountUsed : '0.00',
-  );
+  const [amountUsed, setAmountUsed] = React.useState<string>(report ? report.amountUsed : '0.00');
   const [description, setDescription] = React.useState<string>(report?.description ?? '');
   const [error, setError] = React.useState<string | null>(null);
 

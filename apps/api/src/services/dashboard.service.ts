@@ -97,10 +97,12 @@ function toRequestDTO(r: RequestWithRels): RequestDTO {
     executorEmail: r.executorEmail,
     implementationDeadline: r.implementationDeadline,
     submitterNotes: r.submitterNotes,
-    decisionGrantedAmount: r.decisionGrantedAmount === null ? null : String(r.decisionGrantedAmount),
+    decisionGrantedAmount:
+      r.decisionGrantedAmount === null ? null : String(r.decisionGrantedAmount),
     decisionFundingSource: r.decisionFundingSource,
     decisionProtocol: r.decisionProtocol,
     decisionOrder: r.decisionOrder,
+    decisionOrderDate: r.decisionOrderDate,
     decidedAt: r.decidedAt,
     decidedByUserId: r.decidedByUserId,
     decidedByName: r.decidedByUser?.fullName ?? null,
@@ -209,9 +211,23 @@ const DashboardService: ServiceSchema = {
 
         const categoryAccumulator: Record<
           CostCategoryStats['key'],
-          { label: string; field: keyof Request; requested: number; approved: number; rejected: number; count: number }
+          {
+            label: string;
+            field: keyof Request;
+            requested: number;
+            approved: number;
+            rejected: number;
+            count: number;
+          }
         > = {
-          du: { label: 'DU / Atlyginimai', field: 'costDu', requested: 0, approved: 0, rejected: 0, count: 0 },
+          du: {
+            label: 'DU / Atlyginimai',
+            field: 'costDu',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
           equipment: {
             label: 'Įranga / licencijos',
             field: 'costEquipment',
@@ -220,8 +236,22 @@ const DashboardService: ServiceSchema = {
             rejected: 0,
             count: 0,
           },
-          creation: { label: 'Kūrimas', field: 'costCreation', requested: 0, approved: 0, rejected: 0, count: 0 },
-          analysis: { label: 'Analizė', field: 'costAnalysis', requested: 0, approved: 0, rejected: 0, count: 0 },
+          creation: {
+            label: 'Kūrimas',
+            field: 'costCreation',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
+          analysis: {
+            label: 'Analizė',
+            field: 'costAnalysis',
+            requested: 0,
+            approved: 0,
+            rejected: 0,
+            count: 0,
+          },
           development: {
             label: 'Vystymas',
             field: 'costDevelopment',
@@ -342,7 +372,9 @@ const DashboardService: ServiceSchema = {
         let actionable: RequestDTO[] = [];
         if (!isApprover) {
           const rows = (await scopedRequestQuery(me)
-            .withGraphFetched('[tenant, createdByUser, decidedByUser, budgetCategory, fundingSourceType]')
+            .withGraphFetched(
+              '[tenant, createdByUser, decidedByUser, budgetCategory, fundingSourceType]',
+            )
             .whereIn('requests.status', ['RETURNED', 'DRAFT'])
             .orderByRaw("CASE WHEN requests.status = 'RETURNED' THEN 0 ELSE 1 END")
             .orderBy('requests.updated_at', 'desc')
@@ -354,7 +386,9 @@ const DashboardService: ServiceSchema = {
         let pendingReview: RequestDTO[] = [];
         if (isApprover) {
           const rows = (await scopedRequestQuery(me)
-            .withGraphFetched('[tenant, createdByUser, decidedByUser, budgetCategory, fundingSourceType]')
+            .withGraphFetched(
+              '[tenant, createdByUser, decidedByUser, budgetCategory, fundingSourceType]',
+            )
             .where('requests.status', 'SUBMITTED')
             .orderBy('requests.submitted_at', 'asc')
             .limit(8)) as RequestWithRels[];
@@ -446,15 +480,23 @@ const DashboardService: ServiceSchema = {
           d.setMonth(d.getMonth() + i);
           months.push(d.toISOString().slice(0, 7)); // YYYY-MM
         }
-        const submittedByMonth: Record<string, number> = Object.fromEntries(months.map((m) => [m, 0]));
-        const approvedByMonth: Record<string, number> = Object.fromEntries(months.map((m) => [m, 0]));
+        const submittedByMonth: Record<string, number> = Object.fromEntries(
+          months.map((m) => [m, 0]),
+        );
+        const approvedByMonth: Record<string, number> = Object.fromEntries(
+          months.map((m) => [m, 0]),
+        );
 
         // Fetch detalė trendui
         if (allRequests.length > 0) {
           const ids = allRequests.map((r) => r.id);
           const fullRequests = (await scopedRequestQuery(me)
             .whereIn('requests.id', ids)
-            .select('requests.submitted_at', 'requests.decided_at', 'requests.status')) as Request[];
+            .select(
+              'requests.submitted_at',
+              'requests.decided_at',
+              'requests.status',
+            )) as Request[];
           for (const r of fullRequests) {
             if (r.submittedAt) {
               const m = new Date(r.submittedAt).toISOString().slice(0, 7);
@@ -507,8 +549,10 @@ const DashboardService: ServiceSchema = {
         let budgetCategoryStats: BudgetCategoryStats[] = [];
         if (budgetCategoryAcc.size > 0) {
           const categoryIds = [...budgetCategoryAcc.keys()];
-          const items = (await ClassifierItem.query()
-            .whereIn('id', categoryIds)) as ClassifierItem[];
+          const items = (await ClassifierItem.query().whereIn(
+            'id',
+            categoryIds,
+          )) as ClassifierItem[];
           const itemsById = new Map(items.map((it) => [it.id, it]));
           budgetCategoryStats = categoryIds
             .map((id) => {
@@ -610,9 +654,7 @@ const DashboardService: ServiceSchema = {
               if (tenantFilter !== undefined) {
                 q.whereExists((qb) => {
                   qb.from('funding_sources')
-                    .whereRaw(
-                      'funding_sources.id = budget_allocations_v2.funding_source_id',
-                    )
+                    .whereRaw('funding_sources.id = budget_allocations_v2.funding_source_id')
                     .where('funding_sources.tenant_id', tenantFilter);
                 });
               }
@@ -623,9 +665,7 @@ const DashboardService: ServiceSchema = {
             if (me.amScopeOrgIds.length === 0) return 'empty';
             q.whereExists((qb) => {
               qb.from('funding_sources')
-                .whereRaw(
-                  'funding_sources.id = budget_allocations_v2.funding_source_id',
-                )
+                .whereRaw('funding_sources.id = budget_allocations_v2.funding_source_id')
                 .whereIn('funding_sources.tenant_id', me.amScopeOrgIds!);
             });
             return 'ok';
@@ -633,9 +673,7 @@ const DashboardService: ServiceSchema = {
           // Org admin / org user
           q.whereExists((qb) => {
             qb.from('funding_sources')
-              .whereRaw(
-                'funding_sources.id = budget_allocations_v2.funding_source_id',
-              )
+              .whereRaw('funding_sources.id = budget_allocations_v2.funding_source_id')
               .where('funding_sources.tenant_id', me.tenantId);
           });
           return 'ok';
@@ -660,9 +698,7 @@ const DashboardService: ServiceSchema = {
           return 'ok';
         }
 
-        function applyProjectTenantScope(
-          q: ReturnType<typeof Project.query>,
-        ): 'empty' | 'ok' {
+        function applyProjectTenantScope(q: ReturnType<typeof Project.query>): 'empty' | 'ok' {
           if (me.tenantIsApprover) {
             if (me.role === 'admin') {
               if (tenantFilter !== undefined) {
@@ -690,9 +726,7 @@ const DashboardService: ServiceSchema = {
         if (!canViewPayroll(me)) {
           allocQ.whereNotExists((qb) => {
             qb.from('classifier_items')
-              .whereRaw(
-                'classifier_items.id = budget_allocations_v2.category_classifier_item_id',
-              )
+              .whereRaw('classifier_items.id = budget_allocations_v2.category_classifier_item_id')
               .where('classifier_items.code', 'du');
           });
         }
@@ -700,9 +734,7 @@ const DashboardService: ServiceSchema = {
         const allocations =
           allocScope === 'empty'
             ? []
-            : ((await allocQ) as Array<
-                BudgetAllocationV2 & { fundingSource?: FundingSource }
-              >);
+            : ((await allocQ) as Array<BudgetAllocationV2 & { fundingSource?: FundingSource }>);
 
         // Faktinė per allocations vienoje GROUP BY užklausoje.
         const allocationIds = allocations.map((a) => a.id);
@@ -754,10 +786,7 @@ const DashboardService: ServiceSchema = {
           totalFaktineCents += toCents(item.faktine);
         }
         const totalLikutisCents = totalPlanuotaCents - totalFaktineCents;
-        const totalPercentUsed = calculatePercentUsed(
-          totalPlanuotaCents,
-          totalFaktineCents,
-        );
+        const totalPercentUsed = calculatePercentUsed(totalPlanuotaCents, totalFaktineCents);
         const totalFlags = calculateWarningFlags(totalPercentUsed);
 
         // Top 5 warning'ai — tik tie su isWarning || isOver, surūšiuoti
@@ -785,8 +814,7 @@ const DashboardService: ServiceSchema = {
           deadlineQ.where('projects.is_du_system', false);
         }
 
-        const deadlineProjects =
-          deadlineScope === 'empty' ? [] : ((await deadlineQ) as Project[]);
+        const deadlineProjects = deadlineScope === 'empty' ? [] : ((await deadlineQ) as Project[]);
 
         const upcomingDeadlines: UpcomingDeadline[] = deadlineProjects
           .filter((p) => p.pabaigosData !== null)
@@ -827,10 +855,10 @@ const DashboardService: ServiceSchema = {
           activeQBuilder.where('projects.is_du_system', false);
         }
 
-        const completedQBuilder = Project.query().whereIn(
-          'projects.statusas',
-          ['baigta', 'uzdaryta'],
-        );
+        const completedQBuilder = Project.query().whereIn('projects.statusas', [
+          'baigta',
+          'uzdaryta',
+        ]);
         const completedScope = applyProjectTenantScope(completedQBuilder);
         if (!canViewPayroll(me)) {
           completedQBuilder.where('projects.is_du_system', false);
@@ -838,9 +866,7 @@ const DashboardService: ServiceSchema = {
 
         const [activeProjectsCount, completedProjectsCount] = await Promise.all([
           activeScope === 'empty' ? Promise.resolve(0) : activeQBuilder.resultSize(),
-          completedScope === 'empty'
-            ? Promise.resolve(0)
-            : completedQBuilder.resultSize(),
+          completedScope === 'empty' ? Promise.resolve(0) : completedQBuilder.resultSize(),
         ]);
         // Pridėtoji `activeQ` / `completedQ` viršuje liko nenaudojama (palikta
         // dėl noise — Promise.all'inam tik builder'ius).
@@ -859,18 +885,14 @@ const DashboardService: ServiceSchema = {
         if (!canViewPayroll(me)) {
           allocationsCountQB.whereNotExists((qb) => {
             qb.from('classifier_items')
-              .whereRaw(
-                'classifier_items.id = budget_allocations_v2.category_classifier_item_id',
-              )
+              .whereRaw('classifier_items.id = budget_allocations_v2.category_classifier_item_id')
               .where('classifier_items.code', 'du');
           });
         }
 
         const [totalSourcesCount, totalAllocationsCount] = await Promise.all([
           sourcesScope === 'empty' ? Promise.resolve(0) : sourcesQB.resultSize(),
-          allocationsCountScope === 'empty'
-            ? Promise.resolve(0)
-            : allocationsCountQB.resultSize(),
+          allocationsCountScope === 'empty' ? Promise.resolve(0) : allocationsCountQB.resultSize(),
         ]);
 
         return {

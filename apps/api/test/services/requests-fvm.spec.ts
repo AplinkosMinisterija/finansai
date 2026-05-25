@@ -18,10 +18,7 @@
  * service validation + handler logiką.
  */
 import type { ServiceBroker } from 'moleculer';
-import type {
-  FinancingRequest as RequestDTO,
-  FinancingRequestDetail,
-} from '@biip-finansai/shared';
+import type { FinancingRequest as RequestDTO, FinancingRequestDetail } from '@biip-finansai/shared';
 import {
   getTestKnex,
   closeTestKnex,
@@ -81,14 +78,16 @@ describe('requests service — FVM (Iter 10)', () => {
   // Helper: kuria prašymą AM admin „on behalf" — paprasčiausias kelias gauti
   // valid DRAFT'ą su pasirinktais FVM laukais. AM admin gali per `create`
   // perduoti `tenantId` parametrą.
-  async function createRequest(opts: {
-    user?: ReturnType<typeof amAdmin>;
-    projectName?: string;
-    year?: number;
-    budgetCategoryId?: number | null;
-    fundingSourceTypeId?: number | null;
-    specProgramFundingType?: 'atskiras' | 'biudzeto_dalis' | null;
-  } = {}): Promise<RequestDTO> {
+  async function createRequest(
+    opts: {
+      user?: ReturnType<typeof amAdmin>;
+      projectName?: string;
+      year?: number;
+      budgetCategoryId?: number | null;
+      fundingSourceTypeId?: number | null;
+      specProgramFundingType?: 'atskiras' | 'biudzeto_dalis' | null;
+    } = {},
+  ): Promise<RequestDTO> {
     const params: Record<string, unknown> = {
       tenantId: org.orgTenantId,
       projectName: opts.projectName ?? 'FVM test prašymas',
@@ -109,21 +108,17 @@ describe('requests service — FVM (Iter 10)', () => {
   }
 
   describe('Test 1: Create su FVM laukais', () => {
-    it('Visi 4 FVM laukai išsaugomi ir grąžinami get response\'e', async () => {
+    it("Visi 4 FVM laukai išsaugomi ir grąžinami get response'e", async () => {
       const created = await createRequest({
         budgetCategoryId: cls.budgetCategoryItemIds.spec_programa,
         fundingSourceTypeId: cls.fundingSourceTypeItemIds.biudzetas,
         specProgramFundingType: 'atskiras',
       });
       expect(created.id).toBeGreaterThan(0);
-      expect(created.budgetCategoryId).toBe(
-        cls.budgetCategoryItemIds.spec_programa,
-      );
+      expect(created.budgetCategoryId).toBe(cls.budgetCategoryItemIds.spec_programa);
       expect(created.budgetCategoryCode).toBe('spec_programa');
       expect(created.budgetCategoryName).toBe('Specialioji programa');
-      expect(created.fundingSourceTypeId).toBe(
-        cls.fundingSourceTypeItemIds.biudzetas,
-      );
+      expect(created.fundingSourceTypeId).toBe(cls.fundingSourceTypeItemIds.biudzetas);
       expect(created.fundingSourceTypeCode).toBe('biudzetas');
       expect(created.fundingSourceTypeName).toBe('Valstybės biudžetas');
       expect(created.specProgramFundingType).toBe('atskiras');
@@ -136,9 +131,7 @@ describe('requests service — FVM (Iter 10)', () => {
         { id: created.id },
         { meta: { user: amAdmin() } },
       )) as FinancingRequestDetail;
-      expect(fetched.budgetCategoryId).toBe(
-        cls.budgetCategoryItemIds.spec_programa,
-      );
+      expect(fetched.budgetCategoryId).toBe(cls.budgetCategoryItemIds.spec_programa);
       expect(fetched.specProgramFundingType).toBe('atskiras');
       expect(fetched.budgetCategoryCode).toBe('spec_programa');
     });
@@ -158,9 +151,7 @@ describe('requests service — FVM (Iter 10)', () => {
         },
         { meta: { user: amAdmin() } },
       )) as RequestDTO;
-      expect(updated.budgetCategoryId).toBe(
-        cls.budgetCategoryItemIds.investicijos,
-      );
+      expect(updated.budgetCategoryId).toBe(cls.budgetCategoryItemIds.investicijos);
       expect(updated.budgetCategoryCode).toBe('investicijos');
       expect(updated.fundingSourceTypeId).toBe(cls.fundingSourceTypeItemIds.es);
       expect(updated.fundingSourceTypeCode).toBe('es');
@@ -200,9 +191,7 @@ describe('requests service — FVM (Iter 10)', () => {
     });
 
     it('Neegzistuojantis budgetCategoryId → 400 INVALID_BUDGET_CATEGORY', async () => {
-      await expect(
-        createRequest({ budgetCategoryId: 999_999 }),
-      ).rejects.toMatchObject({
+      await expect(createRequest({ budgetCategoryId: 999_999 })).rejects.toMatchObject({
         code: 400,
         type: 'INVALID_BUDGET_CATEGORY',
       });
@@ -257,7 +246,7 @@ describe('requests service — FVM (Iter 10)', () => {
       expect(created.budgetCategoryCode).toBe('spec_programa');
     });
 
-    it('Update keičia kategoriją iš spec_programa į kitą — specProgramFundingType automatiškai null\'inasi', async () => {
+    it("Update keičia kategoriją iš spec_programa į kitą — specProgramFundingType automatiškai null'inasi", async () => {
       const created = await createRequest({
         budgetCategoryId: cls.budgetCategoryItemIds.spec_programa,
         specProgramFundingType: 'atskiras',
@@ -286,11 +275,7 @@ describe('requests service — FVM (Iter 10)', () => {
         budgetCategoryId: cls.budgetCategoryItemIds.du,
         projectName: 'AM approve test',
       });
-      await broker.call(
-        'requests.submit',
-        { id: created.id },
-        { meta: { user: amAdmin() } },
-      );
+      await broker.call('requests.submit', { id: created.id }, { meta: { user: amAdmin() } });
 
       // 2. AM patvirtina su pakeista kategorija.
       const approved = (await broker.call(
@@ -306,9 +291,7 @@ describe('requests service — FVM (Iter 10)', () => {
       )) as RequestDTO;
 
       expect(approved.status).toBe('APPROVED');
-      expect(approved.budgetCategoryId).toBe(
-        cls.budgetCategoryItemIds.investicijos,
-      );
+      expect(approved.budgetCategoryId).toBe(cls.budgetCategoryItemIds.investicijos);
       expect(approved.budgetCategoryCode).toBe('investicijos');
       expect(approved.fundingSourceTypeId).toBe(cls.fundingSourceTypeItemIds.es);
       expect(approved.decisionGrantedAmount).toBe('50000.00');
@@ -319,19 +302,13 @@ describe('requests service — FVM (Iter 10)', () => {
         budgetCategoryId: cls.budgetCategoryItemIds.spec_programa,
         specProgramFundingType: 'atskiras',
       });
-      await broker.call(
-        'requests.submit',
-        { id: created.id },
-        { meta: { user: amAdmin() } },
-      );
+      await broker.call('requests.submit', { id: created.id }, { meta: { user: amAdmin() } });
       const approved = (await broker.call(
         'requests.decision',
         { id: created.id, decision: 'approve', grantedAmount: 100000 },
         { meta: { user: amAdmin() } },
       )) as RequestDTO;
-      expect(approved.budgetCategoryId).toBe(
-        cls.budgetCategoryItemIds.spec_programa,
-      );
+      expect(approved.budgetCategoryId).toBe(cls.budgetCategoryItemIds.spec_programa);
       expect(approved.specProgramFundingType).toBe('atskiras');
     });
 
@@ -339,11 +316,7 @@ describe('requests service — FVM (Iter 10)', () => {
       const created = await createRequest({
         budgetCategoryId: cls.budgetCategoryItemIds.du,
       });
-      await broker.call(
-        'requests.submit',
-        { id: created.id },
-        { meta: { user: amAdmin() } },
-      );
+      await broker.call('requests.submit', { id: created.id }, { meta: { user: amAdmin() } });
       await expect(
         broker.call(
           'requests.decision',
@@ -390,12 +363,158 @@ describe('requests service — FVM (Iter 10)', () => {
       const created = await createRequest({});
       // DRAFT būsenoje — neturi būti leidžiama.
       await expect(
+        broker.call('requests.createFvmProject', { id: created.id }, { meta: { user: amAdmin() } }),
+      ).rejects.toMatchObject({ code: 400, type: 'INVALID_STATUS' });
+    });
+  });
+
+  // ── UAT #42 (Prašymų modulis) ──────────────────────────────────────────
+  describe('Test 8: UAT #42 — AM sprendimo laukai (PA-002/003/006)', () => {
+    async function submittedRequest(): Promise<RequestDTO> {
+      const created = await createRequest({ projectName: 'UAT42 sprendimo laukai' });
+      await broker.call('requests.submit', { id: created.id }, { meta: { user: amAdmin() } });
+      return created;
+    }
+
+    it('PA-002/003/006: decision approve persistina priority, procurementStage, finansavimo laukus ir įsakymo datą', async () => {
+      const created = await submittedRequest();
+      const approved = (await broker.call(
+        'requests.decision',
+        {
+          id: created.id,
+          decision: 'approve',
+          grantedAmount: 12000,
+          priority: 3,
+          procurementStage: 'Vykdomas',
+          fundingFromIt: 8000,
+          otherFunds: 4000,
+          otherFundsSource: 'ES projektas X',
+          order: 'A-123',
+          orderDate: '2026-05-20',
+        },
+        { meta: { user: amAdmin() } },
+      )) as RequestDTO;
+
+      expect(approved.status).toBe('APPROVED');
+      expect(approved.priority).toBe(3);
+      expect(approved.procurementStage).toBe('Vykdomas');
+      expect(approved.fundingFromIt).toBe('8000.00');
+      expect(approved.otherFunds).toBe('4000.00');
+      expect(approved.otherFundsSource).toBe('ES projektas X');
+      expect(approved.decisionOrder).toBe('A-123');
+      expect(approved.decisionOrderDate).toBe('2026-05-20');
+    });
+
+    it('PA-002: priority už ribų (>5) → 400 validation', async () => {
+      const created = await submittedRequest();
+      await expect(
         broker.call(
-          'requests.createFvmProject',
-          { id: created.id },
+          'requests.decision',
+          { id: created.id, decision: 'approve', priority: 9 },
           { meta: { user: amAdmin() } },
         ),
-      ).rejects.toMatchObject({ code: 400, type: 'INVALID_STATUS' });
+      ).rejects.toMatchObject({ code: 422 });
+    });
+  });
+
+  describe('Test 9: UAT #42 — programa ↔ šaltinio tipas hierarchija (PA-005)', () => {
+    async function submittedRequest(): Promise<RequestDTO> {
+      const created = await createRequest({ projectName: 'UAT42 PA-005' });
+      await broker.call('requests.submit', { id: created.id }, { meta: { user: amAdmin() } });
+      return created;
+    }
+
+    it('Programa + suderintas šaltinio tipas (tėvas) → sėkmingai', async () => {
+      const created = await submittedRequest();
+      const approved = (await broker.call(
+        'requests.decision',
+        {
+          id: created.id,
+          decision: 'approve',
+          grantedAmount: 5000,
+          // AM_IT_BUDGET tėvas = funding_source_type.biudzetas
+          fundingSource: 'AM_IT_BUDGET',
+          fundingSourceTypeId: cls.fundingSourceTypeItemIds.biudzetas,
+        },
+        { meta: { user: amAdmin() } },
+      )) as RequestDTO;
+      expect(approved.status).toBe('APPROVED');
+      expect(approved.decisionFundingSource).toBe('AM_IT_BUDGET');
+      expect(approved.fundingSourceTypeId).toBe(cls.fundingSourceTypeItemIds.biudzetas);
+    });
+
+    it('Programa, kurios tėvas NEsutampa su pasirinktu šaltinio tipu → 400 PROGRAM_SOURCE_MISMATCH', async () => {
+      const created = await submittedRequest();
+      await expect(
+        broker.call(
+          'requests.decision',
+          {
+            id: created.id,
+            decision: 'approve',
+            grantedAmount: 5000,
+            // AM_IT_BUDGET tėvas = biudzetas, bet nurodom es — neatitinka.
+            fundingSource: 'AM_IT_BUDGET',
+            fundingSourceTypeId: cls.fundingSourceTypeItemIds.es,
+          },
+          { meta: { user: amAdmin() } },
+        ),
+      ).rejects.toMatchObject({ code: 400, type: 'PROGRAM_SOURCE_MISMATCH' });
+
+      // Status nepakeistas — validation prieš patch.
+      const fetched = (await broker.call(
+        'requests.get',
+        { id: created.id },
+        { meta: { user: amAdmin() } },
+      )) as FinancingRequestDetail;
+      expect(fetched.status).toBe('SUBMITTED');
+    });
+
+    it('Programa be tėvo (legacy) + šaltinio tipas → leidžiama (nieko netikrinam)', async () => {
+      const created = await submittedRequest();
+      const approved = (await broker.call(
+        'requests.decision',
+        {
+          id: created.id,
+          decision: 'approve',
+          grantedAmount: 5000,
+          // OTHER neturi tėvo — netikrinam suderinamumo.
+          fundingSource: 'OTHER',
+          fundingSourceTypeId: cls.fundingSourceTypeItemIds.es,
+        },
+        { meta: { user: amAdmin() } },
+      )) as RequestDTO;
+      expect(approved.status).toBe('APPROVED');
+    });
+  });
+
+  describe('Test 10: UAT #42 — source_program tėvas iš funding_source_type (PA-005a)', () => {
+    it('createItem: source_program reikšmei leidžiamas funding_source_type tėvas', async () => {
+      const created = (await broker.call(
+        'classifiers.createItem',
+        {
+          groupId: cls.sourceProgramGroupId,
+          parentId: cls.fundingSourceTypeItemIds.biudzetas,
+          code: 'NEW_PROGRAM',
+          name: 'Nauja programa',
+        },
+        { meta: { user: amAdmin() } },
+      )) as { id: number; parentId: number | null };
+      expect(created.parentId).toBe(cls.fundingSourceTypeItemIds.biudzetas);
+    });
+
+    it('createItem: budget_category reikšmei NEleidžiamas funding_source_type tėvas → 400 INVALID_PARENT', async () => {
+      await expect(
+        broker.call(
+          'classifiers.createItem',
+          {
+            groupId: cls.budgetCategoryGroupId,
+            parentId: cls.fundingSourceTypeItemIds.biudzetas,
+            code: 'BAD_CHILD',
+            name: 'Blogas vaikas',
+          },
+          { meta: { user: amAdmin() } },
+        ),
+      ).rejects.toMatchObject({ code: 400, type: 'INVALID_PARENT' });
     });
   });
 });

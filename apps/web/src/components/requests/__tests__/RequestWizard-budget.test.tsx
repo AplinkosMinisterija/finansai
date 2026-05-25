@@ -1,17 +1,21 @@
 /**
- * `RequestWizard` — FVM Iter 10 Biudžeto žingsnio testai.
+ * `RequestWizard` — UAT #42 (PA-002/003/004) žingsnių struktūros testai.
+ *
+ * Po UAT #42 teikėjas nebepildo administracinių/finansinių sprendimų:
+ *  - PA-004: „Biudžetas" žingsnis pašalintas → liko 5 žingsniai.
+ *  - PA-002: Prioritetas + Pirkimo stadija nebėra wizard'e.
+ *  - PA-003: Finansavimo šaltinio laukai (Finansavimas iš IT / Kitos lėšos /
+ *    Kitų lėšų šaltinis) nebėra wizard'e.
  *
  * Tikriname:
- *  1. Wizard'e yra 6 žingsniai (po Iter 10 papildymo).
- *  2. Pasiekus „Biudžetas" žingsnį — rodomas kategorijos dropdown.
- *  3. spec_program_funding_type radio rodomas TIK kai kategorija = spec_programa.
+ *  1. Wizard'e yra 5 žingsniai (info, financing, quarterly, responsible, review).
+ *  2. „Biudžetas" žingsnio nebėra.
+ *  3. Prioriteto / pirkimo stadijos laukų nebėra Pagrindinės informacijos žingsnyje.
+ *  4. Finansavimo šaltinio laukų nebėra Finansavimo žingsnyje.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import type {
-  ClassifierItem,
-  FinancingRequest,
-} from '@biip-finansai/shared';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import type { ClassifierItem, FinancingRequest } from '@biip-finansai/shared';
 import { RequestWizard } from '../RequestWizard';
 import { makeAuthValue, renderWithProviders } from '@/test-utils';
 
@@ -33,46 +37,15 @@ function makeItem(overrides: Partial<ClassifierItem> = {}): ClassifierItem {
   return {
     id: 1,
     groupId: 1,
-    groupCode: 'budget_category',
+    groupCode: 'is_system',
     parentId: null,
-    code: 'du',
-    name: 'Darbo užmokestis',
+    code: 'AADIS',
+    name: 'AADIS — Aplinkos apsaugos departamento IS',
     sortOrder: 0,
     active: true,
     ...overrides,
   };
 }
-
-const BUDGET_CATEGORY_ITEMS: ClassifierItem[] = [
-  makeItem({ id: 10, code: 'du', name: 'Darbo užmokestis' }),
-  makeItem({
-    id: 11,
-    code: 'spec_programa',
-    name: 'Specialioji programa',
-    sortOrder: 1,
-  }),
-  makeItem({
-    id: 12,
-    code: 'prekes_paslaugos',
-    name: 'Prekės ir paslaugos',
-    sortOrder: 2,
-  }),
-];
-
-const FUNDING_SOURCE_TYPE_ITEMS: ClassifierItem[] = [
-  makeItem({
-    id: 20,
-    code: 'biudzetas',
-    name: 'Biudžetas',
-    groupCode: 'funding_source_type',
-  }),
-  makeItem({
-    id: 21,
-    code: 'es',
-    name: 'ES fondai',
-    groupCode: 'funding_source_type',
-  }),
-];
 
 function makeRequest(overrides: Partial<FinancingRequest> = {}): FinancingRequest {
   return {
@@ -115,6 +88,7 @@ function makeRequest(overrides: Partial<FinancingRequest> = {}): FinancingReques
     decisionFundingSource: null,
     decisionProtocol: null,
     decisionOrder: null,
+    decisionOrderDate: null,
     decidedAt: null,
     decidedByUserId: null,
     decidedByName: null,
@@ -133,23 +107,12 @@ function makeRequest(overrides: Partial<FinancingRequest> = {}): FinancingReques
   };
 }
 
-describe('RequestWizard — FVM Biudžeto žingsnis (Iter 10)', () => {
+describe('RequestWizard — UAT #42 žingsnių struktūra', () => {
   beforeEach(() => {
     requestUpdateMock.mockReset();
     requestSubmitMock.mockReset();
     classifierItemsListMock.mockReset();
-    classifierItemsListMock.mockImplementation(
-      (query: { groupCode?: string } = {}) => {
-        if (query.groupCode === 'budget_category') {
-          return Promise.resolve(BUDGET_CATEGORY_ITEMS);
-        }
-        if (query.groupCode === 'funding_source_type') {
-          return Promise.resolve(FUNDING_SOURCE_TYPE_ITEMS);
-        }
-        return Promise.resolve([]);
-      },
-    );
-    // Default — patch'as tiesiog grąžina pakartotinai esamą request'ą.
+    classifierItemsListMock.mockResolvedValue([makeItem()]);
     requestUpdateMock.mockImplementation((id: number, patch: unknown) =>
       Promise.resolve({
         ...makeRequest({ id }),
@@ -158,117 +121,53 @@ describe('RequestWizard — FVM Biudžeto žingsnis (Iter 10)', () => {
     );
   });
 
-  it('rodo 6 žingsnius sidebar dalyje (info, financing, budget, quarterly, responsible, review)', () => {
-    renderWithProviders(
-      <RequestWizard request={makeRequest()} onSaved={vi.fn()} />,
-      { authValue: makeAuthValue() },
-    );
-
-    // Sidebar rodo „Užpildyta 1 iš 6" - 6 step'ai.
-    expect(screen.getByText(/užpildyta 1 iš 6/i)).toBeInTheDocument();
-
-    // Step button name'as = "<index> <label>" (e.g., "3 Biudžetas").
-    expect(
-      screen.getByRole('button', { name: /1 pagrindinė informacija/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /2 finansavimas/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /3 biudžetas/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /4 ketvirtinis paskirstymas/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /5 atsakingi asmenys/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /6 peržiūra/i }),
-    ).toBeInTheDocument();
-  });
-
-  it('pasiekus „Biudžetas" žingsnį, rodomas kategorijos dropdown', async () => {
-    renderWithProviders(
-      <RequestWizard request={makeRequest()} onSaved={vi.fn()} />,
-      { authValue: makeAuthValue() },
-    );
-
-    // Šokam tiesiai į Biudžeto žingsnį per sidebar mygtuką (kad išvengtume
-    // visų save mutations'ų; sidebar leidžia teleport'inti į bet kurį step'ą).
-    fireEvent.click(screen.getByRole('button', { name: /3 biudžetas/i }));
-
-    // Žingsnio header'is.
-    await waitFor(() => {
-      expect(
-        screen.getByRole('heading', { level: 2, name: /^biudžetas$/i }),
-      ).toBeInTheDocument();
+  it('rodo 5 žingsnius (info, financing, quarterly, responsible, review)', () => {
+    renderWithProviders(<RequestWizard request={makeRequest()} onSaved={vi.fn()} />, {
+      authValue: makeAuthValue(),
     });
 
-    // Biudžeto kategorijos label + dropdown.
-    expect(screen.getByText(/biudžeto kategorija/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/biudžeto kategorija/i)).toBeInTheDocument();
+    // PA-004: liko 5 žingsniai.
+    expect(screen.getByText(/užpildyta 1 iš 5/i)).toBeInTheDocument();
 
-    // Spec.programos sekcija dar nematoma — kategorija nepasirinkta.
-    expect(screen.queryByTestId('spec-program-section')).toBeNull();
+    expect(screen.getByRole('button', { name: /1 pagrindinė informacija/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /2 finansavimas/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /3 ketvirtinis paskirstymas/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /4 atsakingi asmenys/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /5 peržiūra/i })).toBeInTheDocument();
+
+    // PA-004: „Biudžetas" žingsnio nebėra.
+    expect(screen.queryByRole('button', { name: /biudžetas/i })).toBeNull();
   });
 
-  it('spec.programos radio rodomas TIK kai kategorija = spec_programa', async () => {
-    // Sukuriame request'ą jau su pasirinkta spec_programa kategorija — taip
-    // patikrinam, kad form state'as inicializuoja sekciją iškart.
-    renderWithProviders(
-      <RequestWizard
-        request={makeRequest({
-          budgetCategoryId: 11,
-          budgetCategoryCode: 'spec_programa',
-          budgetCategoryName: 'Specialioji programa',
-        })}
-        onSaved={vi.fn()}
-      />,
-      { authValue: makeAuthValue() },
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /3 biudžetas/i }));
-
-    // Sekcija matoma kai kategorija = spec_programa.
-    await waitFor(() => {
-      expect(screen.getByTestId('spec-program-section')).toBeInTheDocument();
+  it('PA-002: Pagrindinės informacijos žingsnyje nėra prioriteto / pirkimo stadijos', () => {
+    renderWithProviders(<RequestWizard request={makeRequest()} onSaved={vi.fn()} />, {
+      authValue: makeAuthValue(),
     });
 
-    const section = screen.getByTestId('spec-program-section');
-    // Trys radio mygtukai: atskiras, biudzeto_dalis, nenurodyta.
-    expect(within(section).getAllByRole('radio')).toHaveLength(3);
-    expect(
-      within(section).getByLabelText(/su atskiru finansavimu/i),
-    ).toBeInTheDocument();
-    expect(
-      within(section).getByLabelText(/iš bendrojo biudžeto/i),
-    ).toBeInTheDocument();
-    expect(within(section).getByLabelText(/nenurodyta/i)).toBeInTheDocument();
+    // Esam info žingsnyje (default).
+    expect(screen.getByLabelText(/projekto pavadinimas/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/prioritetas/i)).toBeNull();
+    expect(screen.queryByLabelText(/pirkimo stadija/i)).toBeNull();
   });
 
-  it('NEspec.programa kategorijoje spec.programos sekcija nerodoma', async () => {
-    renderWithProviders(
-      <RequestWizard
-        request={makeRequest({
-          budgetCategoryId: 10,
-          budgetCategoryCode: 'du',
-          budgetCategoryName: 'Darbo užmokestis',
-        })}
-        onSaved={vi.fn()}
-      />,
-      { authValue: makeAuthValue() },
-    );
+  it('PA-003: Finansavimo žingsnyje nėra finansavimo šaltinio laukų', async () => {
+    renderWithProviders(<RequestWizard request={makeRequest()} onSaved={vi.fn()} />, {
+      authValue: makeAuthValue(),
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /3 biudžetas/i }));
+    fireEvent.click(screen.getByRole('button', { name: /2 finansavimas/i }));
 
     await waitFor(() => {
       expect(
-        screen.getByRole('heading', { level: 2, name: /^biudžetas$/i }),
+        screen.getByRole('heading', { level: 2, name: /^finansavimas$/i }),
       ).toBeInTheDocument();
     });
 
-    // Kategorija pasirinkta, bet ne spec_programa — sekcija turi būti paslėpta.
-    expect(screen.queryByTestId('spec-program-section')).toBeNull();
+    // Išlaidų laukai lieka.
+    expect(screen.getByLabelText(/įranga \/ licencijos/i)).toBeInTheDocument();
+    // Finansavimo šaltinio laukai pašalinti.
+    expect(screen.queryByLabelText(/finansavimas iš it/i)).toBeNull();
+    expect(screen.queryByLabelText(/kitos lėšos/i)).toBeNull();
+    expect(screen.queryByLabelText(/kitų lėšų šaltinis/i)).toBeNull();
   });
 });

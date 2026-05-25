@@ -8,16 +8,15 @@
  *  - AM mato visus per scope, gali komentuoti per request_comments.
  *
  * Permissions:
- *  - list/get: tas pats kaip canView (per request).
- *  - upsert/submit/delete: teikėjas iš tos tenant arba AM admin „on behalf".
- *    AM tvirtintojai (kiti) NEgali kurti — tik matyti.
+ *  - list/get: tas pats kaip canView (per request) — AM mato pateiktus
+ *    atsiskaitymus (read-only).
+ *  - upsert/submit/delete: TIK teikėjas iš tos tenant. AM tvirtintojai (įsk.
+ *    AM admin) NEgali kurti/redaguoti/teikti — tik matyti (UAT #42 PA-009:
+ *    administratorius neteikia atsiskaitymo vartotojo vardu).
  */
 import type { ServiceSchema, Context } from 'moleculer';
 import { Errors } from 'moleculer';
-import type {
-  RequestReport as ReportDTO,
-  RequestReportUpsertRequest,
-} from '@biip-finansai/shared';
+import type { RequestReport as ReportDTO, RequestReportUpsertRequest } from '@biip-finansai/shared';
 import { Request } from '../models/Request';
 import type { RequestStatus } from '../models/Request';
 import { RequestReport } from '../models/RequestReport';
@@ -58,8 +57,9 @@ function canManageReport(
   viewer: NonNullable<AuthMeta['user']>,
   r: { tenantId: number; createdByUserId: number; status: RequestStatus },
 ): boolean {
-  // AM admin gali „on behalf" — bet praktiškai retai. Pradžiai leidžiama.
-  if (viewer.tenantIsApprover) return viewer.role === 'admin';
+  // UAT #42 (PA-009): AM tvirtintojai (įsk. AM admin) NEteikia atsiskaitymo
+  // vartotojo vardu — tik teikėjo pusė valdo. AM mato pateiktus per `list`/`get`.
+  if (viewer.tenantIsApprover) return false;
   if (r.tenantId !== viewer.tenantId) return false;
   if (viewer.role === 'admin') return true;
   return r.createdByUserId === viewer.id;
@@ -77,7 +77,13 @@ const RequestReportsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canViewRequest(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+        if (
+          !canViewRequest(me, {
+            tenantId: r.tenantId,
+            createdByUserId: r.createdByUserId,
+            status: r.status,
+          })
+        ) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         const rows = (await RequestReport.query()
@@ -95,7 +101,13 @@ const RequestReportsService: ServiceSchema = {
       params: {
         requestId: { type: 'number', integer: true, convert: true },
         periodYear: { type: 'number', integer: true, convert: true },
-        periodQuarter: { type: 'number', integer: true, optional: true, nullable: true, convert: true },
+        periodQuarter: {
+          type: 'number',
+          integer: true,
+          optional: true,
+          nullable: true,
+          convert: true,
+        },
         amountUsed: { type: 'any' },
         description: { type: 'string', optional: true, nullable: true, max: 4000 },
       },
@@ -114,7 +126,13 @@ const RequestReportsService: ServiceSchema = {
             'REQUEST_NOT_APPROVED',
           );
         }
-        if (!canManageReport(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+        if (
+          !canManageReport(me, {
+            tenantId: r.tenantId,
+            createdByUserId: r.createdByUserId,
+            status: r.status,
+          })
+        ) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         const p = ctx.params;
@@ -142,10 +160,12 @@ const RequestReportsService: ServiceSchema = {
               'REPORT_LOCKED',
             );
           }
-          await RequestReport.query().findById(existing.id).patch({
-            amountUsed: normalizeAmount(p.amountUsed),
-            description: p.description ?? null,
-          });
+          await RequestReport.query()
+            .findById(existing.id)
+            .patch({
+              amountUsed: normalizeAmount(p.amountUsed),
+              description: p.description ?? null,
+            });
           const full = (await RequestReport.query()
             .findById(existing.id)
             .withGraphFetched('submittedByUser')) as ReportWithUser | undefined;
@@ -181,7 +201,13 @@ const RequestReportsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canManageReport(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+        if (
+          !canManageReport(me, {
+            tenantId: r.tenantId,
+            createdByUserId: r.createdByUserId,
+            status: r.status,
+          })
+        ) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         if (report.status === 'SUBMITTED') {
@@ -212,7 +238,13 @@ const RequestReportsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canManageReport(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+        if (
+          !canManageReport(me, {
+            tenantId: r.tenantId,
+            createdByUserId: r.createdByUserId,
+            status: r.status,
+          })
+        ) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         if (report.status === 'SUBMITTED') {

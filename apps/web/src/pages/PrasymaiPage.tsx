@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, Loader2, Plus, Search } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Loader2, Plus, Search } from 'lucide-react';
 import type {
   FinancingRequest,
   PaginatedResponse,
@@ -36,11 +36,12 @@ import {
   fmtDate,
   fmtEur,
   isCreateOnBehalf,
+  isDeadlineOverdue,
   STATUS_LABELS,
   STATUS_VARIANTS,
   totalRequested,
 } from '@/lib/requests';
-import { classifierLabel, useClassifier } from '@/lib/classifiers';
+import { classifierShortLabel, useClassifier } from '@/lib/classifiers';
 import { cn } from '@/lib/utils';
 
 const STATUSES: { value: 'all' | RequestStatus; label: string }[] = [
@@ -59,7 +60,11 @@ export default function PrasymaiPage(): JSX.Element {
 
   const [q, setQ] = React.useState('');
   const [debouncedQ, setDebouncedQ] = React.useState('');
-  const [status, setStatus] = React.useState<'all' | RequestStatus>('all');
+  // UAT #42 (PA-001): tvirtintojui (AM) default filtras — „Pateiktas" (laukiantys
+  // sprendimo). Teikėjams lieka „Visi". Vartotojas gali pakeisti rankiniu būdu.
+  const [status, setStatus] = React.useState<'all' | RequestStatus>(() =>
+    user?.tenantIsApprover === true ? 'SUBMITTED' : 'all',
+  );
   const [tenantId, setTenantId] = React.useState<number | undefined>(undefined);
   const currentYear = new Date().getFullYear();
   /** 'all' — visi metai; 'current' — einamieji; 'plans' — planai (>= current+1); arba konkretūs metai. */
@@ -104,9 +109,7 @@ export default function PrasymaiPage(): JSX.Element {
 
   const createMutation = useMutation({
     mutationFn: (args: { tenantId?: number }) =>
-      args.tenantId !== undefined
-        ? requestCreate({ tenantId: args.tenantId })
-        : requestCreate({}),
+      args.tenantId !== undefined ? requestCreate({ tenantId: args.tenantId }) : requestCreate({}),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['requests'] });
       setPickerOpen(false);
@@ -172,13 +175,11 @@ export default function PrasymaiPage(): JSX.Element {
 
       {/* Year filter pills */}
       <div className="mb-2 flex flex-wrap gap-1.5" role="tablist" aria-label="Metai">
-        {(
-          [
-            { value: 'current' as const, label: `${currentYear} m.` },
-            { value: 'plans' as const, label: 'Planai (ateičiai)' },
-            { value: 'all' as const, label: 'Visi metai' },
-          ]
-        ).map((y) => {
+        {[
+          { value: 'current' as const, label: `${currentYear} m.` },
+          { value: 'plans' as const, label: 'Planai (ateičiai)' },
+          { value: 'all' as const, label: 'Visi metai' },
+        ].map((y) => {
           const active = yearFilter === y.value;
           return (
             <button
@@ -243,10 +244,7 @@ export default function PrasymaiPage(): JSX.Element {
               value={tenantId !== undefined ? String(tenantId) : 'all'}
               onValueChange={(v) => setTenantId(v === 'all' ? undefined : Number(v))}
             >
-              <SelectTrigger
-                className="h-9 w-full sm:w-56"
-                aria-label="Filtras pagal organizaciją"
-              >
+              <SelectTrigger className="h-9 w-full sm:w-56" aria-label="Filtras pagal organizaciją">
                 <SelectValue placeholder="Organizacija" />
               </SelectTrigger>
               <SelectContent>
@@ -310,11 +308,24 @@ export default function PrasymaiPage(): JSX.Element {
                           {r.year}
                           {r.year > currentYear ? ' planas' : ''}
                         </Badge>
+                        {/* UAT #42 (PA-010): praėjęs įgyvendinimo terminas. */}
+                        {isDeadlineOverdue(r) && (
+                          <Badge
+                            variant="destructive"
+                            className="gap-1 text-[10px]"
+                            data-testid={`overdue-badge-${r.id}`}
+                          >
+                            <AlertTriangle className="h-3 w-3" />
+                            Terminas praėjęs
+                          </Badge>
+                        )}
                       </div>
                       <div className="mt-1 truncate text-xs text-muted-foreground">
-                        {r.systemCode ? `${classifierLabel(isLookup, r.systemCode)} · ` : ''}
+                        {r.systemCode ? `${classifierShortLabel(isLookup, r.systemCode)} · ` : ''}
                         {r.createdByName}
-                        {r.implementationDeadline ? ` · iki ${fmtDate(r.implementationDeadline)}` : ''}
+                        {r.implementationDeadline
+                          ? ` · iki ${fmtDate(r.implementationDeadline)}`
+                          : ''}
                       </div>
                     </div>
                     <div className="text-right">

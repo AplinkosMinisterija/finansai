@@ -8,6 +8,7 @@ import {
   canSubmit,
   fmtEur,
   isCreateOnBehalf,
+  isDeadlineOverdue,
   STATUS_LABELS,
   totalQuarterly,
   totalRequested,
@@ -86,6 +87,7 @@ function makeRequest(overrides: Partial<FinancingRequest> = {}): FinancingReques
     decisionFundingSource: null,
     decisionProtocol: null,
     decisionOrder: null,
+    decisionOrderDate: null,
     decidedAt: null,
     decidedByUserId: null,
     decidedByName: null,
@@ -248,8 +250,12 @@ describe('canDecide', () => {
   });
 
   it('teikėjai (org.) niekada negali decide', () => {
-    expect(canDecide(makeSubmitter({ role: 'admin' }), makeRequest({ status: 'SUBMITTED' }))).toBe(false);
-    expect(canDecide(makeSubmitter({ role: 'user' }), makeRequest({ status: 'SUBMITTED' }))).toBe(false);
+    expect(canDecide(makeSubmitter({ role: 'admin' }), makeRequest({ status: 'SUBMITTED' }))).toBe(
+      false,
+    );
+    expect(canDecide(makeSubmitter({ role: 'user' }), makeRequest({ status: 'SUBMITTED' }))).toBe(
+      false,
+    );
   });
 });
 
@@ -263,8 +269,12 @@ describe('canDelete', () => {
 
   it('AM admin gali ištrinti tik savo „on behalf" DRAFT', () => {
     const am = makeApprover({ id: 1 });
-    expect(canDelete(am, makeRequest({ status: 'DRAFT', tenantId: 2, createdByUserId: 1 }))).toBe(true);
-    expect(canDelete(am, makeRequest({ status: 'DRAFT', tenantId: 2, createdByUserId: 100 }))).toBe(false);
+    expect(canDelete(am, makeRequest({ status: 'DRAFT', tenantId: 2, createdByUserId: 1 }))).toBe(
+      true,
+    );
+    expect(canDelete(am, makeRequest({ status: 'DRAFT', tenantId: 2, createdByUserId: 100 }))).toBe(
+      false,
+    );
   });
 });
 
@@ -275,5 +285,34 @@ describe('STATUS_LABELS', () => {
     expect(STATUS_LABELS.RETURNED).toBe('Grąžintas pataisymui');
     expect(STATUS_LABELS.APPROVED).toBe('Patvirtintas');
     expect(STATUS_LABELS.REJECTED).toBe('Atmestas');
+  });
+});
+
+describe('isDeadlineOverdue (UAT #42 PA-010)', () => {
+  const now = new Date('2026-05-25T12:00:00Z');
+
+  it('grąžina true praėjusiam terminui (ne galutinis statusas)', () => {
+    const r = makeRequest({ status: 'APPROVED', implementationDeadline: '2026-05-24' });
+    expect(isDeadlineOverdue(r, now)).toBe(true);
+  });
+
+  it('grąžina false ateities terminui', () => {
+    const r = makeRequest({ status: 'APPROVED', implementationDeadline: '2026-12-31' });
+    expect(isDeadlineOverdue(r, now)).toBe(false);
+  });
+
+  it('grąžina false kai terminas nenustatytas', () => {
+    const r = makeRequest({ status: 'SUBMITTED', implementationDeadline: null });
+    expect(isDeadlineOverdue(r, now)).toBe(false);
+  });
+
+  it('grąžina false atmestam prašymui (galutinis statusas)', () => {
+    const r = makeRequest({ status: 'REJECTED', implementationDeadline: '2020-01-01' });
+    expect(isDeadlineOverdue(r, now)).toBe(false);
+  });
+
+  it('grąžina false kai terminas — šiandien (dar nepraėjęs)', () => {
+    const r = makeRequest({ status: 'APPROVED', implementationDeadline: '2026-05-25' });
+    expect(isDeadlineOverdue(r, now)).toBe(false);
   });
 });

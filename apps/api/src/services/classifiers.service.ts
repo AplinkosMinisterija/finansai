@@ -40,6 +40,20 @@ function isSystemGroupCode(code: string): code is SystemGroupCode {
   return (SYSTEM_GROUP_CODES as readonly string[]).includes(code);
 }
 
+/**
+ * UAT #42 (PA-005): leistinos cross-group parent kombinacijos.
+ *
+ * Įprastai item'o tėvas turi būti tos pačios grupės (hierarchija grupėje). Bet
+ * `source_program` reikšmės gali turėti tėvą iš `funding_source_type` grupės —
+ * taip programa susiejama su finansavimo šaltinio tipu (šaltinis → programa).
+ *
+ * Grąžina `true`, jei child grupė `childGroupCode` leidžia parent'ą iš
+ * grupės `parentGroupCode`.
+ */
+function isAllowedCrossGroupParent(childGroupCode: string, parentGroupCode: string): boolean {
+  return childGroupCode === 'source_program' && parentGroupCode === 'funding_source_type';
+}
+
 function toGroupDTO(g: ClassifierGroup, itemsCount?: number): GroupDTO {
   return {
     id: g.id,
@@ -125,9 +139,7 @@ const ClassifiersService: ServiceSchema = {
         description: { type: 'string', optional: true, nullable: true, max: 2000 },
         active: { type: 'boolean', optional: true, default: true },
       },
-      async handler(
-        ctx: Context<ClassifierGroupCreateRequest, AuthMeta>,
-      ): Promise<GroupDTO> {
+      async handler(ctx: Context<ClassifierGroupCreateRequest, AuthMeta>): Promise<GroupDTO> {
         const me = requireMe(ctx);
         requireSuperAdmin(me);
         const p = ctx.params;
@@ -224,10 +236,7 @@ const ClassifiersService: ServiceSchema = {
         },
       },
       async handler(
-        ctx: Context<
-          { groupId?: number; groupCode?: string; includeInactive?: boolean },
-          AuthMeta
-        >,
+        ctx: Context<{ groupId?: number; groupCode?: string; includeInactive?: boolean }, AuthMeta>,
       ): Promise<ItemDTO[]> {
         requireMe(ctx);
         let groupId = ctx.params.groupId;
@@ -274,9 +283,7 @@ const ClassifiersService: ServiceSchema = {
         sortOrder: { type: 'number', integer: true, optional: true, convert: true, default: 0 },
         active: { type: 'boolean', optional: true, default: true },
       },
-      async handler(
-        ctx: Context<ClassifierItemCreateRequest, AuthMeta>,
-      ): Promise<ItemDTO> {
+      async handler(ctx: Context<ClassifierItemCreateRequest, AuthMeta>): Promise<ItemDTO> {
         const me = requireMe(ctx);
         requireSuperAdmin(me);
         const p = ctx.params;
@@ -285,8 +292,20 @@ const ClassifiersService: ServiceSchema = {
           throw new Errors.MoleculerClientError('Grupė nerasta', 404, 'GROUP_NOT_FOUND');
         }
         if (p.parentId) {
-          const parent = await ClassifierItem.query().findById(p.parentId);
-          if (!parent || parent.groupId !== p.groupId) {
+          const parent = await ClassifierItem.query()
+            .findById(p.parentId)
+            .withGraphFetched('group');
+          const parentGroupCode = (
+            parent as ClassifierItem & {
+              group?: ClassifierGroup;
+            }
+          )?.group?.code;
+          const sameGroup = parent && parent.groupId === p.groupId;
+          const crossOk =
+            parent &&
+            parentGroupCode !== undefined &&
+            isAllowedCrossGroupParent(group.code, parentGroupCode);
+          if (!parent || (!sameGroup && !crossOk)) {
             throw new Errors.MoleculerClientError(
               'Tėvinė reikšmė priklauso kitai grupei',
               400,
@@ -330,10 +349,17 @@ const ClassifiersService: ServiceSchema = {
       ): Promise<ItemDTO> {
         const me = requireMe(ctx);
         requireSuperAdmin(me);
-        const target = await ClassifierItem.query().findById(ctx.params.id);
+        const target = await ClassifierItem.query()
+          .findById(ctx.params.id)
+          .withGraphFetched('group');
         if (!target) {
           throw new Errors.MoleculerClientError('Reikšmė nerasta', 404, 'ITEM_NOT_FOUND');
         }
+        const targetGroupCode = (
+          target as ClassifierItem & {
+            group?: ClassifierGroup;
+          }
+        ).group?.code;
         const p = ctx.params;
         if (p.parentId !== undefined && p.parentId !== null) {
           if (p.parentId === target.id) {
@@ -343,8 +369,21 @@ const ClassifiersService: ServiceSchema = {
               'INVALID_PARENT',
             );
           }
-          const parent = await ClassifierItem.query().findById(p.parentId);
-          if (!parent || parent.groupId !== target.groupId) {
+          const parent = await ClassifierItem.query()
+            .findById(p.parentId)
+            .withGraphFetched('group');
+          const parentGroupCode = (
+            parent as ClassifierItem & {
+              group?: ClassifierGroup;
+            }
+          )?.group?.code;
+          const sameGroup = parent && parent.groupId === target.groupId;
+          const crossOk =
+            parent &&
+            parentGroupCode !== undefined &&
+            targetGroupCode !== undefined &&
+            isAllowedCrossGroupParent(targetGroupCode, parentGroupCode);
+          if (!parent || (!sameGroup && !crossOk)) {
             throw new Errors.MoleculerClientError(
               'Tėvinė reikšmė priklauso kitai grupei',
               400,

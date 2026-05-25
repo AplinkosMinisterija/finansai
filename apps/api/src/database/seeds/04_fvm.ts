@@ -246,6 +246,23 @@ export async function seed(knex: Knex): Promise<void> {
     );
   }
 
+  // UAT #42 (PA-005): susiejam source_program reikšmes su funding_source_type
+  // tėvais (šaltinis → programa hierarchija). AM IT/mokymų/vystymo programos →
+  // valstybės biudžetas; ES fondai → ES. Idempotent — update'inam parent_id.
+  const sourceProgramItems = await getClassifierItems(knex, 'source_program');
+  const sourceProgramParents: Record<string, number> = {
+    AM_IT_BUDGET: biudzetasTypeId,
+    AM_TRAINING_BUDGET: biudzetasTypeId,
+    AM_DEVELOPMENT: biudzetasTypeId,
+    EU_FUNDS: esTypeId,
+  };
+  for (const [code, parentId] of Object.entries(sourceProgramParents)) {
+    const itemId = sourceProgramItems.get(code);
+    if (itemId !== undefined) {
+      await knex('classifier_items').where({ id: itemId }).update({ parent_id: parentId });
+    }
+  }
+
   const categoryDuId = budgetCategoryItems.get('du');
   const categorySpecId = budgetCategoryItems.get('spec_programa');
   const categoryPpId = budgetCategoryItems.get('prekes_paslaugos');

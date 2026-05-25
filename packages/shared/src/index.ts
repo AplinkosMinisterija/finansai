@@ -165,12 +165,7 @@ export type UserListQuery = {
 
 // ---------- Requests ----------
 
-export type RequestStatus =
-  | 'DRAFT'
-  | 'SUBMITTED'
-  | 'RETURNED'
-  | 'APPROVED'
-  | 'REJECTED';
+export type RequestStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REJECTED';
 
 export type RequestCommentKind =
   | 'comment'
@@ -256,6 +251,8 @@ export type FinancingRequest = {
   decisionFundingSource: string | null;
   decisionProtocol: string | null;
   decisionOrder: string | null;
+  /** Įsakymo/sprendimo data (UAT #42 / PA-006). ISO data (YYYY-MM-DD). */
+  decisionOrderDate: string | null;
   decidedAt: string | null;
   decidedByUserId: number | null;
   decidedByName: string | null;
@@ -353,6 +350,10 @@ export type RequestDecisionPayload = {
   protocol?: string;
   order?: string;
   /**
+   * Įsakymo/sprendimo data (UAT #42 / PA-006). ISO data (YYYY-MM-DD) — date picker.
+   */
+  orderDate?: string | null;
+  /**
    * AM patvirtinimo metu gali pakeisti biudžeto kategoriją (Iter 10, docx §3.3).
    * Jei nurodytas — overrides institucijos pasirinkimą; validation tokia pati
    * kaip per CRUD endpoint'us.
@@ -362,6 +363,19 @@ export type RequestDecisionPayload = {
   fundingSourceTypeId?: number | null;
   /** AM patvirtinimo metu galima pakeisti spec.programos finansavimo tipą. */
   specProgramFundingType?: SpecProgramFundingType | null;
+  /**
+   * UAT #42 (PA-002): prioritetas (1-5) ir pirkimo stadija — tapo AM sprendimo
+   * laukais (nebepildomi teikėjo). AM gali nustatyti per sprendimo formą.
+   */
+  priority?: number | null;
+  procurementStage?: string | null;
+  /**
+   * UAT #42 (PA-003): finansavimo laukai — tapo AM sprendimo laukais (nebepildomi
+   * teikėjo). AM nurodo, iš kur finansuojama, patvirtindama prašymą.
+   */
+  fundingFromIt?: number | string | null;
+  otherFunds?: number | string | null;
+  otherFundsSource?: string | null;
 };
 
 // ---------- Dashboard ----------

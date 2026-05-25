@@ -1,8 +1,4 @@
-import type {
-  AuthUser,
-  FinancingRequest,
-  RequestStatus,
-} from '@biip-finansai/shared';
+import type { AuthUser, FinancingRequest, RequestStatus } from '@biip-finansai/shared';
 
 export const STATUS_LABELS: Record<RequestStatus, string> = {
   DRAFT: 'Juodraštis',
@@ -67,12 +63,7 @@ export function totalRequested(r: FinancingRequest): number {
 }
 
 export function totalQuarterly(r: FinancingRequest): number {
-  return (
-    Number(r.q1Amount) +
-    Number(r.q2Amount) +
-    Number(r.q3Amount) +
-    Number(r.q4Amount)
-  );
+  return Number(r.q1Amount) + Number(r.q2Amount) + Number(r.q3Amount) + Number(r.q4Amount);
 }
 
 /**
@@ -121,4 +112,26 @@ export function canDelete(user: AuthUser | null, r: FinancingRequest): boolean {
   if (!user) return false;
   if (r.status !== 'DRAFT') return false;
   return canEdit(user, r);
+}
+
+/**
+ * UAT #42 (PA-010): ar prašymo įgyvendinimo terminas praėjęs.
+ *
+ * `true` tik kai:
+ *  - terminas nustatytas (`implementationDeadline` ne null/tuščias),
+ *  - data praeityje (< šiandien),
+ *  - prašymas NE galutinės būsenos (ne REJECTED) — atmesto termino nebeflag'inam.
+ *
+ * Patvirtinti (APPROVED) ir aktyvūs (SUBMITTED/RETURNED/DRAFT) — flag'inami,
+ * nes įgyvendinimo terminas vis dar prasmingas.
+ */
+export function isDeadlineOverdue(r: FinancingRequest, now: Date = new Date()): boolean {
+  if (!r.implementationDeadline) return false;
+  if (r.status === 'REJECTED') return false;
+  const deadline = new Date(r.implementationDeadline);
+  if (Number.isNaN(deadline.getTime())) return false;
+  // Lyginam tik datą (be laiko) — šiandien terminas dar NEpraėjęs.
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dl = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
+  return dl < today;
 }

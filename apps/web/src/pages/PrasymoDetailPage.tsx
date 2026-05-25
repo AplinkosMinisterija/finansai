@@ -2,16 +2,24 @@ import * as React from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { Briefcase, CheckCircle2, MessageCircle, Pencil, Send, Trash2, XCircle, RotateCcw, Loader2 } from 'lucide-react';
+import {
+  Briefcase,
+  CheckCircle2,
+  MessageCircle,
+  Pencil,
+  Send,
+  Trash2,
+  XCircle,
+  RotateCcw,
+  Loader2,
+} from 'lucide-react';
 import { toast } from '@/lib/use-toast';
-import type {
-  FinancingRequestDetail,
-  RequestCommentKind,
-} from '@biip-finansai/shared';
+import type { FinancingRequestDetail, RequestCommentKind } from '@biip-finansai/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/lib/auth';
 import {
   requestAddComment,
@@ -21,10 +29,7 @@ import {
   requestSubmit,
 } from '@/lib/api';
 import { classifierLabel, useClassifier } from '@/lib/classifiers';
-import {
-  ClassifierSelect,
-  ClassifierSelectById,
-} from '@/components/classifiers/ClassifierSelect';
+import { ClassifierSelect, ClassifierSelectById } from '@/components/classifiers/ClassifierSelect';
 import { AttachmentList } from '@/components/requests/AttachmentList';
 import { ApprovalStepsList } from '@/components/requests/ApprovalStepsList';
 import { ReportsSection } from '@/components/requests/ReportsSection';
@@ -100,6 +105,15 @@ export default function PrasymoDetailPage(): JSX.Element {
     fundingSource: string;
     protocol: string;
     order: string;
+    // UAT #42 (PA-006): įsakymo data — date picker.
+    orderDate: string;
+    // UAT #42 (PA-002): prioritetas + pirkimo stadija — AM sprendimo laukai.
+    priority: string;
+    procurementStage: string;
+    // UAT #42 (PA-003): finansavimo šaltinio laukai — AM sprendimo laukai.
+    fundingFromIt: string;
+    otherFunds: string;
+    otherFundsSource: string;
     // FVM Iter 10 (P03) — AM korekcija
     budgetCategoryId: number | null;
     budgetCategoryCode: string | null;
@@ -113,14 +127,18 @@ export default function PrasymoDetailPage(): JSX.Element {
     fundingSource: '',
     protocol: '',
     order: '',
+    orderDate: '',
+    priority: '',
+    procurementStage: '',
+    fundingFromIt: '',
+    otherFunds: '',
+    otherFundsSource: '',
     budgetCategoryId: null,
     budgetCategoryCode: null,
     fundingSourceTypeId: null,
     specProgramFundingType: null,
   };
-  const [decisionForm, setDecisionForm] = React.useState<DecisionFormState>(
-    EMPTY_DECISION_FORM,
-  );
+  const [decisionForm, setDecisionForm] = React.useState<DecisionFormState>(EMPTY_DECISION_FORM);
   const [error, setError] = React.useState<string | null>(null);
 
   const addComment = useMutation({
@@ -160,6 +178,15 @@ export default function PrasymoDetailPage(): JSX.Element {
         fundingSource: decisionForm.fundingSource || undefined,
         protocol: decisionForm.protocol || undefined,
         order: decisionForm.order || undefined,
+        // UAT #42 (PA-006): įsakymo data.
+        orderDate: decisionForm.orderDate || null,
+        // UAT #42 (PA-002): prioritetas + pirkimo stadija.
+        priority: decisionForm.priority ? Number(decisionForm.priority) : null,
+        procurementStage: decisionForm.procurementStage || null,
+        // UAT #42 (PA-003): finansavimo šaltinio laukai.
+        fundingFromIt: decisionForm.fundingFromIt || null,
+        otherFunds: decisionForm.otherFunds || null,
+        otherFundsSource: decisionForm.otherFundsSource || null,
         // FVM Iter 10 — AM korekcija per decision payload
         budgetCategoryId: decisionForm.budgetCategoryId,
         fundingSourceTypeId: decisionForm.fundingSourceTypeId,
@@ -187,9 +214,16 @@ export default function PrasymoDetailPage(): JSX.Element {
       open: mode,
       comment: '',
       grantedAmount: '',
-      fundingSource: '',
+      fundingSource: r.decisionFundingSource ?? '',
       protocol: '',
       order: '',
+      orderDate: r.decisionOrderDate ?? '',
+      // UAT #42 (PA-002/003): pre-fill esamomis reikšmėmis (jei buvo nustatyta).
+      priority: r.priority !== null ? String(r.priority) : '',
+      procurementStage: r.procurementStage ?? '',
+      fundingFromIt: r.fundingFromIt && Number(r.fundingFromIt) > 0 ? String(r.fundingFromIt) : '',
+      otherFunds: r.otherFunds && Number(r.otherFunds) > 0 ? String(r.otherFunds) : '',
+      otherFundsSource: r.otherFundsSource ?? '',
       budgetCategoryId: r.budgetCategoryId,
       budgetCategoryCode: r.budgetCategoryCode ?? null,
       fundingSourceTypeId: r.fundingSourceTypeId,
@@ -198,8 +232,7 @@ export default function PrasymoDetailPage(): JSX.Element {
   }
 
   const createFvmProjectMutation = useMutation({
-    mutationFn: () =>
-      import('@/lib/api').then((m) => m.requestCreateFvmProject(requestId)),
+    mutationFn: () => import('@/lib/api').then((m) => m.requestCreateFvmProject(requestId)),
     onSuccess: (resp) => {
       // Iter 11: backend real impl — grąžina status='created' su projektu.
       // Iter 10 backward compat'as: status='pending' tik jei backend yra senas.
@@ -287,9 +320,7 @@ export default function PrasymoDetailPage(): JSX.Element {
             </h1>
             <Badge variant={STATUS_VARIANTS[r.status]}>{STATUS_LABELS[r.status]}</Badge>
             <Badge variant="outline">{r.tenantCode}</Badge>
-            <Badge
-              variant={r.year > new Date().getFullYear() ? 'secondary' : 'outline'}
-            >
+            <Badge variant={r.year > new Date().getFullYear() ? 'secondary' : 'outline'}>
               {r.year}
               {r.year > new Date().getFullYear() ? ' planas' : ''}
             </Badge>
@@ -335,7 +366,8 @@ export default function PrasymoDetailPage(): JSX.Element {
           )}
           {(r.status === 'SUBMITTED' || r.status === 'APPROVED') &&
             r.year > new Date().getFullYear() &&
-            (user?.tenantId === r.tenantId || (user?.tenantIsApprover && user.role === 'admin')) && (
+            (user?.tenantId === r.tenantId ||
+              (user?.tenantIsApprover && user.role === 'admin')) && (
               <Button
                 size="sm"
                 variant="default"
@@ -358,7 +390,10 @@ export default function PrasymoDetailPage(): JSX.Element {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+        <div
+          className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          role="alert"
+        >
           {error}
         </div>
       )}
@@ -377,11 +412,7 @@ export default function PrasymoDetailPage(): JSX.Element {
                 <CheckCircle2 className="h-4 w-4" />
                 Patvirtinti
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => openDecisionDialog('return', r)}
-              >
+              <Button size="sm" variant="outline" onClick={() => openDecisionDialog('return', r)}>
                 <RotateCcw className="h-4 w-4" />
                 Grąžinti pataisymui
               </Button>
@@ -425,11 +456,27 @@ export default function PrasymoDetailPage(): JSX.Element {
                         groupCode="source_program"
                         value={decisionForm.fundingSource}
                         onChange={(v) =>
-                          setDecisionForm((f) => ({ ...f, fundingSource: v ?? '' }))
+                          setDecisionForm((f) => {
+                            // UAT #42 (PA-005): pasirinkus programą — automatiškai
+                            // nustatom finansavimo šaltinio tipą iš programos tėvo
+                            // (jei programa turi parentId, rodantį į funding_source_type).
+                            const prog = v === null ? null : (spLookup.byCode.get(v) ?? null);
+                            return {
+                              ...f,
+                              fundingSource: v ?? '',
+                              fundingSourceTypeId:
+                                prog && prog.parentId !== null
+                                  ? prog.parentId
+                                  : f.fundingSourceTypeId,
+                            };
+                          })
                         }
                         emptyLabel="— Nepasirinkta —"
                         placeholder="Pasirinkite programą"
                       />
+                      <p className="text-[11px] text-muted-foreground">
+                        Programa nustato finansavimo šaltinio tipą (jei susieta).
+                      </p>
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor="d-protocol">Posėdžio protokolas</Label>
@@ -442,12 +489,89 @@ export default function PrasymoDetailPage(): JSX.Element {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor="d-order">Įsakymas (data, nr.)</Label>
+                      <Label htmlFor="d-order">Įsakymo nr.</Label>
                       <Input
                         id="d-order"
                         value={decisionForm.order}
+                        onChange={(e) => setDecisionForm((f) => ({ ...f, order: e.target.value }))}
+                      />
+                    </div>
+                    {/* UAT #42 (PA-006): įsakymo data — date picker (buvo laisvas tekstas). */}
+                    <div className="space-y-1">
+                      <Label htmlFor="d-order-date">Įsakymo data</Label>
+                      <Input
+                        id="d-order-date"
+                        type="date"
+                        value={decisionForm.orderDate}
                         onChange={(e) =>
-                          setDecisionForm((f) => ({ ...f, order: e.target.value }))
+                          setDecisionForm((f) => ({ ...f, orderDate: e.target.value }))
+                        }
+                      />
+                    </div>
+                    {/* UAT #42 (PA-002): prioritetas + pirkimo stadija — AM laukai. */}
+                    <div className="space-y-1">
+                      <Label htmlFor="d-priority">Prioritetas (1—5)</Label>
+                      <Input
+                        id="d-priority"
+                        type="number"
+                        min={1}
+                        max={5}
+                        value={decisionForm.priority}
+                        onChange={(e) =>
+                          setDecisionForm((f) => ({ ...f, priority: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="d-procurement">Pirkimo stadija</Label>
+                      <select
+                        id="d-procurement"
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        value={decisionForm.procurementStage}
+                        onChange={(e) =>
+                          setDecisionForm((f) => ({ ...f, procurementStage: e.target.value }))
+                        }
+                      >
+                        <option value="">—</option>
+                        <option value="Pradėtas">Pradėtas</option>
+                        <option value="Vykdomas">Vykdomas</option>
+                        <option value="Užbaigtas">Užbaigtas</option>
+                      </select>
+                    </div>
+                    {/* UAT #42 (PA-003): finansavimo šaltinio laukai — AM laukai. */}
+                    <div className="space-y-1">
+                      <Label htmlFor="d-funding-from-it">Finansavimas iš IT (EUR)</Label>
+                      <Input
+                        id="d-funding-from-it"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={decisionForm.fundingFromIt}
+                        onChange={(e) =>
+                          setDecisionForm((f) => ({ ...f, fundingFromIt: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="d-other-funds">Kitos lėšos (EUR)</Label>
+                      <Input
+                        id="d-other-funds"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={decisionForm.otherFunds}
+                        onChange={(e) =>
+                          setDecisionForm((f) => ({ ...f, otherFunds: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <Label htmlFor="d-other-funds-source">Kitų lėšų šaltinis</Label>
+                      <Input
+                        id="d-other-funds-source"
+                        value={decisionForm.otherFundsSource}
+                        onChange={(e) =>
+                          setDecisionForm((f) => ({ ...f, otherFundsSource: e.target.value }))
                         }
                       />
                     </div>
@@ -470,8 +594,8 @@ export default function PrasymoDetailPage(): JSX.Element {
                         Biudžeto kategorizacija (galima koreguoti)
                       </p>
                       <p className="text-[11px] text-muted-foreground">
-                        Institucijos pasirinkimas pre-fill'inamas. AM gali pakeisti
-                        prieš patvirtindama.
+                        Institucijos pasirinkimas pre-fill'inamas. AM gali pakeisti prieš
+                        patvirtindama.
                       </p>
                       <div className="space-y-1">
                         <Label htmlFor="d-budget-category">Biudžeto kategorija</Label>
@@ -484,9 +608,7 @@ export default function PrasymoDetailPage(): JSX.Element {
                               const item =
                                 v === null
                                   ? null
-                                  : budgetCategoryLookup.items.find(
-                                      (it) => it.id === v,
-                                    ) ?? null;
+                                  : (budgetCategoryLookup.items.find((it) => it.id === v) ?? null);
                               const newCode = item?.code ?? null;
                               const isSpec = newCode === 'spec_programa';
                               return {
@@ -494,12 +616,8 @@ export default function PrasymoDetailPage(): JSX.Element {
                                 budgetCategoryId: v,
                                 budgetCategoryCode: newCode,
                                 // Reset spec funding type jei kategorija nebe spec_programa
-                                specProgramFundingType: isSpec
-                                  ? f.specProgramFundingType
-                                  : null,
-                                fundingSourceTypeId: isSpec
-                                  ? f.fundingSourceTypeId
-                                  : null,
+                                specProgramFundingType: isSpec ? f.specProgramFundingType : null,
+                                fundingSourceTypeId: isSpec ? f.fundingSourceTypeId : null,
                               };
                             })
                           }
@@ -509,10 +627,7 @@ export default function PrasymoDetailPage(): JSX.Element {
                       </div>
 
                       {decisionForm.budgetCategoryCode === 'spec_programa' && (
-                        <div
-                          className="space-y-2"
-                          data-testid="decision-spec-program-section"
-                        >
+                        <div className="space-y-2" data-testid="decision-spec-program-section">
                           <Label>Spec.prog. finansavimo tipas</Label>
                           <div role="radiogroup" className="space-y-1.5">
                             <DecisionFundingRadio
@@ -528,9 +643,7 @@ export default function PrasymoDetailPage(): JSX.Element {
                             />
                             <DecisionFundingRadio
                               id="d-spft-biudzeto"
-                              checked={
-                                decisionForm.specProgramFundingType === 'biudzeto_dalis'
-                              }
+                              checked={decisionForm.specProgramFundingType === 'biudzeto_dalis'}
                               onChange={() =>
                                 setDecisionForm((f) => ({
                                   ...f,
@@ -582,9 +695,7 @@ export default function PrasymoDetailPage(): JSX.Element {
                 <div className="space-y-1">
                   <Label htmlFor="d-comment">
                     {decisionForm.open === 'reject' ? 'Priežastis (neprivaloma)' : 'Komentaras'}
-                    {decisionForm.open === 'return' && (
-                      <span className="text-destructive"> *</span>
-                    )}
+                    {decisionForm.open === 'return' && <span className="text-destructive"> *</span>}
                   </Label>
                   <textarea
                     id="d-comment"
@@ -595,9 +706,7 @@ export default function PrasymoDetailPage(): JSX.Element {
                         : ''
                     }
                     value={decisionForm.comment}
-                    onChange={(e) =>
-                      setDecisionForm((f) => ({ ...f, comment: e.target.value }))
-                    }
+                    onChange={(e) => setDecisionForm((f) => ({ ...f, comment: e.target.value }))}
                   />
                 </div>
                 <div className="flex gap-2">
@@ -640,12 +749,7 @@ export default function PrasymoDetailPage(): JSX.Element {
                 </p>
               </div>
               {r.fvmProjectId !== null ? (
-                <Button
-                  asChild
-                  size="sm"
-                  variant="outline"
-                  data-testid="view-fvm-project-btn"
-                >
+                <Button asChild size="sm" variant="outline" data-testid="view-fvm-project-btn">
                   <Link to={`/projektai/${r.fvmProjectId}`}>
                     <Briefcase className="h-4 w-4" />
                     Žiūrėti projektą →
@@ -673,190 +777,213 @@ export default function PrasymoDetailPage(): JSX.Element {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
-        <div className="space-y-4">
-          <Section title="Pagrindinė informacija">
-            <KV label="Informacinė sistema">{classifierLabel(isLookup, r.systemCode)}</KV>
-            <KV label="Projekto tipas">{classifierLabel(ptLookup, r.projectType)}</KV>
-            <KV label="Prioritetas">{r.priority !== null ? String(r.priority) : '—'}</KV>
-            <KV label="Pirkimo stadija">{r.procurementStage ?? '—'}</KV>
-            <KV label="Aprašymas" wide>
-              <p className="whitespace-pre-wrap text-sm">{r.description || '—'}</p>
-            </KV>
-            <KV label="Planuojami darbai" wide>
-              <p className="whitespace-pre-wrap text-sm">{r.plannedWorks || '—'}</p>
-            </KV>
-          </Section>
+      {/* UAT #42 (PA-008): prašymas + atsiskaitymas atskirti į tab'us. Abu tab'us
+          mato tiek teikėjas, tiek AM. Atsiskaitymą AM gali tik peržiūrėti (PA-009). */}
+      <Tabs defaultValue="prasymas">
+        <TabsList>
+          <TabsTrigger value="prasymas" data-testid="tab-prasymas">
+            Prašymas
+          </TabsTrigger>
+          <TabsTrigger value="atsiskaitymas" data-testid="tab-atsiskaitymas">
+            Atsiskaitymas
+          </TabsTrigger>
+        </TabsList>
 
-          <Section title="Finansavimas">
-            <KV label="DU">{fmtEur(r.costDu)}</KV>
-            <KV label="Įranga / licencijos">{fmtEur(r.costEquipment)}</KV>
-            <KV label="Kūrimas">{fmtEur(r.costCreation)}</KV>
-            <KV label="Analizė">{fmtEur(r.costAnalysis)}</KV>
-            <KV label="Vystymas">{fmtEur(r.costDevelopment)}</KV>
-            <KV label="Palaikymas">{fmtEur(r.costMaintenance)}</KV>
-            <KV label="Modernizavimas">{fmtEur(r.costModernization)}</KV>
-            <KV label="Likvidavimas">{fmtEur(r.costDecommissioning)}</KV>
-            <KV label="Iš viso prašoma" emph>{fmtEur(totalReq)}</KV>
-            <KV label="Finansavimas iš IT">{fmtEur(r.fundingFromIt)}</KV>
-            <KV label="Kitos lėšos">{fmtEur(r.otherFunds)}</KV>
-            <KV label="Kitų lėšų šaltinis">{r.otherFundsSource ?? '—'}</KV>
-          </Section>
+        <TabsContent value="prasymas">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
+            <div className="space-y-4">
+              <Section title="Pagrindinė informacija">
+                <KV label="Informacinė sistema">{classifierLabel(isLookup, r.systemCode)}</KV>
+                <KV label="Projekto tipas">{classifierLabel(ptLookup, r.projectType)}</KV>
+                <KV label="Prioritetas">{r.priority !== null ? String(r.priority) : '—'}</KV>
+                <KV label="Pirkimo stadija">{r.procurementStage ?? '—'}</KV>
+                <KV label="Aprašymas" wide>
+                  <p className="whitespace-pre-wrap text-sm">{r.description || '—'}</p>
+                </KV>
+                <KV label="Planuojami darbai" wide>
+                  <p className="whitespace-pre-wrap text-sm">{r.plannedWorks || '—'}</p>
+                </KV>
+              </Section>
 
-          {/* FVM Iter 10 — biudžeto informacija (read-only; redaguoja wizard'as). */}
-          <Section title="Biudžeto informacija">
-            <KV label="Biudžeto kategorija">
-              {r.budgetCategoryId === null
-                ? 'Nenurodyta'
-                : r.budgetCategoryName ?? classifierItemNameByIdFromLookup(
-                    budgetCategoryLookup,
-                    r.budgetCategoryId,
-                  )}
-            </KV>
-            {r.budgetCategoryCode === 'spec_programa' && (
-              <KV label="Spec.prog. finansavimo tipas">
-                {r.specProgramFundingType === null
-                  ? 'Nenurodyta'
-                  : r.specProgramFundingType === 'atskiras'
-                    ? 'Su atskiru finansavimu'
-                    : 'Iš bendrojo biudžeto'}
-              </KV>
-            )}
-            {r.specProgramFundingType === 'atskiras' && (
-              <KV label="Finansavimo šaltinio tipas">
-                {r.fundingSourceTypeId === null
-                  ? '—'
-                  : r.fundingSourceTypeName ?? classifierItemNameByIdFromLookup(
-                      fundingSourceTypeLookup,
-                      r.fundingSourceTypeId,
-                    )}
-              </KV>
-            )}
-          </Section>
+              <Section title="Finansavimas">
+                <KV label="DU">{fmtEur(r.costDu)}</KV>
+                <KV label="Įranga / licencijos">{fmtEur(r.costEquipment)}</KV>
+                <KV label="Kūrimas">{fmtEur(r.costCreation)}</KV>
+                <KV label="Analizė">{fmtEur(r.costAnalysis)}</KV>
+                <KV label="Vystymas">{fmtEur(r.costDevelopment)}</KV>
+                <KV label="Palaikymas">{fmtEur(r.costMaintenance)}</KV>
+                <KV label="Modernizavimas">{fmtEur(r.costModernization)}</KV>
+                <KV label="Likvidavimas">{fmtEur(r.costDecommissioning)}</KV>
+                <KV label="Iš viso prašoma" emph>
+                  {fmtEur(totalReq)}
+                </KV>
+                <KV label="Finansavimas iš IT">{fmtEur(r.fundingFromIt)}</KV>
+                <KV label="Kitos lėšos">{fmtEur(r.otherFunds)}</KV>
+                <KV label="Kitų lėšų šaltinis">{r.otherFundsSource ?? '—'}</KV>
+              </Section>
 
-          <Section title="Ketvirtinis paskirstymas">
-            <KV label="I ketv.">{fmtEur(r.q1Amount)}</KV>
-            <KV label="II ketv.">{fmtEur(r.q2Amount)}</KV>
-            <KV label="III ketv.">{fmtEur(r.q3Amount)}</KV>
-            <KV label="IV ketv.">{fmtEur(r.q4Amount)}</KV>
-            <KV label="Viso ketv." emph>{fmtEur(totalQ)}</KV>
-          </Section>
-
-          <Section title="Atsakingi asmenys">
-            <KV label="Atsakinga įstaiga">{r.responsibleInstitution ?? '—'}</KV>
-            <KV label="Vykdo">{r.executorName ?? '—'}</KV>
-            <KV label="El. paštas">{r.executorEmail ?? '—'}</KV>
-            <KV label="Terminas">{fmtDate(r.implementationDeadline)}</KV>
-            <KV label="Pastabos" wide>
-              <p className="whitespace-pre-wrap text-sm">{r.submitterNotes || '—'}</p>
-            </KV>
-          </Section>
-
-          {(r.status === 'APPROVED' || r.status === 'REJECTED') && (
-            <Section title="Sprendimas">
-              <KV label="Statusas">{STATUS_LABELS[r.status]}</KV>
-              <KV label="Sprendė">{r.decidedByName ?? '—'}</KV>
-              <KV label="Data">{fmtDateTime(r.decidedAt)}</KV>
-              <KV label="Skirta suma" emph>{fmtEur(r.decisionGrantedAmount)}</KV>
-              <KV label="Finansavimo šaltinis (programa)">
-                {classifierLabel(spLookup, r.decisionFundingSource)}
-              </KV>
-              <KV label="Protokolas">{r.decisionProtocol ?? '—'}</KV>
-              <KV label="Įsakymas">{r.decisionOrder ?? '—'}</KV>
-              <KV label="Potvarkio PDF" wide>
-                <AttachmentList
-                  requestId={requestId}
-                  kind="order_pdf"
-                  canUpload={user?.tenantIsApprover === true && user.role === 'admin'}
-                  uploadKind="order_pdf"
-                  uploadLabel="Įkelti papildomą versiją"
-                  emptyText="Potvarkio PDF nepriklijuotas."
-                  requestStatus={r.status}
-                />
-              </KV>
-            </Section>
-          )}
-
-          {r.status === 'APPROVED' && (
-            <Card>
-              <CardContent className="p-4">
-                <h3 className="mb-3 text-sm font-semibold">Atsiskaitymai</h3>
-                <ReportsSection
-                  requestId={requestId}
-                  isApproved={r.status === 'APPROVED'}
-                  isSubmitterSide={user?.tenantId === r.tenantId}
-                />
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        <div className="space-y-4">
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                <CheckCircle2 className="h-4 w-4" />
-                Aprobacijos eiga
-              </h3>
-              <ApprovalStepsList steps={r.approvalSteps ?? []} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                <MessageCircle className="h-4 w-4" />
-                Komentarai ir istorija
-              </h3>
-              <ul className="space-y-3" data-testid="comments-list">
-                {r.comments.length === 0 ? (
-                  <li className="text-xs text-muted-foreground">Komentarų dar nėra.</li>
-                ) : (
-                  r.comments.map((c) => (
-                    <li key={c.id} className="rounded-md bg-muted/30 p-3 text-sm">
-                      <div className="mb-1 flex flex-wrap items-center gap-2">
-                        <span
-                          className={cn(
-                            'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
-                            KIND_COLORS[c.kind],
-                          )}
-                        >
-                          {KIND_LABELS[c.kind]}
-                        </span>
-                        <span className="text-xs font-medium">{c.authorName}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {ROLE_LABELS[c.authorRole]}
-                        </span>
-                      </div>
-                      {c.body && <p className="whitespace-pre-wrap text-sm">{c.body}</p>}
-                      <p className="mt-1 text-[10px] text-muted-foreground">
-                        {fmtDateTime(c.createdAt)}
-                      </p>
-                    </li>
-                  ))
+              {/* FVM Iter 10 — biudžeto informacija (read-only; redaguoja wizard'as). */}
+              <Section title="Biudžeto informacija">
+                <KV label="Biudžeto kategorija">
+                  {r.budgetCategoryId === null
+                    ? 'Nenurodyta'
+                    : (r.budgetCategoryName ??
+                      classifierItemNameByIdFromLookup(budgetCategoryLookup, r.budgetCategoryId))}
+                </KV>
+                {r.budgetCategoryCode === 'spec_programa' && (
+                  <KV label="Spec.prog. finansavimo tipas">
+                    {r.specProgramFundingType === null
+                      ? 'Nenurodyta'
+                      : r.specProgramFundingType === 'atskiras'
+                        ? 'Su atskiru finansavimu'
+                        : 'Iš bendrojo biudžeto'}
+                  </KV>
                 )}
-              </ul>
+                {r.specProgramFundingType === 'atskiras' && (
+                  <KV label="Finansavimo šaltinio tipas">
+                    {r.fundingSourceTypeId === null
+                      ? '—'
+                      : (r.fundingSourceTypeName ??
+                        classifierItemNameByIdFromLookup(
+                          fundingSourceTypeLookup,
+                          r.fundingSourceTypeId,
+                        ))}
+                  </KV>
+                )}
+              </Section>
 
-              <div className="mt-4 space-y-2 border-t border-border pt-3">
-                <Label htmlFor="new-comment">Pridėti komentarą</Label>
-                <textarea
-                  id="new-comment"
-                  className="min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={commentBody}
-                  onChange={(e) => setCommentBody(e.target.value)}
-                />
-                <Button
-                  size="sm"
-                  disabled={!commentBody.trim() || addComment.isPending}
-                  onClick={() => addComment.mutate(commentBody)}
-                >
-                  Skelbti
-                </Button>
-              </div>
+              <Section title="Ketvirtinis paskirstymas">
+                <KV label="I ketv.">{fmtEur(r.q1Amount)}</KV>
+                <KV label="II ketv.">{fmtEur(r.q2Amount)}</KV>
+                <KV label="III ketv.">{fmtEur(r.q3Amount)}</KV>
+                <KV label="IV ketv.">{fmtEur(r.q4Amount)}</KV>
+                <KV label="Viso ketv." emph>
+                  {fmtEur(totalQ)}
+                </KV>
+              </Section>
+
+              <Section title="Atsakingi asmenys">
+                <KV label="Atsakinga įstaiga">{r.responsibleInstitution ?? '—'}</KV>
+                <KV label="Vykdo">{r.executorName ?? '—'}</KV>
+                <KV label="El. paštas">{r.executorEmail ?? '—'}</KV>
+                <KV label="Terminas">{fmtDate(r.implementationDeadline)}</KV>
+                <KV label="Pastabos" wide>
+                  <p className="whitespace-pre-wrap text-sm">{r.submitterNotes || '—'}</p>
+                </KV>
+              </Section>
+
+              {(r.status === 'APPROVED' || r.status === 'REJECTED') && (
+                <Section title="Sprendimas">
+                  <KV label="Statusas">{STATUS_LABELS[r.status]}</KV>
+                  <KV label="Sprendė">{r.decidedByName ?? '—'}</KV>
+                  <KV label="Data">{fmtDateTime(r.decidedAt)}</KV>
+                  <KV label="Skirta suma" emph>
+                    {fmtEur(r.decisionGrantedAmount)}
+                  </KV>
+                  <KV label="Finansavimo šaltinis (programa)">
+                    {classifierLabel(spLookup, r.decisionFundingSource)}
+                  </KV>
+                  <KV label="Protokolas">{r.decisionProtocol ?? '—'}</KV>
+                  <KV label="Įsakymo nr.">{r.decisionOrder ?? '—'}</KV>
+                  <KV label="Įsakymo data">{fmtDate(r.decisionOrderDate)}</KV>
+                  <KV label="Potvarkio PDF" wide>
+                    <AttachmentList
+                      requestId={requestId}
+                      kind="order_pdf"
+                      canUpload={user?.tenantIsApprover === true && user.role === 'admin'}
+                      uploadKind="order_pdf"
+                      uploadLabel="Įkelti papildomą versiją"
+                      emptyText="Potvarkio PDF nepriklijuotas."
+                      requestStatus={r.status}
+                    />
+                  </KV>
+                </Section>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <Card>
+                <CardContent className="p-4">
+                  <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Aprobacijos eiga
+                  </h3>
+                  <ApprovalStepsList steps={r.approvalSteps ?? []} />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-4">
+                  <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                    <MessageCircle className="h-4 w-4" />
+                    Komentarai ir istorija
+                  </h3>
+                  <ul className="space-y-3" data-testid="comments-list">
+                    {r.comments.length === 0 ? (
+                      <li className="text-xs text-muted-foreground">Komentarų dar nėra.</li>
+                    ) : (
+                      r.comments.map((c) => (
+                        <li key={c.id} className="rounded-md bg-muted/30 p-3 text-sm">
+                          <div className="mb-1 flex flex-wrap items-center gap-2">
+                            <span
+                              className={cn(
+                                'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                                KIND_COLORS[c.kind],
+                              )}
+                            >
+                              {KIND_LABELS[c.kind]}
+                            </span>
+                            <span className="text-xs font-medium">{c.authorName}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {ROLE_LABELS[c.authorRole]}
+                            </span>
+                          </div>
+                          {c.body && <p className="whitespace-pre-wrap text-sm">{c.body}</p>}
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            {fmtDateTime(c.createdAt)}
+                          </p>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+
+                  <div className="mt-4 space-y-2 border-t border-border pt-3">
+                    <Label htmlFor="new-comment">Pridėti komentarą</Label>
+                    <textarea
+                      id="new-comment"
+                      className="min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={commentBody}
+                      onChange={(e) => setCommentBody(e.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      disabled={!commentBody.trim() || addComment.isPending}
+                      onClick={() => addComment.mutate(commentBody)}
+                    >
+                      Skelbti
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="atsiskaitymas">
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="mb-3 text-sm font-semibold">Atsiskaitymai</h3>
+              {/* PA-008/PA-009: AM (tvirtintojas) mato pateiktus atsiskaitymus,
+                  bet jų NEvaldo — `isSubmitterSide` lieka tik teikėjui. */}
+              <ReportsSection
+                requestId={requestId}
+                isApproved={r.status === 'APPROVED'}
+                isSubmitterSide={user?.tenantId === r.tenantId && user?.tenantIsApprover !== true}
+              />
             </CardContent>
           </Card>
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -885,13 +1012,10 @@ function KV({
 }): JSX.Element {
   return (
     <>
-      <dt className={cn('text-muted-foreground', wide && 'col-span-2 mt-2 font-medium')}>{label}</dt>
-      <dd
-        className={cn(
-          wide ? 'col-span-2' : 'text-right tabular-nums',
-          emph && 'font-semibold',
-        )}
-      >
+      <dt className={cn('text-muted-foreground', wide && 'col-span-2 mt-2 font-medium')}>
+        {label}
+      </dt>
+      <dd className={cn(wide ? 'col-span-2' : 'text-right tabular-nums', emph && 'font-semibold')}>
         {children}
       </dd>
     </>

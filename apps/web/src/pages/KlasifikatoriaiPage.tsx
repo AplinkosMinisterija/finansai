@@ -173,12 +173,8 @@ export default function KlasifikatoriaiPage(): JSX.Element {
               items={itemsByGroup.get(g.id) ?? []}
               onEditGroup={() => setEditingGroup(g)}
               onDeleteGroup={() => handleDeleteGroup(g)}
-              onAddItem={(parentId) =>
-                setItemDialog({ groupId: g.id, parentId, item: null })
-              }
-              onEditItem={(item) =>
-                setItemDialog({ groupId: g.id, parentId: item.parentId, item })
-              }
+              onAddItem={(parentId) => setItemDialog({ groupId: g.id, parentId, item: null })}
+              onEditItem={(item) => setItemDialog({ groupId: g.id, parentId: item.parentId, item })}
               onDeleteItem={handleDeleteItem}
             />
           ))}
@@ -204,26 +200,40 @@ export default function KlasifikatoriaiPage(): JSX.Element {
         />
       )}
 
-      {itemDialog !== null && (
-        <ClassifierItemDialog
-          mode={itemDialog.item ? 'edit' : 'create'}
-          groupId={itemDialog.groupId}
-          parentId={itemDialog.parentId}
-          item={itemDialog.item}
-          siblings={items.filter(
-            (i) => i.groupId === itemDialog.groupId && i.parentId === null,
-          )}
-          open
-          onOpenChange={(o) => {
-            if (!o) setItemDialog(null);
-          }}
-          onSuccess={() => {
-            void qc.invalidateQueries({ queryKey: ['classifierItems'] });
-            void qc.invalidateQueries({ queryKey: ['classifierGroups'] });
-            setItemDialog(null);
-          }}
-        />
-      )}
+      {itemDialog !== null &&
+        (() => {
+          const dialogGroup = groups.find((g) => g.id === itemDialog.groupId);
+          const dialogGroupCode = dialogGroup?.code;
+          // UAT #42 (PA-005): source_program reikšmės gali turėti tėvą iš
+          // funding_source_type grupės (šaltinis → programa hierarchija).
+          const fundingSourceTypeGroup = groups.find((g) => g.code === 'funding_source_type');
+          const crossGroupParents =
+            dialogGroupCode === 'source_program' && fundingSourceTypeGroup
+              ? items.filter((i) => i.groupId === fundingSourceTypeGroup.id)
+              : [];
+          return (
+            <ClassifierItemDialog
+              mode={itemDialog.item ? 'edit' : 'create'}
+              groupId={itemDialog.groupId}
+              groupCode={dialogGroupCode}
+              parentId={itemDialog.parentId}
+              item={itemDialog.item}
+              siblings={items.filter(
+                (i) => i.groupId === itemDialog.groupId && i.parentId === null,
+              )}
+              crossGroupParents={crossGroupParents}
+              open
+              onOpenChange={(o) => {
+                if (!o) setItemDialog(null);
+              }}
+              onSuccess={() => {
+                void qc.invalidateQueries({ queryKey: ['classifierItems'] });
+                void qc.invalidateQueries({ queryKey: ['classifierGroups'] });
+                setItemDialog(null);
+              }}
+            />
+          );
+        })()}
     </div>
   );
 }
@@ -255,9 +265,7 @@ function GroupCard({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
             <Tags className="h-4 w-4 text-muted-foreground" />
-            <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
-              {group.code}
-            </code>
+            <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">{group.code}</code>
             <span className="font-medium">{group.name}</span>
             <Badge variant="secondary" className="text-[10px]">
               {items.length} reikš.
@@ -298,9 +306,7 @@ function GroupCard({
           </div>
         </div>
 
-        {group.description && (
-          <p className="text-xs text-muted-foreground">{group.description}</p>
-        )}
+        {group.description && <p className="text-xs text-muted-foreground">{group.description}</p>}
 
         {tops.length === 0 ? (
           <p className="text-xs text-muted-foreground">Reikšmių dar nėra.</p>

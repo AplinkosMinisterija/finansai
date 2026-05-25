@@ -59,10 +59,18 @@ function fromItem(it: ClassifierItem): FormState {
 export interface ClassifierItemDialogProps {
   mode: 'create' | 'edit';
   groupId: number;
+  /** Grupės kodas — naudojamas conditional UI (is_system, source_program). */
+  groupCode?: string;
   parentId: number | null;
   item: ClassifierItem | null;
   /** Top-level item'ai grupėje — galimas parent_id sąrašas. */
   siblings: ClassifierItem[];
+  /**
+   * UAT #42 (PA-005): cross-group tėvinės reikšmės (pvz. funding_source_type
+   * item'ai, kuriuos galima priskirti source_program reikšmei). Tuščia, jei
+   * grupė neturi cross-group tėvų.
+   */
+  crossGroupParents?: ClassifierItem[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
@@ -71,16 +79,16 @@ export interface ClassifierItemDialogProps {
 export function ClassifierItemDialog({
   mode,
   groupId,
+  groupCode,
   parentId,
   item,
   siblings,
+  crossGroupParents = [],
   open,
   onOpenChange,
   onSuccess,
 }: ClassifierItemDialogProps): JSX.Element {
-  const [state, setState] = React.useState<FormState>(
-    item ? fromItem(item) : emptyForm(parentId),
-  );
+  const [state, setState] = React.useState<FormState>(item ? fromItem(item) : emptyForm(parentId));
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -132,16 +140,20 @@ export function ClassifierItemDialog({
   }
 
   const isCreate = mode === 'create';
-  const eligibleParents = siblings.filter((s) => !item || s.id !== item.id);
+  const isSystemGroup = groupCode === 'is_system';
+  const isSourceProgram = groupCode === 'source_program';
+  // UAT #42 (PA-005): source_program reikšmei tėvas yra funding_source_type
+  // item'as (cross-group). Kitoms grupėms — tos pačios grupės top-level reikšmės.
+  const eligibleParents = (isSourceProgram ? crossGroupParents : siblings).filter(
+    (s) => !item || s.id !== item.id,
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <form onSubmit={onSubmit} noValidate>
           <DialogHeader>
-            <DialogTitle>
-              {isCreate ? 'Nauja reikšmė' : `Redaguoti — ${item?.code}`}
-            </DialogTitle>
+            <DialogTitle>{isCreate ? 'Nauja reikšmė' : `Redaguoti — ${item?.code}`}</DialogTitle>
             <DialogDescription>
               {isCreate
                 ? 'Įveskite reikšmės kodą, pavadinimą ir tėvinę reikšmę (jei reikia).'
@@ -151,7 +163,9 @@ export function ClassifierItemDialog({
 
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="ci-parent">Tėvinė reikšmė</Label>
+              <Label htmlFor="ci-parent">
+                {isSourceProgram ? 'Finansavimo šaltinio tipas (tėvas)' : 'Tėvinė reikšmė'}
+              </Label>
               <Select
                 value={state.parentId === null ? 'none' : String(state.parentId)}
                 onValueChange={(v) =>
@@ -165,7 +179,9 @@ export function ClassifierItemDialog({
                   <SelectValue placeholder="Be tėvinės" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Be tėvinės (top-level)</SelectItem>
+                  <SelectItem value="none">
+                    {isSourceProgram ? 'Be šaltinio tipo' : 'Be tėvinės (top-level)'}
+                  </SelectItem>
                   {eligibleParents.map((p) => (
                     <SelectItem key={p.id} value={String(p.id)}>
                       {p.name} ({p.code})
@@ -174,21 +190,28 @@ export function ClassifierItemDialog({
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
-                Pvz. „IT" yra top-level, o „Licencijos" — jos sub-reikšmė.
+                {isSourceProgram
+                  ? 'UAT #42 (PA-005): programą galima susieti su finansavimo šaltinio tipu (šaltinis → programa).'
+                  : 'Pvz. „IT" yra top-level, o „Licencijos" — jos sub-reikšmė.'}
               </p>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-2 col-span-1">
-                <Label htmlFor="ci-code">Kodas</Label>
+                <Label htmlFor="ci-code">{isSystemGroup ? 'Trumpinys' : 'Kodas'}</Label>
                 <Input
                   id="ci-code"
                   required
                   maxLength={64}
-                  placeholder="IT_LICENSES"
+                  placeholder={isSystemGroup ? 'IAMS' : 'IT_LICENSES'}
                   value={state.code}
                   onChange={(e) => setState((s) => ({ ...s, code: e.target.value }))}
                 />
+                {isSystemGroup && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Trumpinys — rodomas sąrašuose (pvz. „IAMS").
+                  </p>
+                )}
               </div>
               <div className="space-y-2 col-span-2">
                 <Label htmlFor="ci-name">Pavadinimas</Label>
@@ -196,10 +219,17 @@ export function ClassifierItemDialog({
                   id="ci-name"
                   required
                   maxLength={200}
-                  placeholder="Licencijos"
+                  placeholder={
+                    isSystemGroup ? 'Informacinė aplinkos monitoringo sistema' : 'Licencijos'
+                  }
                   value={state.name}
                   onChange={(e) => setState((s) => ({ ...s, name: e.target.value }))}
                 />
+                {isSystemGroup && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Pilnas pavadinimas — rodomas detalioje peržiūroje.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -209,9 +239,7 @@ export function ClassifierItemDialog({
                 id="ci-order"
                 type="number"
                 value={state.sortOrder}
-                onChange={(e) =>
-                  setState((s) => ({ ...s, sortOrder: e.target.value }))
-                }
+                onChange={(e) => setState((s) => ({ ...s, sortOrder: e.target.value }))}
               />
               <p className="text-[11px] text-muted-foreground">
                 Mažesnis skaičius rodomas viršuje (0, 10, 20…).
@@ -222,9 +250,7 @@ export function ClassifierItemDialog({
               <Checkbox
                 id="ci-active"
                 checked={state.active}
-                onCheckedChange={(checked) =>
-                  setState((s) => ({ ...s, active: checked === true }))
-                }
+                onCheckedChange={(checked) => setState((s) => ({ ...s, active: checked === true }))}
               />
               <div className="flex-1">
                 <Label htmlFor="ci-active" className="cursor-pointer text-sm">

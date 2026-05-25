@@ -185,6 +185,7 @@ function toRequestDTO(r: RequestWithRels): RequestDTO {
     decisionFundingSource: r.decisionFundingSource,
     decisionProtocol: r.decisionProtocol,
     decisionOrder: r.decisionOrder,
+    decisionOrderDate: r.decisionOrderDate,
     decidedAt: r.decidedAt,
     decidedByUserId: r.decidedByUserId,
     decidedByName: r.decidedByUser?.fullName ?? null,
@@ -223,9 +224,7 @@ function toCommentDTO(c: RequestComment & { authorUser?: User }): RequestComment
 async function loadRequest(id: number): Promise<RequestWithRels | undefined> {
   const r = await Request.query()
     .findById(id)
-    .withGraphFetched(
-      '[tenant, createdByUser, decidedByUser, budgetCategory, fundingSourceType]',
-    );
+    .withGraphFetched('[tenant, createdByUser, decidedByUser, budgetCategory, fundingSourceType]');
   return r as RequestWithRels | undefined;
 }
 
@@ -263,9 +262,7 @@ async function resolveLevelName(code: string): Promise<string> {
  * optional ir backward compat'ui leidžiamas tuščias.
  */
 async function validateBudgetCategory(itemId: number): Promise<ClassifierItem> {
-  const item = await ClassifierItem.query()
-    .findById(itemId)
-    .withGraphFetched('group');
+  const item = await ClassifierItem.query().findById(itemId).withGraphFetched('group');
   if (!item) {
     throw new Errors.MoleculerClientError(
       'Biudžeto kategorija nerasta klasifikatoriuje',
@@ -288,9 +285,7 @@ async function validateBudgetCategory(itemId: number): Promise<ClassifierItem> {
  * Patikrina, kad classifier_item priklauso `funding_source_type` grupei.
  */
 async function validateFundingSourceType(itemId: number): Promise<ClassifierItem> {
-  const item = await ClassifierItem.query()
-    .findById(itemId)
-    .withGraphFetched('group');
+  const item = await ClassifierItem.query().findById(itemId).withGraphFetched('group');
   if (!item) {
     throw new Errors.MoleculerClientError(
       'Finansavimo šaltinio tipas nerastas klasifikatoriuje',
@@ -307,6 +302,41 @@ async function validateFundingSourceType(itemId: number): Promise<ClassifierItem
     );
   }
   return item;
+}
+
+/**
+ * UAT #42 (PA-005): patikrina šaltinio programos (`source_program`) ir
+ * finansavimo šaltinio tipo (`funding_source_type`) suderinamumą.
+ *
+ * Hierarchija: `source_program` item'as gali turėti `parent_id`, rodantį į
+ * `funding_source_type` grupės item'ą. Jei AM sprendime pasirenka tiek programą
+ * (`fundingSource` code), tiek šaltinio tipą (`fundingSourceTypeId`) — programos
+ * tėvas TURI sutapti su pasirinktu šaltinio tipu, kitaip 400 klaida.
+ *
+ * Validuoja tik kai abu nurodyti. Programos be tėvo (legacy) praleidžiamos.
+ */
+async function validateProgramSourceConsistency(
+  fundingSourceCode: string | undefined,
+  fundingSourceTypeId: number | null | undefined,
+): Promise<void> {
+  if (!fundingSourceCode || fundingSourceTypeId === undefined || fundingSourceTypeId === null) {
+    return;
+  }
+  const group = await ClassifierGroup.query().findOne({ code: 'source_program' });
+  if (!group) return;
+  const program = await ClassifierItem.query().findOne({
+    group_id: group.id,
+    code: fundingSourceCode,
+  });
+  // Programa ne iš source_program grupės arba neturi tėvo — nieko netikrinam.
+  if (!program || program.parentId === null) return;
+  if (program.parentId !== fundingSourceTypeId) {
+    throw new Errors.MoleculerClientError(
+      'Pasirinkta programa nepriklauso pasirinktam finansavimo šaltinio tipui',
+      400,
+      'PROGRAM_SOURCE_MISMATCH',
+    );
+  }
 }
 
 /**
@@ -334,8 +364,7 @@ async function buildFvmPatch(
   const patch: Record<string, unknown> = {};
 
   // Budget category
-  let effectiveBudgetCategoryId: number | null | undefined =
-    input.budgetCategoryId;
+  let effectiveBudgetCategoryId: number | null | undefined = input.budgetCategoryId;
   let effectiveBudgetCategoryCode: string | null = null;
   if (input.budgetCategoryId === null) {
     patch['budgetCategoryId'] = null;
@@ -430,7 +459,10 @@ function canEdit(
   return r.createdByUserId === viewer.id;
 }
 
-function canDecide(viewer: NonNullable<AuthMeta['user']>, r: { tenantId: number; status: RequestStatus }): boolean {
+function canDecide(
+  viewer: NonNullable<AuthMeta['user']>,
+  r: { tenantId: number; status: RequestStatus },
+): boolean {
   if (!viewer.tenantIsApprover) return false;
   if (r.status !== 'SUBMITTED') return false;
   if (viewer.role === 'admin') return true;
@@ -446,14 +478,20 @@ const RequestsService: ServiceSchema = {
     list: {
       params: {
         q: { type: 'string', optional: true },
-        status: { type: 'enum', optional: true, values: ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REJECTED'] },
+        status: {
+          type: 'enum',
+          optional: true,
+          values: ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REJECTED'],
+        },
         tenantId: { type: 'number', integer: true, optional: true, convert: true },
         year: { type: 'number', integer: true, optional: true, convert: true },
         plansOnly: { type: 'boolean', optional: true, convert: true },
         page: { type: 'number', integer: true, optional: true, default: 1, convert: true },
         pageSize: { type: 'number', integer: true, optional: true, default: 50, convert: true },
       },
-      async handler(ctx: Context<RequestListQuery, AuthMeta>): Promise<PaginatedResponse<RequestDTO>> {
+      async handler(
+        ctx: Context<RequestListQuery, AuthMeta>,
+      ): Promise<PaginatedResponse<RequestDTO>> {
         const me = requireMe(ctx);
         const { q, status, tenantId, year, plansOnly } = ctx.params;
         const page = ctx.params.page ?? 1;
@@ -528,8 +566,18 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canViewRequest(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
-          throw new Errors.MoleculerClientError('Neturite teisės matyti šio prašymo', 403, 'FORBIDDEN');
+        if (
+          !canViewRequest(me, {
+            tenantId: r.tenantId,
+            createdByUserId: r.createdByUserId,
+            status: r.status,
+          })
+        ) {
+          throw new Errors.MoleculerClientError(
+            'Neturite teisės matyti šio prašymo',
+            403,
+            'FORBIDDEN',
+          );
         }
         const dto = toRequestDTO(r);
         const comments = (r.comments ?? []).map(toCommentDTO);
@@ -615,7 +663,11 @@ const RequestsService: ServiceSchema = {
         const currentYear = new Date().getFullYear();
         const requestedYear = (patch['year'] as number | undefined) ?? currentYear;
         // Leidžiame nuo current iki +5 metų (Giedrė: „planavom iki 2029 m. imtinai").
-        if (!Number.isFinite(requestedYear) || requestedYear < currentYear || requestedYear > currentYear + 5) {
+        if (
+          !Number.isFinite(requestedYear) ||
+          requestedYear < currentYear ||
+          requestedYear > currentYear + 5
+        ) {
           throw new Errors.MoleculerClientError(
             `Metai turi būti tarp ${currentYear} ir ${currentYear + 5}`,
             400,
@@ -674,7 +726,13 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canEdit(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+        if (
+          !canEdit(me, {
+            tenantId: r.tenantId,
+            createdByUserId: r.createdByUserId,
+            status: r.status,
+          })
+        ) {
           throw new Errors.MoleculerClientError(
             'Neturite teisės redaguoti šio prašymo arba jis nėra DRAFT/RETURNED būsenoje',
             403,
@@ -712,7 +770,13 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canEdit(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+        if (
+          !canEdit(me, {
+            tenantId: r.tenantId,
+            createdByUserId: r.createdByUserId,
+            status: r.status,
+          })
+        ) {
           throw new Errors.MoleculerClientError(
             'Neturite teisės teikti arba prašymas ne DRAFT/RETURNED būsenoje',
             403,
@@ -777,7 +841,13 @@ const RequestsService: ServiceSchema = {
             'INVALID_STATUS',
           );
         }
-        if (!canEdit(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+        if (
+          !canEdit(me, {
+            tenantId: r.tenantId,
+            createdByUserId: r.createdByUserId,
+            status: r.status,
+          })
+        ) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         await Request.query().deleteById(r.id);
@@ -798,13 +868,23 @@ const RequestsService: ServiceSchema = {
         if (!src) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canViewRequest(me, { tenantId: src.tenantId, createdByUserId: src.createdByUserId, status: src.status })) {
+        if (
+          !canViewRequest(me, {
+            tenantId: src.tenantId,
+            createdByUserId: src.createdByUserId,
+            status: src.status,
+          })
+        ) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         // Tik teikėjas iš tos org (arba AM admin „on behalf") gali konvertuoti.
         if (me.tenantIsApprover) {
           if (me.role !== 'admin') {
-            throw new Errors.MoleculerClientError('Tik AM admin gali konvertuoti', 403, 'FORBIDDEN');
+            throw new Errors.MoleculerClientError(
+              'Tik AM admin gali konvertuoti',
+              403,
+              'FORBIDDEN',
+            );
           }
         } else if (src.tenantId !== me.tenantId) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
@@ -829,7 +909,12 @@ const RequestsService: ServiceSchema = {
         // Patikriname ar jau yra einamų metų DRAFT, sukurtas iš to paties tenant'o
         // su tuo pačiu projektu (paprasta duplikatų prevencija).
         const dup = await Request.query()
-          .where({ tenant_id: src.tenantId, year: currentYear, project_name: src.projectName, status: 'DRAFT' })
+          .where({
+            tenant_id: src.tenantId,
+            year: currentYear,
+            project_name: src.projectName,
+            status: 'DRAFT',
+          })
           .first();
         if (dup) {
           throw new Errors.MoleculerClientError(
@@ -905,6 +990,23 @@ const RequestsService: ServiceSchema = {
         fundingSource: { type: 'string', optional: true, max: 500 },
         protocol: { type: 'string', optional: true, max: 500 },
         order: { type: 'string', optional: true, max: 500 },
+        // UAT #42 (PA-006): įsakymo data — date picker (YYYY-MM-DD).
+        orderDate: { type: 'string', optional: true, nullable: true, max: 10 },
+        // UAT #42 (PA-002): prioritetas + pirkimo stadija tapo AM sprendimo laukais.
+        priority: {
+          type: 'number',
+          integer: true,
+          optional: true,
+          nullable: true,
+          min: 1,
+          max: 5,
+          convert: true,
+        },
+        procurementStage: { type: 'string', optional: true, nullable: true, max: 500 },
+        // UAT #42 (PA-003): finansavimo šaltinio laukai tapo AM sprendimo laukais.
+        fundingFromIt: { type: 'number', optional: true, nullable: true, min: 0, convert: true },
+        otherFunds: { type: 'number', optional: true, nullable: true, min: 0, convert: true },
+        otherFundsSource: { type: 'string', optional: true, nullable: true, max: 500 },
         // FVM laukai (Iter 10, docx §3.3): AM gali pakeisti kategoriją per
         // patvirtinimą. Visi optional — be jų veikia kaip iki šiol.
         budgetCategoryId: {
@@ -979,13 +1081,21 @@ const RequestsService: ServiceSchema = {
           r.budgetCategoryId,
         );
 
+        // UAT #42 (PA-005): jei AM nurodo tiek programą, tiek šaltinio tipą —
+        // jie turi būti suderinti (programos tėvas = šaltinio tipas). Validuojam
+        // ANKSTI — prieš bet kokį patch'ą.
+        await validateProgramSourceConsistency(p.fundingSource, p.fundingSourceTypeId);
+
         if (isApprove) {
           newStatus = 'APPROVED';
           kind = 'approved';
-          patch['decisionGrantedAmount'] = p.grantedAmount !== undefined ? normalizeAmount(p.grantedAmount) : null;
+          patch['decisionGrantedAmount'] =
+            p.grantedAmount !== undefined ? normalizeAmount(p.grantedAmount) : null;
           patch['decisionFundingSource'] = p.fundingSource ?? null;
           patch['decisionProtocol'] = p.protocol ?? null;
           patch['decisionOrder'] = p.order ?? null;
+          // UAT #42 (PA-006): įsakymo data per date picker.
+          patch['decisionOrderDate'] = p.orderDate ?? null;
           patch['decidedAt'] = now;
           patch['decidedByUserId'] = me.id;
         } else if (isReject) {
@@ -1001,6 +1111,19 @@ const RequestsService: ServiceSchema = {
         // FVM laukai įdedami nepriklausomai nuo sprendimo tipo (approve/reject/return),
         // — AM gali koreguoti kategoriją prieš return ar reject taip pat.
         Object.assign(patch, fvmPatch);
+
+        // UAT #42 (PA-002 / PA-003): prioritetas, pirkimo stadija ir finansavimo
+        // šaltinio laukai tapo AM sprendimo laukais (nebepildomi teikėjo). AM
+        // nustato juos per sprendimo formą — nepriklausomai nuo sprendimo tipo.
+        if (p.priority !== undefined) patch['priority'] = p.priority;
+        if (p.procurementStage !== undefined) patch['procurementStage'] = p.procurementStage;
+        if (p.fundingFromIt !== undefined) {
+          patch['fundingFromIt'] = p.fundingFromIt === null ? 0 : normalizeAmount(p.fundingFromIt);
+        }
+        if (p.otherFunds !== undefined) {
+          patch['otherFunds'] = p.otherFunds === null ? 0 : normalizeAmount(p.otherFunds);
+        }
+        if (p.otherFundsSource !== undefined) patch['otherFundsSource'] = p.otherFundsSource;
 
         // Audit #10: visi Request + ApprovalStep + RequestComment rašymai turi
         // įvykti atominėje transakcijoje. Read'ai po commit'o (loadRequest)
@@ -1020,12 +1143,14 @@ const RequestsService: ServiceSchema = {
           else stepStatus = 'RETURNED';
 
           if (currentStep) {
-            await ApprovalStep.query(trx).findById(currentStep.id).patch({
-              status: stepStatus,
-              decidedByUserId: me.id,
-              decidedAt: now,
-              comment: p.comment ?? null,
-            });
+            await ApprovalStep.query(trx)
+              .findById(currentStep.id)
+              .patch({
+                status: stepStatus,
+                decidedByUserId: me.id,
+                decidedAt: now,
+                comment: p.comment ?? null,
+              });
           }
 
           // Daugiapakopei aprobacijai (visa AM): jei APPROVED + dar yra PENDING žingsnių
@@ -1058,7 +1183,9 @@ const RequestsService: ServiceSchema = {
             metadata: {
               fromStatus: r.status,
               toStatus: newStatus,
-              ...(currentStep ? { stepSequence: currentStep.sequence, stepLevel: currentStep.levelCode } : {}),
+              ...(currentStep
+                ? { stepSequence: currentStep.sequence, stepLevel: currentStep.levelCode }
+                : {}),
               ...(isApprove
                 ? {
                     grantedAmount: patch['decisionGrantedAmount'],
@@ -1095,7 +1222,13 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (!canViewRequest(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId, status: r.status })) {
+        if (
+          !canViewRequest(me, {
+            tenantId: r.tenantId,
+            createdByUserId: r.createdByUserId,
+            status: r.status,
+          })
+        ) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
         const inserted = await RequestComment.query().insert({
@@ -1134,9 +1267,7 @@ const RequestsService: ServiceSchema = {
      */
     createFvmProject: {
       params: { id: { type: 'number', integer: true, convert: true } },
-      async handler(
-        ctx: Context<{ id: number }, AuthMeta>,
-      ): Promise<CreateFvmProjectResponse> {
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<CreateFvmProjectResponse> {
         const me = requireMe(ctx);
         if (!me.tenantIsApprover || me.role !== 'admin') {
           throw new Errors.MoleculerClientError(
@@ -1151,11 +1282,7 @@ const RequestsService: ServiceSchema = {
           | (Request & { budgetCategory?: ClassifierItem })
           | undefined;
         if (!r) {
-          throw new Errors.MoleculerClientError(
-            'Prašymas nerastas',
-            404,
-            'REQUEST_NOT_FOUND',
-          );
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
         if (r.status !== 'APPROVED') {
           throw new Errors.MoleculerClientError(
@@ -1177,10 +1304,7 @@ const RequestsService: ServiceSchema = {
         // turi sukurti projektą rankiniu būdu per /projektai (frontend),
         // nes biudžeto eilutės pasirinkimas reikalauja kontekstinio
         // sprendimo (kuriai konkrečiai allocation tipui pridėti).
-        if (
-          !r.budgetCategory ||
-          r.budgetCategory.code !== SPEC_PROGRAMA_CODE
-        ) {
+        if (!r.budgetCategory || r.budgetCategory.code !== SPEC_PROGRAMA_CODE) {
           throw new Errors.MoleculerClientError(
             'Šio tipo prašymui projektas kuriamas rankiniu būdu per /projektai',
             400,
@@ -1209,10 +1333,7 @@ const RequestsService: ServiceSchema = {
             'funding_sources.id',
           )
           .where('budget_allocations_v2.metai', r.year)
-          .where(
-            'budget_allocations_v2.category_classifier_item_id',
-            r.budgetCategoryId,
-          )
+          .where('budget_allocations_v2.category_classifier_item_id', r.budgetCategoryId)
           .where('funding_sources.tenant_id', r.tenantId)
           .orderBy('budget_allocations_v2.id', 'asc')
           .select('budget_allocations_v2.*')) as BudgetAllocationV2[];
@@ -1241,28 +1362,21 @@ const RequestsService: ServiceSchema = {
             tenantId: r.tenantId,
             budgetAllocationId: allocation.id,
             requestId: r.id,
-            pavadinimas:
-              projectName.length > 300
-                ? projectName.slice(0, 300)
-                : projectName,
+            pavadinimas: projectName.length > 300 ? projectName.slice(0, 300) : projectName,
             tipas: 'spec_programa',
             biudzetas: grantedAmount,
             statusas: 'planuojama',
             atsakingasUserId: r.createdByUserId,
             aprasymas: r.description ?? null,
           });
-          await Request.query(trx)
-            .findById(r.id)
-            .patch({ fvmProjectId: inserted.id });
+          await Request.query(trx).findById(r.id).patch({ fvmProjectId: inserted.id });
           return inserted;
         });
 
         // Eager load relations response'ui (transakcijos pabaigoje).
         const full = (await Project.query()
           .findById(newProject.id)
-          .withGraphFetched(
-            '[tenant, budgetAllocation, request, atsakingasUser]',
-          )) as
+          .withGraphFetched('[tenant, budgetAllocation, request, atsakingasUser]')) as
           | (Project & {
               tenant?: Tenant;
               budgetAllocation?: BudgetAllocationV2;
