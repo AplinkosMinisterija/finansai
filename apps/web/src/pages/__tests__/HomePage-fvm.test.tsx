@@ -30,8 +30,7 @@ vi.mock('@/lib/api', async () => {
 });
 
 vi.mock('@/lib/api/fvm', async () => {
-  const actual =
-    await vi.importActual<typeof import('@/lib/api/fvm')>('@/lib/api/fvm');
+  const actual = await vi.importActual<typeof import('@/lib/api/fvm')>('@/lib/api/fvm');
   return {
     ...actual,
     dashboardApi: {
@@ -70,7 +69,7 @@ function makeDashboard(overrides: Partial<DashboardData> = {}): DashboardData {
     year: 2026,
     stats: {
       totalRequests: 0,
-      byStatus: { DRAFT: 0, SUBMITTED: 0, RETURNED: 0, APPROVED: 0, REJECTED: 0 },
+      byStatus: { DRAFT: 0, SUBMITTED: 0, RETURNED: 0, APPROVED: 0, REJECTED: 0, NEAKTUALU: 0 },
       amountsByStatus: { SUBMITTED: 0, RETURNED: 0, APPROVED: 0, REJECTED: 0 },
       totalRequestedThisYear: 0,
       totalApprovedThisYear: 0,
@@ -88,9 +87,7 @@ function makeDashboard(overrides: Partial<DashboardData> = {}): DashboardData {
   };
 }
 
-function makeSummary(
-  overrides: Partial<FvmSummaryResponse> = {},
-): FvmSummaryResponse {
+function makeSummary(overrides: Partial<FvmSummaryResponse> = {}): FvmSummaryResponse {
   return {
     year: 2026,
     generatedAt: '2026-05-22T10:00:00Z',

@@ -10,7 +10,10 @@ export type RequestCommentKind =
   | 'submitted'
   | 'returned'
   | 'approved'
-  | 'rejected';
+  | 'rejected'
+  // Issue #9: archyvavimas / grąžinimas į juodraštį.
+  | 'marked_not_relevant'
+  | 'reactivated';
 
 export class RequestComment extends BaseModel {
   static override tableName = 'request_comments';

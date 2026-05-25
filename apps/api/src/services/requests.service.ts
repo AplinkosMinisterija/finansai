@@ -459,6 +459,24 @@ function canEdit(
   return r.createdByUserId === viewer.id;
 }
 
+/**
+ * Issue #9: ar vartotojas „valdo" prašymą (gali archyvuoti / grąžinti /
+ * ištrinti), neatsižvelgiant į status. Ta pati org/role taisyklė kaip
+ * `canEdit`, tik be statuso patikros — naudojam NEAKTUALU perėjimams ir
+ * delete (kur status jau patikrintas atskirai).
+ */
+function canManage(
+  viewer: NonNullable<AuthMeta['user']>,
+  r: { tenantId: number; createdByUserId: number },
+): boolean {
+  if (viewer.tenantIsApprover) {
+    return viewer.role === 'admin' && r.createdByUserId === viewer.id;
+  }
+  if (r.tenantId !== viewer.tenantId) return false;
+  if (viewer.role === 'admin') return true;
+  return r.createdByUserId === viewer.id;
+}
+
 function canDecide(
   viewer: NonNullable<AuthMeta['user']>,
   r: { tenantId: number; status: RequestStatus },
@@ -481,7 +499,8 @@ const RequestsService: ServiceSchema = {
         status: {
           type: 'enum',
           optional: true,
-          values: ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REJECTED'],
+          // Issue #9: pridėtas NEAKTUALU (soft-archive).
+          values: ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REJECTED', 'NEAKTUALU'],
         },
         tenantId: { type: 'number', integer: true, optional: true, convert: true },
         year: { type: 'number', integer: true, optional: true, convert: true },
@@ -533,6 +552,10 @@ const RequestsService: ServiceSchema = {
         }
         if (status !== undefined) {
           query.where('requests.status', status);
+        } else {
+          // Issue #9: NEAKTUALU (soft-archive) prašymai NErodomi default sąraše —
+          // jie pasiekiami tik eksplicitiškai pasirinkus „Neaktualūs" filtrą.
+          query.whereNot('requests.status', 'NEAKTUALU');
         }
         if (tenantId !== undefined) {
           query.where('requests.tenant_id', tenantId);
@@ -834,13 +857,42 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
-        if (r.status !== 'DRAFT') {
+        // Issue #9: ištrinti galima DRAFT arba NEAKTUALU (soft-archive) prašymus.
+        if (r.status !== 'DRAFT' && r.status !== 'NEAKTUALU') {
           throw new Errors.MoleculerClientError(
-            'Galima ištrinti tik DRAFT prašymus',
+            'Galima ištrinti tik DRAFT arba NEAKTUALU prašymus',
             400,
             'INVALID_STATUS',
           );
         }
+        // NEAKTUALU prašymas `canEdit` netinka (jis reikalauja DRAFT/RETURNED),
+        // todėl teisę tikrinam per bendrą „valdo prašymą" taisyklę.
+        if (!canManage(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId })) {
+          throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
+        }
+        await Request.query().deleteById(r.id);
+        return { ok: true };
+      },
+    },
+
+    /**
+     * Issue #9: pažymėti prašymą neaktualiu (soft-archive). Suplanuotą/
+     * sugeneruotą DRAFT arba RETURNED prašymą institucija gali pažymėti
+     * „neaktualiu" vietoj pateikimo — jis pašalinamas iš aktyvaus srauto.
+     *
+     * Teisės: tos pačios kaip teikti (`canEdit`) — teikėjas iš tos org,
+     * org admin arba AM admin „on behalf" savo sukurtam juodraščiui.
+     */
+    markNotRelevant: {
+      params: { id: { type: 'number', integer: true, convert: true } },
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<RequestDTO> {
+        const me = requireMe(ctx);
+        const r = await Request.query().findById(ctx.params.id);
+        if (!r) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        // `canEdit` reikalauja DRAFT/RETURNED — tas pat reikalavimas galioja
+        // ir archyvavimui (negalima archyvuoti pateikto/patvirtinto/atmesto).
         if (
           !canEdit(me, {
             tenantId: r.tenantId,
@@ -848,10 +900,62 @@ const RequestsService: ServiceSchema = {
             status: r.status,
           })
         ) {
+          throw new Errors.MoleculerClientError(
+            'Neturite teisės arba prašymas ne DRAFT/RETURNED būsenoje',
+            403,
+            'FORBIDDEN',
+          );
+        }
+        await Request.query().findById(r.id).patch({ status: 'NEAKTUALU' });
+        await RequestComment.query().insert({
+          requestId: r.id,
+          authorUserId: me.id,
+          kind: 'marked_not_relevant',
+          body: null,
+          metadata: { fromStatus: r.status, toStatus: 'NEAKTUALU' },
+        });
+        const full = await loadRequest(r.id);
+        if (!full) throw new Error('Marked request not found');
+        return toRequestDTO(full);
+      },
+    },
+
+    /**
+     * Issue #9: grąžinti neaktualų prašymą atgal į juodraštį (reaktyvuoti).
+     * Klaidingai archyvuotą planą galima atgaivinti.
+     *
+     * Teisės: tos pačios kaip archyvuoti — teikėjas iš tos org, org admin
+     * arba AM admin „on behalf".
+     */
+    markActive: {
+      params: { id: { type: 'number', integer: true, convert: true } },
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<RequestDTO> {
+        const me = requireMe(ctx);
+        const r = await Request.query().findById(ctx.params.id);
+        if (!r) {
+          throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
+        }
+        if (r.status !== 'NEAKTUALU') {
+          throw new Errors.MoleculerClientError(
+            'Grąžinti į juodraštį galima tik NEAKTUALU prašymą',
+            400,
+            'INVALID_STATUS',
+          );
+        }
+        if (!canManage(me, { tenantId: r.tenantId, createdByUserId: r.createdByUserId })) {
           throw new Errors.MoleculerClientError('Neturite teisės', 403, 'FORBIDDEN');
         }
-        await Request.query().deleteById(r.id);
-        return { ok: true };
+        await Request.query().findById(r.id).patch({ status: 'DRAFT' });
+        await RequestComment.query().insert({
+          requestId: r.id,
+          authorUserId: me.id,
+          kind: 'reactivated',
+          body: null,
+          metadata: { fromStatus: 'NEAKTUALU', toStatus: 'DRAFT' },
+        });
+        const full = await loadRequest(r.id);
+        if (!full) throw new Error('Reactivated request not found');
+        return toRequestDTO(full);
       },
     },
 

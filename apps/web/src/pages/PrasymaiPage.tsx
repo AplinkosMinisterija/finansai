@@ -51,6 +51,9 @@ const STATUSES: { value: 'all' | RequestStatus; label: string }[] = [
   { value: 'RETURNED', label: 'Grąžinti' },
   { value: 'APPROVED', label: 'Patvirtinti' },
   { value: 'REJECTED', label: 'Atmesti' },
+  // Issue #9: neaktualūs (soft-archive) — paslėpti default sąraše, pasiekiami
+  // tik per šį filtrą.
+  { value: 'NEAKTUALU', label: 'Neaktualūs' },
 ];
 
 export default function PrasymaiPage(): JSX.Element {

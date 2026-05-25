@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import {
+  Archive,
+  ArchiveRestore,
   Briefcase,
   CheckCircle2,
   MessageCircle,
@@ -26,6 +28,8 @@ import {
   requestDecision,
   requestDelete,
   requestGet,
+  requestMarkActive,
+  requestMarkNotRelevant,
   requestSubmit,
 } from '@/lib/api';
 import { classifierLabel, useClassifier } from '@/lib/classifiers';
@@ -37,6 +41,8 @@ import {
   canDecide,
   canDelete,
   canEdit,
+  canMarkNotRelevant,
+  canReactivate,
   canSubmit,
   fmtDate,
   fmtDateTime,
@@ -58,6 +64,9 @@ const KIND_LABELS: Record<RequestCommentKind, string> = {
   returned: 'Grąžinta pataisymui',
   approved: 'Patvirtinta',
   rejected: 'Atmesta',
+  // Issue #9
+  marked_not_relevant: 'Pažymėta neaktualiu',
+  reactivated: 'Grąžinta į juodraštį',
 };
 
 const KIND_COLORS: Record<RequestCommentKind, string> = {
@@ -67,6 +76,9 @@ const KIND_COLORS: Record<RequestCommentKind, string> = {
   returned: 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100',
   approved: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-100',
   rejected: 'bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-100',
+  // Issue #9 — pritildyta spalva archyvavimui/grąžinimui.
+  marked_not_relevant: 'bg-muted text-muted-foreground',
+  reactivated: 'bg-muted text-foreground',
 };
 
 export default function PrasymoDetailPage(): JSX.Element {
@@ -164,6 +176,25 @@ export default function PrasymoDetailPage(): JSX.Element {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['requests'] });
       navigate('/prasymai');
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  // Issue #9: pažymėti neaktualiu (soft-archive) ir grąžinti į juodraštį.
+  const markNotRelevantMutation = useMutation({
+    mutationFn: () => requestMarkNotRelevant(requestId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['requests', requestId] });
+      void qc.invalidateQueries({ queryKey: ['requests'] });
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  const markActiveMutation = useMutation({
+    mutationFn: () => requestMarkActive(requestId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['requests', requestId] });
+      void qc.invalidateQueries({ queryKey: ['requests'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -303,6 +334,9 @@ export default function PrasymoDetailPage(): JSX.Element {
   const canSubmitNow = canSubmit(user, r);
   const canDecideNow = canDecide(user, r);
   const canDeleteNow = canDelete(user, r);
+  // Issue #9: NEAKTUALU perėjimai.
+  const canMarkNotRelevantNow = canMarkNotRelevant(user, r);
+  const canReactivateNow = canReactivate(user, r);
 
   return (
     <div className="mx-auto max-w-5xl p-4 md:p-6">
@@ -347,6 +381,44 @@ export default function PrasymoDetailPage(): JSX.Element {
             >
               <Send className="h-4 w-4" />
               Pateikti pakartotinai
+            </Button>
+          )}
+          {/* Issue #9: pažymėti neaktualiu (DRAFT/RETURNED teikėjui). */}
+          {canMarkNotRelevantNow && (
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="mark-not-relevant"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    'Pažymėti šį prašymą neaktualiu? Jis bus pašalintas iš aktyvaus sąrašo, bet galėsite jį grąžinti į juodraštį.',
+                  )
+                ) {
+                  markNotRelevantMutation.mutate();
+                }
+              }}
+              disabled={markNotRelevantMutation.isPending}
+            >
+              <Archive className="h-4 w-4" />
+              Pažymėti neaktualiu
+            </Button>
+          )}
+          {/* Issue #9: grąžinti neaktualų prašymą atgal į juodraštį. */}
+          {canReactivateNow && (
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="mark-active"
+              onClick={() => {
+                if (window.confirm('Grąžinti šį prašymą į juodraštį?')) {
+                  markActiveMutation.mutate();
+                }
+              }}
+              disabled={markActiveMutation.isPending}
+            >
+              <ArchiveRestore className="h-4 w-4" />
+              Grąžinti į juodraštį
             </Button>
           )}
           {canDeleteNow && (

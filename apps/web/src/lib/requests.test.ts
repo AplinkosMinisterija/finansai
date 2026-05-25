@@ -5,11 +5,14 @@ import {
   canDecide,
   canDelete,
   canEdit,
+  canMarkNotRelevant,
+  canReactivate,
   canSubmit,
   fmtEur,
   isCreateOnBehalf,
   isDeadlineOverdue,
   STATUS_LABELS,
+  STATUS_VARIANTS,
   totalQuarterly,
   totalRequested,
 } from './requests';
@@ -276,15 +279,86 @@ describe('canDelete', () => {
       false,
     );
   });
+
+  // Issue #9: NEAKTUALU prašymą savininkas gali ištrinti.
+  it('Issue #9: savininkas gali ištrinti NEAKTUALU prašymą', () => {
+    const u = makeSubmitter({ id: 100 });
+    expect(canDelete(u, makeRequest({ status: 'NEAKTUALU', createdByUserId: 100 }))).toBe(true);
+    expect(canDelete(u, makeRequest({ status: 'NEAKTUALU', createdByUserId: 999 }))).toBe(false);
+  });
+});
+
+// Issue #9: NEAKTUALU perėjimų helper'iai.
+describe('canMarkNotRelevant (Issue #9)', () => {
+  it('savininkas gali pažymėti DRAFT/RETURNED neaktualiu', () => {
+    const u = makeSubmitter({ id: 100 });
+    expect(canMarkNotRelevant(u, makeRequest({ status: 'DRAFT', createdByUserId: 100 }))).toBe(
+      true,
+    );
+    expect(canMarkNotRelevant(u, makeRequest({ status: 'RETURNED', createdByUserId: 100 }))).toBe(
+      true,
+    );
+  });
+
+  it('negalima pažymėti neaktualiu pateikto/patvirtinto/jau neaktualaus', () => {
+    const u = makeSubmitter({ id: 100 });
+    expect(canMarkNotRelevant(u, makeRequest({ status: 'SUBMITTED', createdByUserId: 100 }))).toBe(
+      false,
+    );
+    expect(canMarkNotRelevant(u, makeRequest({ status: 'APPROVED', createdByUserId: 100 }))).toBe(
+      false,
+    );
+    expect(canMarkNotRelevant(u, makeRequest({ status: 'NEAKTUALU', createdByUserId: 100 }))).toBe(
+      false,
+    );
+  });
+
+  it('pašalinis spec. negali pažymėti svetimo', () => {
+    const u = makeSubmitter({ id: 100 });
+    expect(canMarkNotRelevant(u, makeRequest({ status: 'DRAFT', createdByUserId: 999 }))).toBe(
+      false,
+    );
+  });
+
+  it('AM admin gali pažymėti tik savo „on behalf" juodraštį', () => {
+    const am = makeApprover({ id: 1 });
+    expect(
+      canMarkNotRelevant(am, makeRequest({ status: 'DRAFT', tenantId: 2, createdByUserId: 1 })),
+    ).toBe(true);
+    expect(
+      canMarkNotRelevant(am, makeRequest({ status: 'DRAFT', tenantId: 2, createdByUserId: 100 })),
+    ).toBe(false);
+  });
+});
+
+describe('canReactivate (Issue #9)', () => {
+  it('savininkas gali grąžinti NEAKTUALU į juodraštį', () => {
+    const u = makeSubmitter({ id: 100 });
+    expect(canReactivate(u, makeRequest({ status: 'NEAKTUALU', createdByUserId: 100 }))).toBe(true);
+  });
+
+  it('negalima grąžinti ne-NEAKTUALU prašymo', () => {
+    const u = makeSubmitter({ id: 100 });
+    expect(canReactivate(u, makeRequest({ status: 'DRAFT', createdByUserId: 100 }))).toBe(false);
+  });
+
+  it('pašalinis spec. negali grąžinti svetimo', () => {
+    const u = makeSubmitter({ id: 100 });
+    expect(canReactivate(u, makeRequest({ status: 'NEAKTUALU', createdByUserId: 999 }))).toBe(
+      false,
+    );
+  });
 });
 
 describe('STATUS_LABELS', () => {
-  it('turi visus 5 statusus su LT label', () => {
+  it('turi visus statusus su LT label (įsk. Issue #9 NEAKTUALU)', () => {
     expect(STATUS_LABELS.DRAFT).toBe('Juodraštis');
     expect(STATUS_LABELS.SUBMITTED).toBe('Pateiktas');
     expect(STATUS_LABELS.RETURNED).toBe('Grąžintas pataisymui');
     expect(STATUS_LABELS.APPROVED).toBe('Patvirtintas');
     expect(STATUS_LABELS.REJECTED).toBe('Atmestas');
+    expect(STATUS_LABELS.NEAKTUALU).toBe('Neaktualus');
+    expect(STATUS_VARIANTS.NEAKTUALU).toBe('muted');
   });
 });
 
@@ -308,6 +382,12 @@ describe('isDeadlineOverdue (UAT #42 PA-010)', () => {
 
   it('grąžina false atmestam prašymui (galutinis statusas)', () => {
     const r = makeRequest({ status: 'REJECTED', implementationDeadline: '2020-01-01' });
+    expect(isDeadlineOverdue(r, now)).toBe(false);
+  });
+
+  // Issue #9: neaktualaus prašymo terminas neflag'inamas.
+  it('grąžina false neaktualiam (NEAKTUALU) prašymui', () => {
+    const r = makeRequest({ status: 'NEAKTUALU', implementationDeadline: '2020-01-01' });
     expect(isDeadlineOverdue(r, now)).toBe(false);
   });
 

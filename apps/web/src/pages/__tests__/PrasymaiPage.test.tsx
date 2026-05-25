@@ -6,7 +6,7 @@
  *  - PA-010: praėjusio įgyvendinimo termino badge'as „Terminas praėjęs".
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import type { AuthUser, FinancingRequest } from '@biip-finansai/shared';
 import PrasymaiPage from '../PrasymaiPage';
 import { makeAuthValue, renderWithProviders } from '@/test-utils';
@@ -182,5 +182,29 @@ describe('PrasymaiPage — UAT #42', () => {
     expect(screen.getByText(/terminas praėjęs/i)).toBeInTheDocument();
     // Ateities terminas — be badge'o.
     expect(screen.queryByTestId('overdue-badge-8')).toBeNull();
+  });
+
+  // Issue #9: „Neaktualūs" filtras pasiekiamas ir siunčia status=NEAKTUALU.
+  it('Issue #9: yra „Neaktualūs" filtro pill; paspaudus siunčia status=NEAKTUALU', async () => {
+    renderWithProviders(<PrasymaiPage />, {
+      authValue: makeAuthValue({ user: orgUser }),
+    });
+
+    await waitFor(() => {
+      expect(requestsListMock).toHaveBeenCalled();
+    });
+
+    const pill = screen.getByRole('tab', { name: /^neaktualūs$/i });
+    expect(pill).toBeInTheDocument();
+    // Pradžioje neaktyvi (default 'all' teikėjui).
+    expect(pill).toHaveAttribute('aria-selected', 'false');
+
+    fireEvent.click(pill);
+
+    await waitFor(() => {
+      const lastCall = requestsListMock.mock.calls.at(-1)?.[0] as { status?: string };
+      expect(lastCall.status).toBe('NEAKTUALU');
+    });
+    expect(pill).toHaveAttribute('aria-selected', 'true');
   });
 });

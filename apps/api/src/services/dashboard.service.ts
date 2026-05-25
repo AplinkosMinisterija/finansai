@@ -198,6 +198,8 @@ const DashboardService: ServiceSchema = {
           RETURNED: 0,
           APPROVED: 0,
           REJECTED: 0,
+          // Issue #9: neaktualūs (soft-archive).
+          NEAKTUALU: 0,
         };
         const amountsByStatus = {
           SUBMITTED: 0,
@@ -438,6 +440,8 @@ const DashboardService: ServiceSchema = {
               RETURNED: 0,
               APPROVED: 0,
               REJECTED: 0,
+              // Issue #9: neaktualūs (soft-archive).
+              NEAKTUALU: 0,
             };
             let totalReq = 0;
             let totalApr = 0;

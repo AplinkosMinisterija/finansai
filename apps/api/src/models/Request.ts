@@ -13,7 +13,14 @@
 import type { JSONSchema, RelationMappings } from 'objection';
 import { BaseModel } from './Base';
 
-export type RequestStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REJECTED';
+// Issue #9: NEAKTUALU — soft-archive būsena (žr. packages/shared).
+export type RequestStatus =
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'RETURNED'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'NEAKTUALU';
 
 /**
  * Spec.programos finansavimo tipas (Iter 10).

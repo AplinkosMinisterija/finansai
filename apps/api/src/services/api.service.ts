@@ -63,13 +63,7 @@ function buildSetCookie(token: string, secure: boolean): string {
 }
 
 function buildClearCookie(secure: boolean): string {
-  const parts = [
-    `${SESSION_COOKIE_NAME}=`,
-    'Max-Age=0',
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Lax',
-  ];
+  const parts = [`${SESSION_COOKIE_NAME}=`, 'Max-Age=0', 'Path=/', 'HttpOnly', 'SameSite=Lax'];
   if (secure) parts.push('Secure');
   return parts.join('; ');
 }
@@ -90,11 +84,7 @@ const ApiService: ServiceSchema = {
     ip: '0.0.0.0',
 
     use: [
-      (
-        req: AugmentedRequest,
-        _res: AugmentedResponse,
-        next: () => void,
-      ): void => {
+      (req: AugmentedRequest, _res: AugmentedResponse, next: () => void): void => {
         const cookies = parseCookies(req.headers.cookie);
         req.parsedCookies = cookies;
         req.cookies = cookies;
@@ -155,10 +145,7 @@ const ApiService: ServiceSchema = {
         ): unknown {
           const secure = isSecureCookieRequested();
           if (ctx.meta.setSessionCookie) {
-            res.setHeader(
-              'Set-Cookie',
-              buildSetCookie(ctx.meta.setSessionCookie, secure),
-            );
+            res.setHeader('Set-Cookie', buildSetCookie(ctx.meta.setSessionCookie, secure));
           }
           if (ctx.meta.clearSessionCookie) {
             res.setHeader('Set-Cookie', buildClearCookie(secure));
@@ -215,6 +202,9 @@ const ApiService: ServiceSchema = {
           'POST /requests': 'requests.create',
           'PATCH /requests/:id': 'requests.update',
           'POST /requests/:id/submit': 'requests.submit',
+          // Issue #9: NEAKTUALU (soft-archive) perėjimai.
+          'POST /requests/:id/mark-not-relevant': 'requests.markNotRelevant',
+          'POST /requests/:id/mark-active': 'requests.markActive',
           'POST /requests/:id/convert-to-current-year': 'requests.convertPlanToCurrentYear',
           'DELETE /requests/:id': 'requests.delete',
           'POST /requests/:id/decision': 'requests.decision',
@@ -309,8 +299,7 @@ const ApiService: ServiceSchema = {
           // F12 — Biudžeto vykdymas
           'GET /reports/budget-execution': 'reports.budgetExecution',
           // F13 — Spec. programų ataskaita
-          'GET /reports/spec-program-execution':
-            'reports.specProgramExecution',
+          'GET /reports/spec-program-execution': 'reports.specProgramExecution',
           // F14 — DU paskirstymas (SAUGUMO PRIORITETINĖ — `requireDuAccess`
           // pirmasis guard'as servise).
           'GET /reports/payroll-distribution': 'reports.payrollDistribution',
@@ -364,11 +353,7 @@ const ApiService: ServiceSchema = {
       return user;
     },
 
-    authorize(
-      ctx: Context<unknown, AuthMeta>,
-      _route: unknown,
-      _req: AugmentedRequest,
-    ): void {
+    authorize(ctx: Context<unknown, AuthMeta>, _route: unknown, _req: AugmentedRequest): void {
       if (!ctx.meta.user) {
         throw new WebErrors.UnAuthorizedError(WebErrors.ERR_NO_TOKEN, null);
       }

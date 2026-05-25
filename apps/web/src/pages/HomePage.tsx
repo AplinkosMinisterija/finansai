@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertTriangle,
+  Archive,
+  ArchiveRestore,
   CalendarClock,
   CheckCircle2,
   ChevronRight,
@@ -316,9 +318,7 @@ export default function HomePage(): JSX.Element {
                         >
                           <td className="py-2">
                             <div className="font-medium">{t.tenantCode}</div>
-                            <div className="text-[10px] text-muted-foreground">
-                              {t.tenantName}
-                            </div>
+                            <div className="text-[10px] text-muted-foreground">{t.tenantName}</div>
                           </td>
                           <td className="py-2 text-right tabular-nums">{t.total}</td>
                           <td className="py-2 text-center">
@@ -415,7 +415,15 @@ interface StatCardProps {
   to?: string;
 }
 
-function StatCard({ icon, label, value, valueRaw, hint, tone = 'default', to }: StatCardProps): JSX.Element {
+function StatCard({
+  icon,
+  label,
+  value,
+  valueRaw,
+  hint,
+  tone = 'default',
+  to,
+}: StatCardProps): JSX.Element {
   const toneCls = {
     default: '',
     primary: 'border-primary/40',
@@ -426,7 +434,9 @@ function StatCard({ icon, label, value, valueRaw, hint, tone = 'default', to }: 
   const valueDisplay = valueRaw ?? (value !== undefined ? String(value) : '—');
 
   const inner = (
-    <Card className={cn('h-full transition-colors', toneCls, to && 'hover:bg-muted/40 cursor-pointer')}>
+    <Card
+      className={cn('h-full transition-colors', toneCls, to && 'hover:bg-muted/40 cursor-pointer')}
+    >
       <CardContent className="p-4">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
@@ -435,7 +445,12 @@ function StatCard({ icon, label, value, valueRaw, hint, tone = 'default', to }: 
           </span>
           {to && <ChevronRight className="h-3 w-3" />}
         </div>
-        <div className={cn('mt-1.5 text-2xl font-semibold tabular-nums', tone === 'primary' && 'text-primary')}>
+        <div
+          className={cn(
+            'mt-1.5 text-2xl font-semibold tabular-nums',
+            tone === 'primary' && 'text-primary',
+          )}
+        >
           {valueDisplay}
         </div>
         {hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>}
@@ -523,6 +538,9 @@ const KIND_ICONS: Record<DashboardActivityItem['kind'], React.ReactNode> = {
   returned: <CornerUpLeft className="h-3 w-3" />,
   approved: <CheckCircle2 className="h-3 w-3" />,
   rejected: <XCircle className="h-3 w-3" />,
+  // Issue #9: archyvavimas / grąžinimas į juodraštį.
+  marked_not_relevant: <Archive className="h-3 w-3" />,
+  reactivated: <ArchiveRestore className="h-3 w-3" />,
 };
 
 const KIND_COLORS: Record<DashboardActivityItem['kind'], string> = {
@@ -532,6 +550,9 @@ const KIND_COLORS: Record<DashboardActivityItem['kind'], string> = {
   returned: 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100',
   approved: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-100',
   rejected: 'bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-100',
+  // Issue #9 — pritildyta spalva.
+  marked_not_relevant: 'bg-muted text-muted-foreground',
+  reactivated: 'bg-muted text-foreground',
 };
 
 const KIND_VERBS: Record<DashboardActivityItem['kind'], string> = {
@@ -541,6 +562,9 @@ const KIND_VERBS: Record<DashboardActivityItem['kind'], string> = {
   returned: 'grąžino pataisymui',
   approved: 'patvirtino',
   rejected: 'atmetė',
+  // Issue #9.
+  marked_not_relevant: 'pažymėjo neaktualiu',
+  reactivated: 'grąžino į juodraštį',
 };
 
 function ActivityRow({ item }: { item: DashboardActivityItem }): JSX.Element {
@@ -570,9 +594,7 @@ function ActivityRow({ item }: { item: DashboardActivityItem }): JSX.Element {
             </div>
             <div className="truncate text-muted-foreground">{item.projectName}</div>
             {item.body && (
-              <div className="mt-1 line-clamp-2 text-[11px] text-foreground">
-                {item.body}
-              </div>
+              <div className="mt-1 line-clamp-2 text-[11px] text-foreground">{item.body}</div>
             )}
             <div className="mt-0.5 text-[10px] text-muted-foreground">
               {fmtDateTime(item.createdAt)}
@@ -645,8 +667,7 @@ function FvmSummarySection({ defaultYear }: FvmSummarySectionProps): JSX.Element
             Biudžeto suvestinė {year}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Bendri planuoti vs. faktiniai įsipareigojimai, įspėjimai ir
-            artėjantys terminai.
+            Bendri planuoti vs. faktiniai įsipareigojimai, įspėjimai ir artėjantys terminai.
           </p>
         </div>
         <div className="flex items-end gap-2">
@@ -832,11 +853,7 @@ function FvmMetricCard({
 
   const inner = (
     <Card
-      className={cn(
-        'h-full transition-colors',
-        toneCls,
-        to && 'hover:bg-muted/40 cursor-pointer',
-      )}
+      className={cn('h-full transition-colors', toneCls, to && 'hover:bg-muted/40 cursor-pointer')}
       data-tone={tone}
     >
       <CardContent className="p-4">
@@ -861,11 +878,7 @@ function FvmMetricCard({
   return inner;
 }
 
-function UpcomingDeadlinesList({
-  items,
-}: {
-  items: UpcomingDeadline[];
-}): JSX.Element {
+function UpcomingDeadlinesList({ items }: { items: UpcomingDeadline[] }): JSX.Element {
   if (items.length === 0) {
     return (
       <div
@@ -907,9 +920,7 @@ function UpcomingDeadlineRow({ item }: { item: UpcomingDeadline }): JSX.Element 
     <>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{item.name}</p>
-        <p className="truncate text-[11px] text-muted-foreground">
-          {fmtDate(item.date)}
-        </p>
+        <p className="truncate text-[11px] text-muted-foreground">{fmtDate(item.date)}</p>
       </div>
       <div className="shrink-0 text-right">
         <p
@@ -930,10 +941,7 @@ function UpcomingDeadlineRow({ item }: { item: UpcomingDeadline }): JSX.Element 
   );
 
   return (
-    <li
-      className={borderCls}
-      data-testid={`upcoming-deadline-${item.type}-${item.id}`}
-    >
+    <li className={borderCls} data-testid={`upcoming-deadline-${item.type}-${item.id}`}>
       {linkTarget ? (
         <Link to={linkTarget} className="flex flex-1 items-center gap-3">
           {inner}

@@ -175,23 +175,30 @@ export async function requestCreate(
   return data;
 }
 
-export async function requestUpdate(
-  id: number,
-  patch: RequestPayload,
-): Promise<FinancingRequest> {
+export async function requestUpdate(id: number, patch: RequestPayload): Promise<FinancingRequest> {
   const { data } = await api.patch<FinancingRequest>(`/requests/${id}`, patch);
   return data;
 }
 
 export async function requestConvertToCurrentYear(id: number): Promise<FinancingRequest> {
-  const { data } = await api.post<FinancingRequest>(
-    `/requests/${id}/convert-to-current-year`,
-  );
+  const { data } = await api.post<FinancingRequest>(`/requests/${id}/convert-to-current-year`);
   return data;
 }
 
 export async function requestSubmit(id: number): Promise<FinancingRequest> {
   const { data } = await api.post<FinancingRequest>(`/requests/${id}/submit`);
+  return data;
+}
+
+/** Issue #9: pažymėti prašymą neaktualiu (soft-archive). */
+export async function requestMarkNotRelevant(id: number): Promise<FinancingRequest> {
+  const { data } = await api.post<FinancingRequest>(`/requests/${id}/mark-not-relevant`);
+  return data;
+}
+
+/** Issue #9: grąžinti neaktualų prašymą atgal į juodraštį. */
+export async function requestMarkActive(id: number): Promise<FinancingRequest> {
+  const { data } = await api.post<FinancingRequest>(`/requests/${id}/mark-active`);
   return data;
 }
 
@@ -208,10 +215,7 @@ export async function requestDecision(
   return data;
 }
 
-export async function requestAddComment(
-  id: number,
-  body: string,
-): Promise<RequestComment> {
+export async function requestAddComment(id: number, body: string): Promise<RequestComment> {
   const { data } = await api.post<RequestComment>(`/requests/${id}/comments`, { body });
   return data;
 }
@@ -221,12 +225,8 @@ export async function requestAddComment(
  * realų `projects` įrašą iš patvirtinto prašymo. Kol kas grąžina pending
  * status'ą su message'u, ką UI gali parodyti vartotojui.
  */
-export async function requestCreateFvmProject(
-  id: number,
-): Promise<CreateFvmProjectResponse> {
-  const { data } = await api.post<CreateFvmProjectResponse>(
-    `/requests/${id}/create-fvm-project`,
-  );
+export async function requestCreateFvmProject(id: number): Promise<CreateFvmProjectResponse> {
+  const { data } = await api.post<CreateFvmProjectResponse>(`/requests/${id}/create-fvm-project`);
   return data;
 }
 
@@ -240,9 +240,7 @@ export async function dashboardGet(): Promise<DashboardData> {
 // ---------- Prikabinti dokumentai ----------
 
 export async function attachmentsList(requestId: number): Promise<RequestAttachment[]> {
-  const { data } = await api.get<RequestAttachment[]>(
-    `/requests/${requestId}/attachments`,
-  );
+  const { data } = await api.get<RequestAttachment[]>(`/requests/${requestId}/attachments`);
   return data;
 }
 
@@ -250,10 +248,7 @@ export async function attachmentUpload(
   requestId: number,
   body: RequestAttachmentUploadRequest,
 ): Promise<RequestAttachment> {
-  const { data } = await api.post<RequestAttachment>(
-    `/requests/${requestId}/attachments`,
-    body,
-  );
+  const { data } = await api.post<RequestAttachment>(`/requests/${requestId}/attachments`, body);
   return data;
 }
 

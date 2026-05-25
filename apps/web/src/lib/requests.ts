@@ -6,17 +6,21 @@ export const STATUS_LABELS: Record<RequestStatus, string> = {
   RETURNED: 'Grąžintas pataisymui',
   APPROVED: 'Patvirtintas',
   REJECTED: 'Atmestas',
+  // Issue #9: neaktualus (soft-archive) — pašalintas iš aktyvaus srauto.
+  NEAKTUALU: 'Neaktualus',
 };
 
 export const STATUS_VARIANTS: Record<
   RequestStatus,
-  'default' | 'outline' | 'success' | 'warning' | 'destructive'
+  'default' | 'outline' | 'success' | 'warning' | 'destructive' | 'muted'
 > = {
   DRAFT: 'outline',
   SUBMITTED: 'default',
   RETURNED: 'warning',
   APPROVED: 'success',
   REJECTED: 'destructive',
+  // Issue #9: pritildytas variantas — vizualiai atskiria archyvuotą prašymą.
+  NEAKTUALU: 'muted',
 };
 
 export function fmtEur(value: string | number | null | undefined): string {
@@ -108,10 +112,51 @@ export function canDecide(user: AuthUser | null, r: FinancingRequest): boolean {
   return user.amScopeOrgIds.includes(r.tenantId);
 }
 
+/**
+ * Issue #9: ištrinti gali tik teikėjas. DRAFT — kaip iki šiol. NEAKTUALU —
+ * irgi leidžiama (klaidingai archyvuotą planą galima sutvarkyti tiesiog
+ * ištrinant). `canEdit` reikalauja DRAFT/RETURNED, todėl NEAKTUALU teisę
+ * tikrinam atskirai per `ownsRequest`.
+ */
 export function canDelete(user: AuthUser | null, r: FinancingRequest): boolean {
   if (!user) return false;
-  if (r.status !== 'DRAFT') return false;
-  return canEdit(user, r);
+  if (r.status === 'DRAFT') return canEdit(user, r);
+  if (r.status === 'NEAKTUALU') return ownsRequest(user, r);
+  return false;
+}
+
+/**
+ * Issue #9: ar vartotojas „valdo" prašymą (gali jį archyvuoti/grąžinti),
+ * neatsižvelgiant į status. Ta pati taisyklė kaip `canEdit`, tik be statuso
+ * patikros — naudojam NEAKTUALU perėjimams.
+ */
+function ownsRequest(user: AuthUser, r: FinancingRequest): boolean {
+  if (user.tenantIsApprover) {
+    return user.role === 'admin' && r.createdByUserId === user.id;
+  }
+  if (r.tenantId !== user.tenantId) return false;
+  if (user.role === 'admin') return true;
+  return r.createdByUserId === user.id;
+}
+
+/**
+ * Issue #9: ar galima pažymėti prašymą neaktualiu. Tik DRAFT/RETURNED
+ * būsenos prašymus ir tik jų teikėjas (ar AM admin „on behalf").
+ */
+export function canMarkNotRelevant(user: AuthUser | null, r: FinancingRequest): boolean {
+  if (!user) return false;
+  if (r.status !== 'DRAFT' && r.status !== 'RETURNED') return false;
+  return ownsRequest(user, r);
+}
+
+/**
+ * Issue #9: ar galima grąžinti neaktualų prašymą atgal į juodraštį
+ * (reaktyvuoti). Tik NEAKTUALU būsenos ir tik teikėjas.
+ */
+export function canReactivate(user: AuthUser | null, r: FinancingRequest): boolean {
+  if (!user) return false;
+  if (r.status !== 'NEAKTUALU') return false;
+  return ownsRequest(user, r);
 }
 
 /**
@@ -120,14 +165,16 @@ export function canDelete(user: AuthUser | null, r: FinancingRequest): boolean {
  * `true` tik kai:
  *  - terminas nustatytas (`implementationDeadline` ne null/tuščias),
  *  - data praeityje (< šiandien),
- *  - prašymas NE galutinės būsenos (ne REJECTED) — atmesto termino nebeflag'inam.
+ *  - prašymas NE galutinės būsenos (ne REJECTED, ne NEAKTUALU) — atmesto ar
+ *    neaktualaus (Issue #9) termino nebeflag'inam.
  *
  * Patvirtinti (APPROVED) ir aktyvūs (SUBMITTED/RETURNED/DRAFT) — flag'inami,
  * nes įgyvendinimo terminas vis dar prasmingas.
  */
 export function isDeadlineOverdue(r: FinancingRequest, now: Date = new Date()): boolean {
   if (!r.implementationDeadline) return false;
-  if (r.status === 'REJECTED') return false;
+  // Issue #9: neaktualaus prašymo terminas — kaip atmesto — nebeflag'inam.
+  if (r.status === 'REJECTED' || r.status === 'NEAKTUALU') return false;
   const deadline = new Date(r.implementationDeadline);
   if (Number.isNaN(deadline.getTime())) return false;
   // Lyginam tik datą (be laiko) — šiandien terminas dar NEpraėjęs.

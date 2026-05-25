@@ -23,6 +23,8 @@ const STATUS_COLORS: Record<RequestStatus, string> = {
   RETURNED: 'hsl(var(--chart-warning))',
   APPROVED: 'hsl(var(--chart-success))',
   REJECTED: 'hsl(var(--destructive))',
+  // Issue #9: neaktualūs (soft-archive) — pritildyta spalva.
+  NEAKTUALU: 'hsl(var(--muted))',
 };
 
 export function StatusPieChart({ byStatus, height = 240 }: StatusPieChartProps): JSX.Element {
@@ -63,7 +65,12 @@ export function StatusPieChart({ byStatus, height = 240 }: StatusPieChartProps):
             paddingAngle={2}
           >
             {data.map((slice) => (
-              <Cell key={slice.status} fill={slice.color} stroke="hsl(var(--background))" strokeWidth={2} />
+              <Cell
+                key={slice.status}
+                fill={slice.color}
+                stroke="hsl(var(--background))"
+                strokeWidth={2}
+              />
             ))}
           </Pie>
           <Tooltip
@@ -83,18 +90,25 @@ export function StatusPieChart({ byStatus, height = 240 }: StatusPieChartProps):
       {/* Centre total */}
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
         <div className="text-2xl font-semibold tabular-nums">{total}</div>
-        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-          iš viso
-        </div>
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">iš viso</div>
       </div>
     </div>
   );
 }
 
-export function StatusLegend({ byStatus }: { byStatus: Record<RequestStatus, number> }): JSX.Element {
+export function StatusLegend({
+  byStatus,
+}: {
+  byStatus: Record<RequestStatus, number>;
+}): JSX.Element {
   const items = (Object.keys(byStatus) as RequestStatus[])
     .filter((s) => byStatus[s] > 0)
-    .map((s) => ({ status: s, label: STATUS_LABELS[s], value: byStatus[s], color: STATUS_COLORS[s] }));
+    .map((s) => ({
+      status: s,
+      label: STATUS_LABELS[s],
+      value: byStatus[s],
+      color: STATUS_COLORS[s],
+    }));
 
   if (items.length === 0) return <></>;
 

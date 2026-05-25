@@ -165,7 +165,16 @@ export type UserListQuery = {
 
 // ---------- Requests ----------
 
-export type RequestStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REJECTED';
+// Issue #9: NEAKTUALU — suplanuotas/sugeneruotas prašymas, kurį institucija
+// peržiūrėjusi pažymi „neaktualiu" vietoj pateikimo (soft-archive). Pašalinamas
+// iš aktyvaus srauto, bet gali būti grąžintas į juodraštį.
+export type RequestStatus =
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'RETURNED'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'NEAKTUALU';
 
 export type RequestCommentKind =
   | 'comment'
@@ -173,7 +182,10 @@ export type RequestCommentKind =
   | 'submitted'
   | 'returned'
   | 'approved'
-  | 'rejected';
+  | 'rejected'
+  // Issue #9: prašymas pažymėtas neaktualiu / grąžintas į juodraštį.
+  | 'marked_not_relevant'
+  | 'reactivated';
 
 export type RequestComment = {
   id: number;
@@ -388,6 +400,8 @@ export type DashboardStats = {
     RETURNED: number;
     APPROVED: number;
     REJECTED: number;
+    // Issue #9: neaktualūs (soft-archive).
+    NEAKTUALU: number;
   };
   /** Prašytos sumos pagal statusą (einamiems metams). */
   amountsByStatus: {
@@ -473,6 +487,8 @@ export type DashboardPerTenantStats = {
     RETURNED: number;
     APPROVED: number;
     REJECTED: number;
+    // Issue #9: neaktualūs (soft-archive).
+    NEAKTUALU: number;
   };
   totalRequested: number;
   totalApproved: number;
