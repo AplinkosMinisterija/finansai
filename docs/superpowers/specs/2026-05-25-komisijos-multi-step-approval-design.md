@@ -81,7 +81,9 @@ esamam `am_scope_org_ids`. Reikšmės = `approval_levels` kodai (pvz. `{DEPARTME
   egzistuoja `approval_levels` grupėje); leidžiama tik AM tvirtintojų rolėms (org
   vartotojams lieka tuščia).
 - `UserDialog.tsx`: naujas multi-select „Aprobacijos lygiai", matomas tik kai
-  redaguojamas AM (`tenantIsApprover`) vartotojas.
+  redaguojamas AM tvirtintojas su **`role === 'user'`** (analogiškai esamam
+  `amScopeOrgIds` select'ui). AM admin'ams lygiai nereikšmingi — jie super-approver'iai
+  (žr. §3), tad select'as jiems nerodomas.
 
 ### 3. Žingsnio sprendimo teisė
 
@@ -111,7 +113,9 @@ rezultatu. Per kiekvieną aktyvų lygį (sortOrder tvarka) — PENDING žingsnis
   dabartinį lygį.
 - **`ApprovalStepsList.tsx`**: dabartinis PENDING žingsnis paryškintas (jau yra);
   pridedamas „Jūsų eilė" ženkliukas, jei dabartinio žingsnio lygis ∈ vartotojo lygiai
-  (arba admin).
+  (arba admin). **Prop pakeitimas:** komponentas dabar gauna ne tik `steps`, bet ir
+  `viewer` (vartotojo `approvalLevelCodes` + `role`) — reikia atnaujinti iškvietimo
+  vietą `PrasymoDetailPage.tsx`.
 
 ### 6. Būsenų logika
 
@@ -165,6 +169,9 @@ Nepakitusi, tik grandinė ilgesnė:
 - grąžinti vidury → RETURNED (teikėjui); resubmit → nauja iteracija.
 - atmesti vidury → REJECTED.
 - `users.service` priima/validuoja `approvalLevelCodes` (AM only).
+- **Backward compat:** egzistuojantis SUBMITTED prašymas su vienu `AM_ADMIN` žingsniu
+  vis tiek sprendžiamas teisingai per `canDecideStep` — AM admin (super-approver)
+  dengia jį be jokio lygių priskyrimo.
 
 **Frontend (Vitest + RTL):**
 - UserDialog rodo lygių multi-select tik AM vartotojui; siunčia `approvalLevelCodes`.
