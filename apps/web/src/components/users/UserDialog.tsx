@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
 import type {
@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { userCreate, userUpdate } from '@/lib/api';
+import { classifierItemsList, userCreate, userUpdate } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { ROLE_LABELS } from '@/lib/roles';
 
@@ -41,6 +41,7 @@ interface FormState {
   role: UserRole;
   tenantId: number | '';
   amScopeOrgIds: string[]; // string IDs
+  approvalLevelCodes: string[]; // approval_levels kodai
   active: boolean;
 }
 
@@ -53,6 +54,7 @@ function emptyForm(): FormState {
     role: 'user',
     tenantId: '',
     amScopeOrgIds: [],
+    approvalLevelCodes: [],
     active: true,
   };
 }
@@ -66,6 +68,7 @@ function fromUser(u: User): FormState {
     role: u.role,
     tenantId: u.tenantId,
     amScopeOrgIds: u.amScopeOrgIds ? u.amScopeOrgIds.map(String) : [],
+    approvalLevelCodes: u.approvalLevelCodes ?? [],
     active: u.active,
   };
 }
@@ -107,6 +110,24 @@ export function UserDialog({
   // AM scope laukas aktualus tik AM specialistui (aprover tenant + user rolė).
   const showAmScope =
     selectedTenant?.isApprover === true && state.role === 'user';
+  // Issue #9: aprobacijos lygiai — analogiškai scope'ui (AM tvirtintojas, user rolė).
+  const showApprovalLevels = showAmScope;
+
+  // Aprobacijos lygių opcijos iš klasifikatoriaus (code → name).
+  const approvalLevelsQuery = useQuery({
+    queryKey: ['classifier-items', 'approval_levels'],
+    queryFn: () => classifierItemsList({ groupCode: 'approval_levels' }),
+    enabled: showApprovalLevels,
+  });
+  const approvalLevelOptions: MultiSelectOption[] = React.useMemo(
+    () =>
+      (approvalLevelsQuery.data ?? []).map((item) => ({
+        value: item.code,
+        label: item.name,
+        sublabel: item.code,
+      })),
+    [approvalLevelsQuery.data],
+  );
 
   const mutation = useMutation({
     mutationFn: async (): Promise<User> => {
@@ -121,6 +142,12 @@ export function UserDialog({
       const amScopeFinal: number[] | null =
         showAmScope && amScope && amScope.length > 0 ? amScope : null;
 
+      // Issue #9: aprobacijos lygiai siunčiami tik kai aktualu (AM tvirtintojas,
+      // user rolė); kitaip backend'as juos vis tiek force'ina į `[]`.
+      const approvalLevelsFinal: string[] = showApprovalLevels
+        ? state.approvalLevelCodes
+        : [];
+
       if (mode === 'create') {
         const body: UserCreateRequest = {
           username: state.username,
@@ -130,6 +157,7 @@ export function UserDialog({
           role: state.role,
           tenantId: Number(state.tenantId),
           amScopeOrgIds: amScopeFinal,
+          approvalLevelCodes: approvalLevelsFinal,
           active: state.active,
         };
         return userCreate(body);
@@ -142,6 +170,7 @@ export function UserDialog({
         role: state.role,
         tenantId: Number(state.tenantId),
         amScopeOrgIds: amScopeFinal,
+        approvalLevelCodes: approvalLevelsFinal,
         active: state.active,
       };
       if (state.password) patch.password = state.password;
@@ -276,6 +305,7 @@ export function UserDialog({
                       tenantId: v ? Number(v) : '',
                       // Numatytuoju įsijungus AM tenant'ui apvalome scope (gali būti aktualu vėliau).
                       amScopeOrgIds: [],
+                      approvalLevelCodes: [],
                     }))
                   }
                   disabled={tenantPickerDisabled}
@@ -338,6 +368,26 @@ export function UserDialog({
                 />
                 <p className="text-[11px] text-muted-foreground">
                   Palikus tuščią — specialistas matys visus pavaldžių institucijų prašymus.
+                </p>
+              </div>
+            )}
+
+            {showApprovalLevels && (
+              <div className="space-y-2">
+                <Label htmlFor="ud-levels">Aprobacijos lygiai</Label>
+                <MultiSelect
+                  id="ud-levels"
+                  options={approvalLevelOptions}
+                  value={state.approvalLevelCodes}
+                  onChange={(next) =>
+                    setState((s) => ({ ...s, approvalLevelCodes: next }))
+                  }
+                  emptyLabel="Nepriskirta"
+                  placeholder="Pasirinkite aprobacijos lygius…"
+                  aria-label="Aprobacijos lygiai"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Lygiai, kuriuos šis tvirtintojas gali tvirtinti daugiapakopiame sraute.
                 </p>
               </div>
             )}

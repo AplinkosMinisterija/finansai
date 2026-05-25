@@ -20,6 +20,8 @@ import type {
 } from '@biip-finansai/shared';
 import { User } from '../models/User';
 import { Tenant } from '../models/Tenant';
+import { ClassifierItem } from '../models/ClassifierItem';
+import { ClassifierGroup } from '../models/ClassifierGroup';
 import type { AuthMeta } from './auth.service';
 
 interface UserWithTenant extends User {
@@ -94,6 +96,37 @@ function canManage(
 
 async function loadTenant(tenantId: number): Promise<Tenant | undefined> {
   return Tenant.query().findById(tenantId);
+}
+
+/**
+ * Issue #9: validuoja aprobacijos lygių kodus — kiekvienas turi egzistuoti
+ * `approval_levels` klasifikatoriaus grupėje. Grąžina deduplikuotą sąrašą.
+ * Tuščias arba undefined → `[]`.
+ */
+async function validateApprovalLevelCodes(codes: string[] | undefined): Promise<string[]> {
+  if (!codes || codes.length === 0) return [];
+  const unique = Array.from(new Set(codes));
+  const group = await ClassifierGroup.query().findOne({ code: 'approval_levels' });
+  if (!group) {
+    throw new Errors.MoleculerClientError(
+      'Aprobacijos lygių klasifikatorius nerastas',
+      400,
+      'INVALID_APPROVAL_LEVELS',
+    );
+  }
+  const existing = await ClassifierItem.query()
+    .where('group_id', group.id)
+    .whereIn('code', unique);
+  const existingCodes = new Set(existing.map((i) => i.code));
+  const missing = unique.filter((c) => !existingCodes.has(c));
+  if (missing.length > 0) {
+    throw new Errors.MoleculerClientError(
+      `Nežinomi aprobacijos lygiai: ${missing.join(', ')}`,
+      400,
+      'INVALID_APPROVAL_LEVELS',
+    );
+  }
+  return unique;
 }
 
 const UsersService: ServiceSchema = {
@@ -189,6 +222,7 @@ const UsersService: ServiceSchema = {
         role: { type: 'enum', values: ['admin', 'user'] },
         tenantId: { type: 'number', integer: true, convert: true },
         amScopeOrgIds: { type: 'array', items: 'number', optional: true, nullable: true },
+        approvalLevelCodes: { type: 'array', items: 'string', optional: true },
         active: { type: 'boolean', optional: true, default: true },
       },
       async handler(ctx: Context<UserCreateRequest, AuthMeta>): Promise<UserDTO> {
@@ -210,6 +244,13 @@ const UsersService: ServiceSchema = {
         // Scope orgs aktualus tik approver tenant `user` rolei
         const amScope = tenant.isApprover && p.role === 'user' ? (p.amScopeOrgIds ?? null) : null;
 
+        // Issue #9: aprobacijos lygiai aktualūs tik AM tvirtintojo `user` rolei.
+        // (admin = super-approver — lygiai jam neaktualūs, force `[]`.)
+        const levelsRelevant = tenant.isApprover && p.role === 'user';
+        const approvalLevelCodes = levelsRelevant
+          ? await validateApprovalLevelCodes(p.approvalLevelCodes)
+          : [];
+
         const exists = await User.query().findOne({ username: p.username });
         if (exists) {
           throw new Errors.MoleculerClientError('Vartotojo vardas jau egzistuoja', 409, 'USERNAME_TAKEN');
@@ -224,6 +265,7 @@ const UsersService: ServiceSchema = {
           role: p.role,
           tenantId: p.tenantId,
           amScopeOrgIds: amScope,
+          approvalLevelCodes,
           active: p.active ?? true,
         });
 
@@ -243,6 +285,7 @@ const UsersService: ServiceSchema = {
         role: { type: 'enum', optional: true, values: ['admin', 'user'] },
         tenantId: { type: 'number', integer: true, optional: true, convert: true },
         amScopeOrgIds: { type: 'array', items: 'number', optional: true, nullable: true },
+        approvalLevelCodes: { type: 'array', items: 'string', optional: true },
         active: { type: 'boolean', optional: true },
       },
       async handler(ctx: Context<UserUpdateRequest & { id: number }, AuthMeta>): Promise<UserDTO> {
@@ -280,6 +323,18 @@ const UsersService: ServiceSchema = {
         } else if (!scopeRelevant && target.amScopeOrgIds !== null) {
           // Jei scope tapo nebeaktualus — išvalom
           patch['amScopeOrgIds'] = null;
+        }
+
+        // Issue #9: aprobacijos lygiai — analogiškai scope'ui. Aktualūs tik AM
+        // tvirtintojo `user` rolei. Role/tenant pakeitimas, kuris padaro lygius
+        // neaktualius, juos išvalo.
+        const levelsRelevant = scopeRelevant;
+        if (p.approvalLevelCodes !== undefined) {
+          patch['approvalLevelCodes'] = levelsRelevant
+            ? await validateApprovalLevelCodes(p.approvalLevelCodes)
+            : [];
+        } else if (!levelsRelevant && (target.approvalLevelCodes ?? []).length > 0) {
+          patch['approvalLevelCodes'] = [];
         }
 
         if (p.password !== undefined) {
