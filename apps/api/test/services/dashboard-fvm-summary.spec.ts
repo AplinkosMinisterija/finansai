@@ -132,12 +132,14 @@ describe('dashboard.fvmSummary endpoint (Iter 15)', () => {
     biudzetas: string;
     pabaigosData?: string | null;
     statusas?: 'planuojama' | 'vykdoma' | 'baigta' | 'uzdaryta';
+    atsakingasUserId?: number;
   }): Promise<ProjectDTO> {
     const proj = (await broker.call(
       'projects.create',
       {
         tenantId: opts.tenantId,
         budgetAllocationId: opts.allocationId,
+        atsakingasUserId: opts.atsakingasUserId ?? base.amAdminUserId,
         pavadinimas: opts.pavadinimas,
         tipas: 'projektas',
         biudzetas: opts.biudzetas,
@@ -292,6 +294,7 @@ describe('dashboard.fvmSummary endpoint (Iter 15)', () => {
       allocationId: nonDuAlloc.id,
       pavadinimas: 'Org projektas',
       biudzetas: '500000.00',
+      atsakingasUserId: org.orgAdminUserId,
     });
     await broker.call(
       'expenses.create',
@@ -302,7 +305,7 @@ describe('dashboard.fvmSummary endpoint (Iter 15)', () => {
         suma: '100000.00',
         data: '2026-03-15',
       },
-      { meta: { user: amAdmin() } },
+      { meta: { user: orgAdmin() } },
     );
 
     // Org user — DU allocation paslepta

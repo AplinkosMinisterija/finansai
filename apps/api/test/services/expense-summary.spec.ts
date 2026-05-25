@@ -115,6 +115,7 @@ describe('expense + summary aggregation (Iter 12)', () => {
       {
         tenantId: base.amTenantId,
         budgetAllocationId: allocationId,
+        atsakingasUserId: base.amAdminUserId,
         pavadinimas: 'Test projektas',
         tipas: 'projektas',
         biudzetas: '1000.00',
@@ -126,7 +127,10 @@ describe('expense + summary aggregation (Iter 12)', () => {
     projectId = project.id;
   });
 
-  async function createExpense(suma: string, opts: { saltinioDalis?: Array<{ fundingSourceId: number; suma: string }> } = {}): Promise<void> {
+  async function createExpense(
+    suma: string,
+    opts: { saltinioDalis?: Array<{ fundingSourceId: number; suma: string }> } = {},
+  ): Promise<void> {
     await broker.call(
       'expenses.create',
       {

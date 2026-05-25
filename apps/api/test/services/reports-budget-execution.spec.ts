@@ -134,6 +134,7 @@ describe('reports.budgetExecution (Iter 14)', () => {
       {
         tenantId: org.orgTenantId,
         budgetAllocationId: ppAlloc.id,
+        atsakingasUserId: org.orgAdminUserId,
         pavadinimas: 'Org PP projektas',
         tipas: 'projektas',
         biudzetas: '50000.00',
@@ -150,7 +151,7 @@ describe('reports.budgetExecution (Iter 14)', () => {
         suma: '20000.00',
         data: '2026-03-15',
       },
-      { meta: { user: amAdmin() } },
+      { meta: { user: orgAdmin() } },
     );
 
     // DU profile + distribution + computeMonth, kad atsirastų DU expense
@@ -178,11 +179,7 @@ describe('reports.budgetExecution (Iter 14)', () => {
       },
       { meta: { user: amAdmin() } },
     );
-    await broker.call(
-      'payroll.computeMonth',
-      { month: '2026-03' },
-      { meta: { user: amAdmin() } },
-    );
+    await broker.call('payroll.computeMonth', { month: '2026-03' }, { meta: { user: amAdmin() } });
 
     return { fs, duAlloc, ppAlloc, project, profileId: profile.id };
   }
@@ -209,9 +206,7 @@ describe('reports.budgetExecution (Iter 14)', () => {
     expect(duRow.planuota).toBe('200000.00');
     expect(Number.parseFloat(duRow.faktine)).toBeCloseTo(3500, 2);
     // PP faktinė: 20000
-    const ppRow = src.byCategory.find(
-      (c) => c.categoryCode === 'prekes_paslaugos',
-    )!;
+    const ppRow = src.byCategory.find((c) => c.categoryCode === 'prekes_paslaugos')!;
     expect(ppRow.faktine).toBe('20000.00');
     // Grand totals
     expect(resp.totalPlanuota).toBe('300000.00');
@@ -323,14 +318,8 @@ describe('reports.budgetExecution (Iter 14)', () => {
     )) as BudgetExecutionReport;
 
     for (const src of resp.bySource) {
-      const sumPlanuota = src.byCategory.reduce(
-        (acc, c) => acc + Number.parseFloat(c.planuota),
-        0,
-      );
-      const sumFaktine = src.byCategory.reduce(
-        (acc, c) => acc + Number.parseFloat(c.faktine),
-        0,
-      );
+      const sumPlanuota = src.byCategory.reduce((acc, c) => acc + Number.parseFloat(c.planuota), 0);
+      const sumFaktine = src.byCategory.reduce((acc, c) => acc + Number.parseFloat(c.faktine), 0);
       expect(Number.parseFloat(src.planuota)).toBeCloseTo(sumPlanuota, 2);
       expect(Number.parseFloat(src.faktine)).toBeCloseTo(sumFaktine, 2);
     }

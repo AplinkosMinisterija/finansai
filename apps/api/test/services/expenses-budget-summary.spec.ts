@@ -150,6 +150,7 @@ describe('expenses.budgetSummary endpoint (Iter 12)', () => {
       {
         tenantId: base.amTenantId,
         budgetAllocationId: alloc1.id,
+        atsakingasUserId: base.amAdminUserId,
         pavadinimas: 'P1',
         tipas: 'projektas',
         biudzetas: '100000.00',
@@ -161,6 +162,7 @@ describe('expenses.budgetSummary endpoint (Iter 12)', () => {
       {
         tenantId: base.amTenantId,
         budgetAllocationId: alloc2.id,
+        atsakingasUserId: base.amAdminUserId,
         pavadinimas: 'P2',
         tipas: 'projektas',
         biudzetas: '100000.00',
@@ -201,9 +203,7 @@ describe('expenses.budgetSummary endpoint (Iter 12)', () => {
     expect(resp.items).toHaveLength(2);
 
     // Tikrinam abiejų allocations skaičius (rūšiuojam pagal pavadinimą).
-    const sorted = [...resp.items].sort((a, b) =>
-      a.allocationName.localeCompare(b.allocationName),
-    );
+    const sorted = [...resp.items].sort((a, b) => a.allocationName.localeCompare(b.allocationName));
     const duAlloc = sorted.find((i) => i.allocationId === alloc1.id);
     const prekesAlloc = sorted.find((i) => i.allocationId === alloc2.id);
     expect(duAlloc).toBeDefined();
@@ -264,6 +264,7 @@ describe('expenses.budgetSummary endpoint (Iter 12)', () => {
       {
         tenantId: base.amTenantId,
         budgetAllocationId: alloc.id,
+        atsakingasUserId: base.amAdminUserId,
         pavadinimas: 'P',
         tipas: 'projektas',
         biudzetas: '10000.00',
@@ -295,9 +296,7 @@ describe('expenses.budgetSummary endpoint (Iter 12)', () => {
         tipas: 'sutartis',
         suma: '3000.00',
         data: '2026-06-01',
-        saltinioDalis: [
-          { fundingSourceId: fs2.id, suma: '3000.00' },
-        ],
+        saltinioDalis: [{ fundingSourceId: fs2.id, suma: '3000.00' }],
       },
       { meta: { user: amAdmin() } },
     );

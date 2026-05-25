@@ -9,7 +9,10 @@
  *  - `list` / `get` — visi autentifikuoti vartotojai; tenant scope per
  *    `project.tenant_id` (org users mato tik savo tenant; AM admin
  *    + AM user pagal scope — visus arba scope'ą)
- *  - `create` / `update` / `delete` — AM admin + org_admin (savo tenant)
+ *  - `create` / `update` / `delete` — TIK projekto vadovas (atsakingas asmuo),
+ *    savo projektui (UAT #41 PR-001). AM/org admin — read-only. DU sistemos
+ *    projektai (`is_du_system`) — rankinis vedimas draudžiamas (auto per
+ *    `payroll.computeMonth`). `tipas='du'` rankiniu būdu — tik DU teisė.
  *  - `budgetSummary` — visi autentifikuoti; tenant scope per allocation chain
  *
  * Verslo invariantai (create + update):
@@ -66,12 +69,7 @@ import {
 import { canViewPayroll } from '../utils/permissions';
 import type { AuthMeta } from './auth.service';
 
-const EXPENSE_TYPES: readonly ExpenseType[] = [
-  'du',
-  'sutartis',
-  'saskaita',
-  'tiesiogine',
-];
+const EXPENSE_TYPES: readonly ExpenseType[] = ['du', 'sutartis', 'saskaita', 'tiesiogine'];
 
 type ExpenseWithRels = Expense & {
   project?: import('../models/Project').Project & {
@@ -108,26 +106,46 @@ function requireMe(ctx: Context<unknown, AuthMeta>): NonNullable<AuthMeta['user'
   return ctx.meta.user;
 }
 
-function isAmAdmin(me: NonNullable<AuthMeta['user']>): boolean {
-  return me.tenantIsApprover && me.role === 'admin';
-}
-
-function isOrgAdmin(me: NonNullable<AuthMeta['user']>): boolean {
-  return !me.tenantIsApprover && me.role === 'admin';
-}
-
-/** Write access — AM admin (visi tenant'ai) arba org_admin (savo tenant). */
-function requireWriteAccess(
-  me: NonNullable<AuthMeta['user']>,
-  tenantId: number,
-): void {
-  if (isAmAdmin(me)) return;
-  if (isOrgAdmin(me) && me.tenantId === tenantId) return;
+/**
+ * Write access (UAT #41 PR-001):
+ *  - Išlaidų panaudojimą veda TIK projekto vadovas (atsakingas asmuo), ir tik
+ *    savo projektui. AM/org administratoriai — read-only (mato per `list`/`get`,
+ *    bet negali create/update/delete).
+ *  - DU sistemos projektai (`is_du_system`) valdomi automatiškai per
+ *    `payroll.computeMonth` — rankinis išlaidų vedimas draudžiamas visiems
+ *    (computeMonth įterpia tiesiogiai per modelį, aplenkdamas šį patikrinimą).
+ */
+function requireExpenseWriteAccess(me: NonNullable<AuthMeta['user']>, project: Project): void {
+  if (project.isDuSystem) {
+    throw new Errors.MoleculerClientError(
+      'DU sistemos projekto išlaidos generuojamos automatiškai (DU paskaičiavimas) — rankiniu būdu jų vesti negalima',
+      403,
+      'DU_PROJECT_READONLY',
+    );
+  }
+  if (project.atsakingasUserId !== null && me.id === project.atsakingasUserId) {
+    return;
+  }
   throw new Errors.MoleculerClientError(
-    'Neturite teisės valdyti šios organizacijos išlaidų',
+    'Išlaidas gali vesti tik projekto vadovas (atsakingas asmuo). Administratoriui matomas tik skaitymo režimas.',
     403,
     'FORBIDDEN',
   );
+}
+
+/**
+ * Defense-in-depth (ADR-005): rankinis `tipas='du'` išlaidos kūrimas/redagavimas
+ * leidžiamas tik DU teisę turintiems vartotojams. Projekto vadovas (specialistas)
+ * negali sukurti DU-žymėtos išlaidos, kuri taptų nematoma jam pačiam.
+ */
+function requireDuExpenseAccess(me: NonNullable<AuthMeta['user']>, tipas: ExpenseType): void {
+  if (tipas === 'du' && !canViewPayroll(me)) {
+    throw new Errors.MoleculerClientError(
+      'DU tipo išlaidų rankiniu būdu vesti negalima',
+      403,
+      'DU_EXPENSE_FORBIDDEN',
+    );
+  }
 }
 
 /**
@@ -137,26 +155,15 @@ function requireWriteAccess(
  *    (null = visi)
  *  - Org admin / org user: tik savo tenant'as
  */
-function requireReadAccess(
-  me: NonNullable<AuthMeta['user']>,
-  tenantId: number,
-): void {
+function requireReadAccess(me: NonNullable<AuthMeta['user']>, tenantId: number): void {
   if (me.tenantIsApprover) {
     if (me.role === 'admin') return;
     if (me.amScopeOrgIds === null) return;
     if (me.amScopeOrgIds.includes(tenantId)) return;
-    throw new Errors.MoleculerClientError(
-      'Neturite teisės matyti šios išlaidos',
-      403,
-      'FORBIDDEN',
-    );
+    throw new Errors.MoleculerClientError('Neturite teisės matyti šios išlaidos', 403, 'FORBIDDEN');
   }
   if (me.tenantId !== tenantId) {
-    throw new Errors.MoleculerClientError(
-      'Neturite teisės matyti šios išlaidos',
-      403,
-      'FORBIDDEN',
-    );
+    throw new Errors.MoleculerClientError('Neturite teisės matyti šios išlaidos', 403, 'FORBIDDEN');
   }
 }
 
@@ -170,13 +177,9 @@ async function validateProjectForWrite(
 ): Promise<Project> {
   const project = await Project.query().findById(projectId);
   if (!project) {
-    throw new Errors.MoleculerClientError(
-      'Projektas nerastas',
-      400,
-      'INVALID_PROJECT',
-    );
+    throw new Errors.MoleculerClientError('Projektas nerastas', 400, 'INVALID_PROJECT');
   }
-  requireWriteAccess(me, project.tenantId);
+  requireExpenseWriteAccess(me, project);
   return project;
 }
 
@@ -243,10 +246,7 @@ async function validateAndNormalizeSaltinioDalis(
   let totalCents = 0;
   const sourceIds = new Set<number>();
   for (const item of items) {
-    if (
-      typeof item.fundingSourceId !== 'number' ||
-      !Number.isInteger(item.fundingSourceId)
-    ) {
+    if (typeof item.fundingSourceId !== 'number' || !Number.isInteger(item.fundingSourceId)) {
       throw new Errors.MoleculerClientError(
         'Finansavimo šaltinio ID turi būti sveikasis skaičius',
         400,
@@ -405,18 +405,12 @@ const ExpensesService: ServiceSchema = {
           // Paprasčiausia: data per metų ribas.
           const start = `${ctx.params.year}-01-01`;
           const end = `${ctx.params.year}-12-31`;
-          q.where('expenses.data', '>=', start).andWhere(
-            'expenses.data',
-            '<=',
-            end,
-          );
+          q.where('expenses.data', '>=', start).andWhere('expenses.data', '<=', end);
         }
         if (ctx.params.fundingSourceId !== undefined) {
           // jsonb @> containment — GIN indeksas
           // (`idx_expenses_saltinio_dalis_gin`).
-          const filter = JSON.stringify([
-            { funding_source_id: ctx.params.fundingSourceId },
-          ]);
+          const filter = JSON.stringify([{ funding_source_id: ctx.params.fundingSourceId }]);
           q.whereRaw('expenses.saltinio_dalis @> ?::jsonb', [filter]);
         }
 
@@ -427,17 +421,11 @@ const ExpensesService: ServiceSchema = {
 
     get: {
       params: { id: { type: 'number', integer: true, convert: true } },
-      async handler(
-        ctx: Context<{ id: number }, AuthMeta>,
-      ): Promise<ExpenseDTO> {
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<ExpenseDTO> {
         const me = requireMe(ctx);
         const e = await loadExpense(ctx.params.id);
         if (!e) {
-          throw new Errors.MoleculerClientError(
-            'Išlaida nerasta',
-            404,
-            'EXPENSE_NOT_FOUND',
-          );
+          throw new Errors.MoleculerClientError('Išlaida nerasta', 404, 'EXPENSE_NOT_FOUND');
         }
         const tenantId = e.project?.tenantId;
         if (tenantId === undefined) {
@@ -453,11 +441,7 @@ const ExpensesService: ServiceSchema = {
         // saugumo „dark pattern": resource nera randamas niekam, kas neturi
         // teisės.
         if (e.tipas === 'du' && !canViewPayroll(me)) {
-          throw new Errors.MoleculerClientError(
-            'Išlaida nerasta',
-            404,
-            'EXPENSE_NOT_FOUND',
-          );
+          throw new Errors.MoleculerClientError('Išlaida nerasta', 404, 'EXPENSE_NOT_FOUND');
         }
         requireReadAccess(me, tenantId);
         return toDTO(e);
@@ -489,13 +473,12 @@ const ExpensesService: ServiceSchema = {
           },
         },
       },
-      async handler(
-        ctx: Context<ExpenseCreateDTO, AuthMeta>,
-      ): Promise<ExpenseDTO> {
+      async handler(ctx: Context<ExpenseCreateDTO, AuthMeta>): Promise<ExpenseDTO> {
         const me = requireMe(ctx);
         const p = ctx.params;
 
         const project = await validateProjectForWrite(me, p.projectId);
+        requireDuExpenseAccess(me, p.tipas);
         const allocation = await validateAllocationBelongsToTenant(
           p.budgetAllocationId,
           project.tenantId,
@@ -515,10 +498,7 @@ const ExpensesService: ServiceSchema = {
         // Multi-source split — validation jei pateikta. NULL → single-source.
         let saltinioRows: ExpenseSourceDistributionRow[] | null = null;
         if (p.saltinioDalis !== undefined && p.saltinioDalis !== null) {
-          const normalized = await validateAndNormalizeSaltinioDalis(
-            p.saltinioDalis,
-            sumaCents,
-          );
+          const normalized = await validateAndNormalizeSaltinioDalis(p.saltinioDalis, sumaCents);
           saltinioRows = Expense.dtoToRowDistribution(normalized);
         }
 
@@ -580,11 +560,7 @@ const ExpensesService: ServiceSchema = {
         const me = requireMe(ctx);
         const target = await Expense.query().findById(ctx.params.id);
         if (!target) {
-          throw new Errors.MoleculerClientError(
-            'Išlaida nerasta',
-            404,
-            'EXPENSE_NOT_FOUND',
-          );
+          throw new Errors.MoleculerClientError('Išlaida nerasta', 404, 'EXPENSE_NOT_FOUND');
         }
         const project = await Project.query().findById(target.projectId);
         if (!project) {
@@ -594,16 +570,18 @@ const ExpensesService: ServiceSchema = {
             'EXPENSE_INCONSISTENT',
           );
         }
-        requireWriteAccess(me, project.tenantId);
+        requireExpenseWriteAccess(me, project);
+        // Negalima liesti DU išlaidos be DU teisės, nei pakeisti tipą į 'du'.
+        requireDuExpenseAccess(me, target.tipas);
+        if (ctx.params.tipas !== undefined) {
+          requireDuExpenseAccess(me, ctx.params.tipas);
+        }
 
         const p = ctx.params;
         const patch: Record<string, unknown> = {};
 
         if (p.budgetAllocationId !== undefined) {
-          await validateAllocationBelongsToTenant(
-            p.budgetAllocationId,
-            project.tenantId,
-          );
+          await validateAllocationBelongsToTenant(p.budgetAllocationId, project.tenantId);
           patch['budgetAllocationId'] = p.budgetAllocationId;
         }
         if (p.tipas !== undefined) patch['tipas'] = p.tipas;
@@ -659,17 +637,11 @@ const ExpensesService: ServiceSchema = {
 
     delete: {
       params: { id: { type: 'number', integer: true, convert: true } },
-      async handler(
-        ctx: Context<{ id: number }, AuthMeta>,
-      ): Promise<{ ok: true }> {
+      async handler(ctx: Context<{ id: number }, AuthMeta>): Promise<{ ok: true }> {
         const me = requireMe(ctx);
         const target = await Expense.query().findById(ctx.params.id);
         if (!target) {
-          throw new Errors.MoleculerClientError(
-            'Išlaida nerasta',
-            404,
-            'EXPENSE_NOT_FOUND',
-          );
+          throw new Errors.MoleculerClientError('Išlaida nerasta', 404, 'EXPENSE_NOT_FOUND');
         }
         const project = await Project.query().findById(target.projectId);
         if (!project) {
@@ -679,7 +651,8 @@ const ExpensesService: ServiceSchema = {
             'EXPENSE_INCONSISTENT',
           );
         }
-        requireWriteAccess(me, project.tenantId);
+        requireExpenseWriteAccess(me, project);
+        requireDuExpenseAccess(me, target.tipas);
         await Expense.query().deleteById(target.id);
         return { ok: true };
       },
@@ -710,18 +683,14 @@ const ExpensesService: ServiceSchema = {
           convert: true,
         },
       },
-      async handler(
-        ctx: Context<BudgetSummaryParams, AuthMeta>,
-      ): Promise<BudgetWarningsResponse> {
+      async handler(ctx: Context<BudgetSummaryParams, AuthMeta>): Promise<BudgetWarningsResponse> {
         const me = requireMe(ctx);
         const year = ctx.params.year;
 
         const allocQ = BudgetAllocationV2.query()
           .withGraphFetched('fundingSource')
           .where('budget_allocations_v2.metai', year)
-          .orderBy([
-            { column: 'budget_allocations_v2.pavadinimas', order: 'asc' },
-          ]);
+          .orderBy([{ column: 'budget_allocations_v2.pavadinimas', order: 'asc' }]);
 
         // Tenant scope per allocation.funding_source.tenant_id chain'as.
         if (me.tenantIsApprover) {
@@ -731,18 +700,14 @@ const ExpensesService: ServiceSchema = {
             }
             allocQ.whereExists((qb) => {
               qb.from('funding_sources')
-                .whereRaw(
-                  'funding_sources.id = budget_allocations_v2.funding_source_id',
-                )
+                .whereRaw('funding_sources.id = budget_allocations_v2.funding_source_id')
                 .whereIn('funding_sources.tenant_id', me.amScopeOrgIds!);
             });
           }
         } else {
           allocQ.whereExists((qb) => {
             qb.from('funding_sources')
-              .whereRaw(
-                'funding_sources.id = budget_allocations_v2.funding_source_id',
-              )
+              .whereRaw('funding_sources.id = budget_allocations_v2.funding_source_id')
               .where('funding_sources.tenant_id', me.tenantId);
           });
         }
@@ -755,9 +720,7 @@ const ExpensesService: ServiceSchema = {
         if (!canViewPayroll(me)) {
           allocQ.whereNotExists((qb) => {
             qb.from('classifier_items')
-              .whereRaw(
-                'classifier_items.id = budget_allocations_v2.category_classifier_item_id',
-              )
+              .whereRaw('classifier_items.id = budget_allocations_v2.category_classifier_item_id')
               .where('classifier_items.code', 'du');
           });
         }

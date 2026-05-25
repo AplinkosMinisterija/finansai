@@ -87,10 +87,7 @@ async function alreadySeeded(knex: Knex): Promise<boolean> {
 }
 
 /** Surenka klasifikatoriaus item'us pagal grupės kodą — atgalinio lookup'o helper'is. */
-async function getClassifierItems(
-  knex: Knex,
-  groupCode: string,
-): Promise<Map<string, number>> {
+async function getClassifierItems(knex: Knex, groupCode: string): Promise<Map<string, number>> {
   const rows = (await knex('classifier_items as ci')
     .join('classifier_groups as cg', 'cg.id', 'ci.group_id')
     .where('cg.code', groupCode)
@@ -211,9 +208,9 @@ export async function seed(knex: Knex): Promise<void> {
   }
 
   // 2) Resolvinam AM tenant'ą.
-  const amTenant = (await knex('tenants')
-    .where({ code: 'AM' })
-    .first<TenantRow>()) as TenantRow | undefined;
+  const amTenant = (await knex('tenants').where({ code: 'AM' }).first<TenantRow>()) as
+    | TenantRow
+    | undefined;
   if (!amTenant) {
     // AM tenant'as turi būti sukurtas per 01_initial seed'ą. Jei jo nėra —
     // greenfield / broken state. Silent skip — neturim ką FVM duomenyse rišti.
@@ -221,12 +218,12 @@ export async function seed(knex: Knex): Promise<void> {
   }
 
   // 3) Resolvinam reikalingus user'ius (am-admin commiter'iui, am-user backup'as).
-  const amAdmin = (await knex('users')
-    .where({ username: 'am-admin' })
-    .first<UserRow>()) as UserRow | undefined;
-  const amUser = (await knex('users')
-    .where({ username: 'am-user' })
-    .first<UserRow>()) as UserRow | undefined;
+  const amAdmin = (await knex('users').where({ username: 'am-admin' }).first<UserRow>()) as
+    | UserRow
+    | undefined;
+  const amUser = (await knex('users').where({ username: 'am-user' }).first<UserRow>()) as
+    | UserRow
+    | undefined;
   const creatorUserId = amAdmin?.id ?? amUser?.id;
   if (creatorUserId === undefined) {
     // Be AM admin/user user'io negalim sukurti expense'ų ar request'ų.
@@ -245,7 +242,7 @@ export async function seed(knex: Knex): Promise<void> {
   const esTypeId = fundingTypeItems.get('es');
   if (biudzetasTypeId === undefined || esTypeId === undefined) {
     throw new Error(
-      '[04_fvm] funding_source_type klasifikatoriaus item\'ai (biudzetas/es) nerasti — paleisk FVM migracijas',
+      "[04_fvm] funding_source_type klasifikatoriaus item'ai (biudzetas/es) nerasti — paleisk FVM migracijas",
     );
   }
 
@@ -262,7 +259,7 @@ export async function seed(knex: Knex): Promise<void> {
     categoryKitaId === undefined
   ) {
     throw new Error(
-      '[04_fvm] budget_category klasifikatoriaus item\'ai nerasti — paleisk FVM migracijas',
+      "[04_fvm] budget_category klasifikatoriaus item'ai nerasti — paleisk FVM migracijas",
     );
   }
 
@@ -469,9 +466,7 @@ export async function seed(knex: Knex): Promise<void> {
     if (!specProject) throw new Error('Nepavyko sukurti spec.programos projekto');
 
     // Užregistruojam fvm_project_id atgal į request (matches createFvmProject flow).
-    await trx('requests')
-      .where({ id: specRequest.id })
-      .update({ fvm_project_id: specProject.id });
+    await trx('requests').where({ id: specRequest.id }).update({ fvm_project_id: specProject.id });
 
     // Regular projektas — naudoja PP allocation.
     const [regularProject] = (await trx('projects')
@@ -485,7 +480,9 @@ export async function seed(knex: Knex): Promise<void> {
         pradzios_data: dateStr(FVM_YEAR, 1, 15),
         pabaigos_data: dateStr(FVM_YEAR, 11, 30),
         statusas: 'vykdoma',
-        atsakingas_user_id: amAdmin?.id ?? creatorUserId,
+        // UAT #41 PR-001: vadovas = am-user (role 'user'), kad demo'e būtų
+        // matomas naujasis modelis — vadovas veda išlaidas, admin read-only.
+        atsakingas_user_id: amUser?.id ?? amAdmin?.id ?? creatorUserId,
         aprasymas: 'AADIS platformos refactoring + naujos funkcijos. Demo FVM seed.',
         is_du_system: false,
       })

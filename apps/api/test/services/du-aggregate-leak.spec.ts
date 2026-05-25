@@ -150,6 +150,7 @@ describe('DU agregatinis leak fix (Iter 13.x, docx §4.4) — SAUGUMO PATCH', ()
       {
         tenantId: org.orgTenantId,
         budgetAllocationId: ppAlloc.id,
+        atsakingasUserId: org.orgAdminUserId,
         pavadinimas: 'AAD projektas A',
         tipas: 'projektas',
         biudzetas: '50000.00',
@@ -168,7 +169,7 @@ describe('DU agregatinis leak fix (Iter 13.x, docx §4.4) — SAUGUMO PATCH', ()
         suma: '5000.00',
         data: '2026-03-15',
       },
-      { meta: { user: amAdmin() } },
+      { meta: { user: orgAdmin() } },
     );
 
     // Second org tenant'as: funding source + DU allocation (cross-tenant
@@ -234,11 +235,7 @@ describe('DU agregatinis leak fix (Iter 13.x, docx §4.4) — SAUGUMO PATCH', ()
       },
       { meta: { user: amAdmin() } },
     );
-    await broker.call(
-      'payroll.computeMonth',
-      { month: '2026-03' },
-      { meta: { user: amAdmin() } },
-    );
+    await broker.call('payroll.computeMonth', { month: '2026-03' }, { meta: { user: amAdmin() } });
   });
 
   // -------- TEST 1: expenses.budgetSummary --------
@@ -255,15 +252,13 @@ describe('DU agregatinis leak fix (Iter 13.x, docx §4.4) — SAUGUMO PATCH', ()
       expect(item.allocationId).not.toBe(orgDuAllocationId);
     }
     // Patikrinam, kad Prekės allocation rodomas su teisinga faktine.
-    const prekes = resp.items.find(
-      (i) => i.allocationId === orgPrekesAllocationId,
-    );
+    const prekes = resp.items.find((i) => i.allocationId === orgPrekesAllocationId);
     expect(prekes).toBeDefined();
     expect(prekes!.planuota).toBe('100000.00');
     expect(prekes!.faktine).toBe('5000.00');
   });
 
-  it('1b. org_user expenses.budgetSummary — DU pavadinimas neLEAK\'ina', async () => {
+  it("1b. org_user expenses.budgetSummary — DU pavadinimas neLEAK'ina", async () => {
     const resp = (await broker.call(
       'expenses.budgetSummary',
       { year: 2026 },
@@ -361,7 +356,7 @@ describe('DU agregatinis leak fix (Iter 13.x, docx §4.4) — SAUGUMO PATCH', ()
 
   // -------- TEST 6: AM admin mato viską --------
 
-  it('6. AM admin VIS TIEK mato viską per visus 3 endpoint\'us', async () => {
+  it("6. AM admin VIS TIEK mato viską per visus 3 endpoint'us", async () => {
     // 6a. expenses.budgetSummary — visi tenant'ai, visos kategorijos
     const summary = (await broker.call(
       'expenses.budgetSummary',
@@ -432,9 +427,7 @@ describe('DU agregatinis leak fix (Iter 13.x, docx §4.4) — SAUGUMO PATCH', ()
       { year: 2026 },
       { meta: { user: orgAdmin() } },
     )) as BudgetWarningsResponse;
-    const orgDuItem = budgetSum.items.find(
-      (i) => i.allocationId === orgDuAllocationId,
-    );
+    const orgDuItem = budgetSum.items.find((i) => i.allocationId === orgDuAllocationId);
     expect(orgDuItem).toBeDefined();
     expect(orgDuItem!.planuota).toBe('200000.00');
 
@@ -470,9 +463,9 @@ describe('DU agregatinis leak fix (Iter 13.x, docx §4.4) — SAUGUMO PATCH', ()
         tipas: 'du',
         suma: '7777.00',
         data: '2026-03-20',
-        aprasymas: 'DU leak — shouldn\'t be aggregated for org_user',
+        aprasymas: "DU leak — shouldn't be aggregated for org_user",
       },
-      { meta: { user: amAdmin() } },
+      { meta: { user: orgAdmin() } },
     );
 
     // org_user projects.summary — DU expense (7777) NEįskaitomas, lieka
@@ -496,7 +489,7 @@ describe('DU agregatinis leak fix (Iter 13.x, docx §4.4) — SAUGUMO PATCH', ()
 
   // -------- TEST 9: defense-in-depth expenses.budgetSummary --------
 
-  it('9. (defense-in-depth) DU expense ne-DU allocation\'e — org_user NEįskaito SUM', async () => {
+  it("9. (defense-in-depth) DU expense ne-DU allocation'e — org_user NEįskaito SUM", async () => {
     // Sukuriam DU expense'ą Prekės allocation'e (klaidingas data). org_user
     // budgetSummary turi pamatyti Prekės allocation, bet DU expense'as ten
     // NEpapuls į faktinę sumą.
@@ -510,7 +503,7 @@ describe('DU agregatinis leak fix (Iter 13.x, docx §4.4) — SAUGUMO PATCH', ()
         data: '2026-03-25',
         aprasymas: 'DU expense in Prekės allocation — should be hidden',
       },
-      { meta: { user: amAdmin() } },
+      { meta: { user: orgAdmin() } },
     );
 
     const resp = (await broker.call(
@@ -518,9 +511,7 @@ describe('DU agregatinis leak fix (Iter 13.x, docx §4.4) — SAUGUMO PATCH', ()
       { year: 2026 },
       { meta: { user: orgUser() } },
     )) as BudgetWarningsResponse;
-    const prekes = resp.items.find(
-      (i) => i.allocationId === orgPrekesAllocationId,
-    );
+    const prekes = resp.items.find((i) => i.allocationId === orgPrekesAllocationId);
     expect(prekes).toBeDefined();
     // Tik 5000 nuo saskaita expense'o; DU 999 paslėptas net jei jis
     // priskirtas Prekės allocation'ui.
@@ -532,9 +523,7 @@ describe('DU agregatinis leak fix (Iter 13.x, docx §4.4) — SAUGUMO PATCH', ()
       { year: 2026 },
       { meta: { user: amAdmin() } },
     )) as BudgetWarningsResponse;
-    const amPrekes = amResp.items.find(
-      (i) => i.allocationId === orgPrekesAllocationId,
-    );
+    const amPrekes = amResp.items.find((i) => i.allocationId === orgPrekesAllocationId);
     expect(amPrekes!.faktine).toBe('5999.00');
   });
 });

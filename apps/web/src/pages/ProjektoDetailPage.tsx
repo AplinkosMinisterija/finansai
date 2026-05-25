@@ -20,13 +20,7 @@ import * as React from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import {
-  ArrowLeft,
-  ExternalLink,
-  Pencil,
-  RefreshCw,
-  Trash2,
-} from 'lucide-react';
+import { ArrowLeft, ExternalLink, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import type { Project, ProjectSummary } from '@biip-finansai/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -74,10 +68,8 @@ export default function ProjektoDetailPage(): JSX.Element {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  const isAmAdmin =
-    user?.tenantIsApprover === true && user.role === 'admin';
-  const isOrgAdmin =
-    user?.tenantIsApprover === false && user.role === 'admin';
+  const isAmAdmin = user?.tenantIsApprover === true && user.role === 'admin';
+  const isOrgAdmin = user?.tenantIsApprover === false && user.role === 'admin';
 
   const [editing, setEditing] = React.useState(false);
   const [statusChanging, setStatusChanging] = React.useState(false);
@@ -161,9 +153,7 @@ export default function ProjektoDetailPage(): JSX.Element {
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {p.pavadinimas}
-            </h1>
+            <h1 className="text-2xl font-semibold tracking-tight">{p.pavadinimas}</h1>
             <ProjectTypeBadge type={p.tipas} />
             <ProjectStatusBadge status={p.statusas} />
           </div>
@@ -220,9 +210,7 @@ export default function ProjektoDetailPage(): JSX.Element {
             <KV label="Tipas">
               <ProjectTypeBadge type={p.tipas} />
             </KV>
-            <KV label="Organizacija">
-              {p.tenantName ?? `Tenant #${p.tenantId}`}
-            </KV>
+            <KV label="Organizacija">{p.tenantName ?? `Tenant #${p.tenantId}`}</KV>
             <KV label="Biudžetas" emph>
               {formatEur(p.biudzetas)}
             </KV>
@@ -231,9 +219,7 @@ export default function ProjektoDetailPage(): JSX.Element {
             </KV>
             <KV label="Pradžios data">{formatDate(p.pradziosData)}</KV>
             <KV label="Pabaigos data">{formatDate(p.pabaigosData)}</KV>
-            <KV label="Atsakingas asmuo">
-              {p.atsakingasUserName ?? '—'}
-            </KV>
+            <KV label="Atsakingas asmuo">{p.atsakingasUserName ?? '—'}</KV>
           </Section>
 
           <Section title="Susiję objektai">
@@ -268,9 +254,7 @@ export default function ProjektoDetailPage(): JSX.Element {
             <Card>
               <CardContent className="p-4">
                 <h3 className="mb-2 text-sm font-semibold">Aprašymas</h3>
-                <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                  {p.aprasymas}
-                </p>
+                <p className="whitespace-pre-wrap text-sm text-muted-foreground">{p.aprasymas}</p>
               </CardContent>
             </Card>
           )}
@@ -278,7 +262,8 @@ export default function ProjektoDetailPage(): JSX.Element {
           <ExpensesSection
             projectId={projectId}
             defaultAllocationId={p.budgetAllocationId}
-            projectTenantId={p.tenantId}
+            projectResponsibleUserId={p.atsakingasUserId}
+            projectIsDuSystem={p.isDuSystem}
           />
         </div>
 
@@ -289,9 +274,7 @@ export default function ProjektoDetailPage(): JSX.Element {
               {summaryQ.isLoading ? (
                 <Skeleton className="h-32" />
               ) : summaryQ.isError ? (
-                <p className="text-sm text-destructive">
-                  Nepavyko užkrauti suvestinės.
-                </p>
+                <p className="text-sm text-destructive">Nepavyko užkrauti suvestinės.</p>
               ) : (
                 <SummaryBox summary={summaryQ.data ?? null} />
               )}
@@ -347,9 +330,7 @@ interface SummaryBoxProps {
 
 function SummaryBox({ summary }: SummaryBoxProps): JSX.Element {
   if (!summary) {
-    return (
-      <p className="text-sm text-muted-foreground">Nėra suvestinės duomenų.</p>
-    );
+    return <p className="text-sm text-muted-foreground">Nėra suvestinės duomenų.</p>;
   }
   return (
     <BudgetWarningBanner
@@ -365,13 +346,7 @@ function SummaryBox({ summary }: SummaryBoxProps): JSX.Element {
   );
 }
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}): JSX.Element {
+function Section({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
   return (
     <Card>
       <CardContent className="p-4">
@@ -395,20 +370,10 @@ function KV({
 }): JSX.Element {
   return (
     <>
-      <dt
-        className={cn(
-          'text-muted-foreground',
-          wide && 'col-span-2 mt-2 font-medium',
-        )}
-      >
+      <dt className={cn('text-muted-foreground', wide && 'col-span-2 mt-2 font-medium')}>
         {label}
       </dt>
-      <dd
-        className={cn(
-          wide ? 'col-span-2' : 'text-right',
-          emph && 'font-semibold',
-        )}
-      >
+      <dd className={cn(wide ? 'col-span-2' : 'text-right', emph && 'font-semibold')}>
         {children}
       </dd>
     </>

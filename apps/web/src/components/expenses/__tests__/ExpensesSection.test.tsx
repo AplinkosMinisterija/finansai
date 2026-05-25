@@ -110,13 +110,48 @@ describe('ExpensesSection', () => {
     expensesBudgetSummaryMock.mockReset();
   });
 
-  it('rodo empty state žinutę, kai išlaidų nėra', async () => {
+  it('rodo empty state žinutę, kai išlaidų nėra (vadovas)', async () => {
     expensesListMock.mockResolvedValue([]);
     renderWithProviders(
       <ExpensesSection
         projectId={42}
         defaultAllocationId={10}
-        projectTenantId={1}
+        projectResponsibleUserId={ORG_USER.id}
+        projectIsDuSystem={false}
+      />,
+      { authValue: makeAuthValue({ user: ORG_USER }) },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('expenses-empty')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/išlaidų dar nėra|paspauskite „pridėti išlaidą"/i)).toBeInTheDocument();
+  });
+
+  it('UAT #41 PR-001: projekto vadovas mato „Pridėti išlaidą" mygtuką', async () => {
+    expensesListMock.mockResolvedValue([]);
+    renderWithProviders(
+      <ExpensesSection
+        projectId={42}
+        defaultAllocationId={10}
+        projectResponsibleUserId={ORG_USER.id}
+        projectIsDuSystem={false}
+      />,
+      { authValue: makeAuthValue({ user: ORG_USER }) },
+    );
+
+    expect(await screen.findByTestId('open-new-expense')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /pridėti išlaidą/i })).toBeInTheDocument();
+  });
+
+  it('UAT #41 PR-001: administratorius (ne vadovas) mato skaitymo režimą, ne mygtuką', async () => {
+    expensesListMock.mockResolvedValue([]);
+    renderWithProviders(
+      <ExpensesSection
+        projectId={42}
+        defaultAllocationId={10}
+        projectResponsibleUserId={ORG_USER.id}
+        projectIsDuSystem={false}
       />,
       { authValue: makeAuthValue({ user: AM_ADMIN }) },
     );
@@ -124,26 +159,26 @@ describe('ExpensesSection', () => {
     await waitFor(() => {
       expect(screen.getByTestId('expenses-empty')).toBeInTheDocument();
     });
-    expect(
-      screen.getByText(/išlaidų dar nėra|paspauskite „pridėti išlaidą"/i),
-    ).toBeInTheDocument();
+    expect(screen.queryByTestId('open-new-expense')).toBeNull();
+    expect(screen.getByTestId('expenses-readonly')).toBeInTheDocument();
   });
 
-  it('AM administratorius mato „Pridėti išlaidą" mygtuką', async () => {
+  it('UAT #41 PR-001: DU sistemos projekte vadovas irgi nemato mygtuko (read-only)', async () => {
     expensesListMock.mockResolvedValue([]);
     renderWithProviders(
       <ExpensesSection
         projectId={42}
         defaultAllocationId={10}
-        projectTenantId={1}
+        projectResponsibleUserId={ORG_USER.id}
+        projectIsDuSystem={true}
       />,
-      { authValue: makeAuthValue({ user: AM_ADMIN }) },
+      { authValue: makeAuthValue({ user: ORG_USER }) },
     );
 
-    expect(await screen.findByTestId('open-new-expense')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /pridėti išlaidą/i }),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('expenses-empty')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('open-new-expense')).toBeNull();
   });
 
   it('rodo išlaidų sąrašą su pateiktais duomenimis + multi-source badge', async () => {
@@ -173,7 +208,8 @@ describe('ExpensesSection', () => {
       <ExpensesSection
         projectId={42}
         defaultAllocationId={10}
-        projectTenantId={1}
+        projectResponsibleUserId={AM_ADMIN.id}
+        projectIsDuSystem={false}
       />,
       { authValue: makeAuthValue({ user: AM_ADMIN }) },
     );
@@ -187,18 +223,17 @@ describe('ExpensesSection', () => {
     // Antroji — multi-source badge'as
     expect(screen.getByTestId('expense-row-2')).toBeInTheDocument();
     expect(screen.getByTestId('expense-multi-source-2')).toBeInTheDocument();
-    expect(screen.getByTestId('expense-multi-source-2').textContent).toMatch(
-      /2 šaltiniai/i,
-    );
+    expect(screen.getByTestId('expense-multi-source-2').textContent).toMatch(/2 šaltiniai/i);
   });
 
-  it('Organizacijos vartotojas (user role) NEmato „Pridėti išlaidą" mygtuko', async () => {
+  it('Organizacijos vartotojas (ne vadovas) NEmato „Pridėti išlaidą" mygtuko', async () => {
     expensesListMock.mockResolvedValue([]);
     renderWithProviders(
       <ExpensesSection
         projectId={42}
         defaultAllocationId={10}
-        projectTenantId={2}
+        projectResponsibleUserId={9999}
+        projectIsDuSystem={false}
       />,
       { authValue: makeAuthValue({ user: ORG_USER }) },
     );
@@ -212,7 +247,7 @@ describe('ExpensesSection', () => {
   // SAUGUMO PATCH (Iter 13.x, docx §4.4): defense-in-depth FE filter'is.
   // Net jei backend grąžintų DU expense'ą (regresijos / cache atveju), FE
   // turi išmesti jį prieš render'inant ne-DU vartotojui.
-  it('Organizacijos vartotojas NEmato DU expense\'ų net jei backend grąžina', async () => {
+  it("Organizacijos vartotojas NEmato DU expense'ų net jei backend grąžina", async () => {
     expensesListMock.mockResolvedValue([
       makeExpense({
         id: 1,
@@ -231,7 +266,8 @@ describe('ExpensesSection', () => {
       <ExpensesSection
         projectId={42}
         defaultAllocationId={10}
-        projectTenantId={2}
+        projectResponsibleUserId={9999}
+        projectIsDuSystem={false}
       />,
       { authValue: makeAuthValue({ user: ORG_USER }) },
     );

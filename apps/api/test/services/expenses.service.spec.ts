@@ -142,6 +142,9 @@ describe('expenses service (Iter 12)', () => {
         biudzetas: '100000.00',
         pradziosData: '2026-01-01',
         pabaigosData: '2026-12-31',
+        // UAT #41 PR-001: išlaidas veda projekto vadovas. Testuose amAdmin =
+        // amProject vadovas, kad esami amAdmin write testai liktų galioti.
+        atsakingasUserId: base.amAdminUserId,
       },
       { meta: { user: amAdmin() } },
     )) as ProjectDTO;
@@ -185,6 +188,9 @@ describe('expenses service (Iter 12)', () => {
         biudzetas: '50000.00',
         pradziosData: '2026-01-01',
         pabaigosData: '2026-12-31',
+        // UAT #41 PR-001: orgAdmin = orgProject vadovas (org tenant'o user;
+        // projects.create reikalauja, kad vadovas priklausytų projekto tenant'ui).
+        atsakingasUserId: org.orgAdminUserId,
       },
       { meta: { user: amAdmin() } },
     )) as ProjectDTO;
@@ -215,7 +221,8 @@ describe('expenses service (Iter 12)', () => {
       expect(created.createdByUserId).toBe(base.amAdminUserId);
     });
 
-    it('2. Org admin create savo tenant — sėkmingai', async () => {
+    it('2. Projekto vadovas (orgProject) create — sėkmingai (UAT #41 PR-001)', async () => {
+      // orgAdmin yra orgProject atsakingas asmuo → gali vesti išlaidas.
       const created = (await broker.call(
         'expenses.create',
         {
@@ -232,7 +239,8 @@ describe('expenses service (Iter 12)', () => {
       expect(created.tipas).toBe('tiesiogine');
     });
 
-    it('3. Org user (ne admin) create → 403', async () => {
+    it('3. Ne vadovas (orgUser) create → 403 (UAT #41 PR-001)', async () => {
+      // orgUser nėra orgProject atsakingas asmuo → 403 (read-only).
       await expect(
         broker.call(
           'expenses.create',
@@ -310,9 +318,7 @@ describe('expenses service (Iter 12)', () => {
             tipas: 'sutartis',
             suma: '500.00',
             data: '2026-05-10',
-            saltinioDalis: [
-              { fundingSourceId: 999_999, suma: '500.00' },
-            ],
+            saltinioDalis: [{ fundingSourceId: 999_999, suma: '500.00' }],
           },
           { meta: { user: amAdmin() } },
         ),
@@ -361,7 +367,7 @@ describe('expenses service (Iter 12)', () => {
       ).rejects.toMatchObject({ code: 400, type: 'INVALID_AMOUNT' });
     });
 
-    it('8. Cross-tenant: org admin bando AM projekt\'ą → 403 FORBIDDEN', async () => {
+    it("8. Cross-tenant: org admin bando AM projekt'ą → 403 FORBIDDEN", async () => {
       await expect(
         broker.call(
           'expenses.create',
@@ -377,7 +383,9 @@ describe('expenses service (Iter 12)', () => {
       ).rejects.toMatchObject({ code: 403, type: 'FORBIDDEN' });
     });
 
-    it('Cross-tenant: AM admin org projektui su AM allocation → 400 ALLOCATION_TENANT_MISMATCH', async () => {
+    it('Cross-tenant: orgProject vadovas su AM allocation → 400 ALLOCATION_TENANT_MISMATCH', async () => {
+      // orgAdmin = orgProject vadovas (praeina write check), bet AM allocation
+      // priklauso kitam tenant'ui → 400 mismatch.
       await expect(
         broker.call(
           'expenses.create',
@@ -388,7 +396,7 @@ describe('expenses service (Iter 12)', () => {
             suma: '100.00',
             data: '2026-03-15',
           },
-          { meta: { user: amAdmin() } },
+          { meta: { user: orgAdmin() } },
         ),
       ).rejects.toMatchObject({
         code: 400,
@@ -431,7 +439,7 @@ describe('expenses service (Iter 12)', () => {
           suma: '50.00',
           data: '2026-04-01',
         },
-        { meta: { user: amAdmin() } },
+        { meta: { user: orgAdmin() } },
       );
 
       const list = (await broker.call(
@@ -483,9 +491,7 @@ describe('expenses service (Iter 12)', () => {
           tipas: 'tiesiogine',
           suma: '300.00',
           data: '2026-05-01',
-          saltinioDalis: [
-            { fundingSourceId: amSecondFundingSourceId, suma: '300.00' },
-          ],
+          saltinioDalis: [{ fundingSourceId: amSecondFundingSourceId, suma: '300.00' }],
         },
         { meta: { user: amAdmin() } },
       );
@@ -521,7 +527,7 @@ describe('expenses service (Iter 12)', () => {
           suma: '50.00',
           data: '2026-04-01',
         },
-        { meta: { user: amAdmin() } },
+        { meta: { user: orgAdmin() } },
       );
 
       const amList = (await broker.call(
@@ -552,7 +558,7 @@ describe('expenses service (Iter 12)', () => {
           suma: '50.00',
           data: '2026-04-01',
         },
-        { meta: { user: amAdmin() } },
+        { meta: { user: orgAdmin() } },
       )) as ExpenseDTO;
       const amExpense = (await broker.call(
         'expenses.create',
@@ -574,17 +580,13 @@ describe('expenses service (Iter 12)', () => {
       expect(fetched.id).toBe(orgExpense.id);
 
       await expect(
-        broker.call(
-          'expenses.get',
-          { id: amExpense.id },
-          { meta: { user: orgAdmin() } },
-        ),
+        broker.call('expenses.get', { id: amExpense.id }, { meta: { user: orgAdmin() } }),
       ).rejects.toMatchObject({ code: 403, type: 'FORBIDDEN' });
     });
   });
 
   describe('delete', () => {
-    it('9. Delete savo expense — sėkmingai (org admin)', async () => {
+    it('9. Vadovas delete savo expense — sėkmingai (UAT #41 PR-001)', async () => {
       const created = (await broker.call(
         'expenses.create',
         {
@@ -594,7 +596,7 @@ describe('expenses service (Iter 12)', () => {
           suma: '100.00',
           data: '2026-04-01',
         },
-        { meta: { user: amAdmin() } },
+        { meta: { user: orgAdmin() } },
       )) as ExpenseDTO;
       const result = await broker.call(
         'expenses.delete',
@@ -603,15 +605,11 @@ describe('expenses service (Iter 12)', () => {
       );
       expect(result).toEqual({ ok: true });
       await expect(
-        broker.call(
-          'expenses.get',
-          { id: created.id },
-          { meta: { user: amAdmin() } },
-        ),
+        broker.call('expenses.get', { id: created.id }, { meta: { user: amAdmin() } }),
       ).rejects.toMatchObject({ code: 404, type: 'EXPENSE_NOT_FOUND' });
     });
 
-    it('10. Delete kitos tenant\'o expense → 403 (org_admin)', async () => {
+    it("10. Delete kitos tenant'o expense → 403 (org_admin)", async () => {
       const amExpense = (await broker.call(
         'expenses.create',
         {
@@ -624,11 +622,7 @@ describe('expenses service (Iter 12)', () => {
         { meta: { user: amAdmin() } },
       )) as ExpenseDTO;
       await expect(
-        broker.call(
-          'expenses.delete',
-          { id: amExpense.id },
-          { meta: { user: orgAdmin() } },
-        ),
+        broker.call('expenses.delete', { id: amExpense.id }, { meta: { user: orgAdmin() } }),
       ).rejects.toMatchObject({ code: 403, type: 'FORBIDDEN' });
     });
   });
@@ -703,6 +697,127 @@ describe('expenses service (Iter 12)', () => {
         { meta: { user: amAdmin() } },
       )) as ExpenseDTO;
       expect(updated.saltinioDalis).toBeNull();
+    });
+  });
+
+  describe('UAT #41 PR-001 — write access = projekto vadovas', () => {
+    // Projektas, kurio vadovas yra org 'user' rolė (ne admin) — atspindi
+    // realų modelį: specialistas veda išlaidas, administratorius read-only.
+    async function createUserLedProject(): Promise<number> {
+      const proj = (await broker.call(
+        'projects.create',
+        {
+          tenantId: org.orgTenantId,
+          budgetAllocationId: orgAllocationId,
+          pavadinimas: 'AAD vadovo projektas 2026',
+          tipas: 'projektas',
+          biudzetas: '40000.00',
+          pradziosData: '2026-01-01',
+          pabaigosData: '2026-12-31',
+          atsakingasUserId: org.orgUserId,
+        },
+        { meta: { user: amAdmin() } },
+      )) as ProjectDTO;
+      return proj.id;
+    }
+
+    it('Vadovas (orgUser) gali vesti išlaidą savo projekte', async () => {
+      const projectId = await createUserLedProject();
+      const created = (await broker.call(
+        'expenses.create',
+        {
+          projectId,
+          budgetAllocationId: orgAllocationId,
+          tipas: 'tiesiogine',
+          suma: '120.00',
+          data: '2026-05-01',
+        },
+        { meta: { user: orgUser() } },
+      )) as ExpenseDTO;
+      expect(created.projectId).toBe(projectId);
+      expect(created.createdByUserId).toBe(org.orgUserId);
+    });
+
+    it('Org admin (ne vadovas) → 403 read-only', async () => {
+      const projectId = await createUserLedProject();
+      await expect(
+        broker.call(
+          'expenses.create',
+          {
+            projectId,
+            budgetAllocationId: orgAllocationId,
+            tipas: 'tiesiogine',
+            suma: '120.00',
+            data: '2026-05-01',
+          },
+          { meta: { user: orgAdmin() } },
+        ),
+      ).rejects.toMatchObject({ code: 403, type: 'FORBIDDEN' });
+    });
+
+    it('AM admin (ne vadovas) → 403 read-only', async () => {
+      const projectId = await createUserLedProject();
+      await expect(
+        broker.call(
+          'expenses.create',
+          {
+            projectId,
+            budgetAllocationId: orgAllocationId,
+            tipas: 'tiesiogine',
+            suma: '120.00',
+            data: '2026-05-01',
+          },
+          { meta: { user: amAdmin() } },
+        ),
+      ).rejects.toMatchObject({ code: 403, type: 'FORBIDDEN' });
+    });
+
+    it('Vadovas negali kurti DU tipo išlaidos rankiniu būdu → 403', async () => {
+      const projectId = await createUserLedProject();
+      await expect(
+        broker.call(
+          'expenses.create',
+          {
+            projectId,
+            budgetAllocationId: orgAllocationId,
+            tipas: 'du',
+            suma: '120.00',
+            data: '2026-05-01',
+          },
+          { meta: { user: orgUser() } },
+        ),
+      ).rejects.toMatchObject({ code: 403, type: 'DU_EXPENSE_FORBIDDEN' });
+    });
+
+    it('DU sistemos projekte rankinis išlaidų vedimas draudžiamas → 403', async () => {
+      // is_du_system projektas — sukuriam tiesiogiai (projects.create jo nestato).
+      const knex = getTestKnex();
+      const [duProject] = (await knex('projects')
+        .insert({
+          tenant_id: org.orgTenantId,
+          budget_allocation_id: orgAllocationId,
+          request_id: null,
+          pavadinimas: 'AAD DU sistema 2026',
+          tipas: 'projektas',
+          biudzetas: '10000.00',
+          statusas: 'vykdoma',
+          atsakingas_user_id: org.orgUserId,
+          is_du_system: true,
+        })
+        .returning(['id'])) as Array<{ id: number }>;
+      await expect(
+        broker.call(
+          'expenses.create',
+          {
+            projectId: duProject!.id,
+            budgetAllocationId: orgAllocationId,
+            tipas: 'tiesiogine',
+            suma: '120.00',
+            data: '2026-05-01',
+          },
+          { meta: { user: orgUser() } },
+        ),
+      ).rejects.toMatchObject({ code: 403, type: 'DU_PROJECT_READONLY' });
     });
   });
 

@@ -5,7 +5,8 @@
  * Funkcijos:
  *  - Lentelė: data | tipas | suma € | aprašymas | šaltiniai | veiksmai
  *  - Filtrai: tipas, dateFrom, dateTo (vis projekto kontekste)
- *  - „Pridėti išlaidą" mygtukas — AM admin + org_admin
+ *  - „Pridėti išlaidą" mygtukas — TIK projekto vadovas (UAT #41 PR-001);
+ *    admin mato „Skaitymo režimas" badge'ą
  *  - Empty state
  *  - Edit + delete eilutės veiksmai
  *
@@ -20,18 +21,10 @@
  *  - `dashboard` (statistikai)
  */
 import * as React from 'react';
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
-import type {
-  Expense,
-  ExpenseListQuery,
-  ExpenseType,
-} from '@biip-finansai/shared';
+import type { Expense, ExpenseListQuery, ExpenseType } from '@biip-finansai/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -54,12 +47,7 @@ import { EXPENSE_TYPE_LABELS, ExpenseTypeBadge } from './ExpenseTypeBadge';
 
 const ALL_VALUE = '__all__';
 
-const EXPENSE_TYPES: readonly ExpenseType[] = [
-  'du',
-  'sutartis',
-  'saskaita',
-  'tiesiogine',
-];
+const EXPENSE_TYPES: readonly ExpenseType[] = ['du', 'sutartis', 'saskaita', 'tiesiogine'];
 
 function formatEur(value: string | number): string {
   const num = typeof value === 'string' ? Number.parseFloat(value) : value;
@@ -89,25 +77,32 @@ export interface ExpensesSectionProps {
   projectId: number;
   /** Default'inė allocation (paprastai iš projekto) — naudojama naujos išlaidos formoje. */
   defaultAllocationId: number | null;
-  /** Projekto tenant ID — naudojamas permission gating'e. */
-  projectTenantId: number;
+  /**
+   * Projekto vadovas (atsakingas asmuo). UAT #41 PR-001: tik jis gali vesti
+   * išlaidas savo projektui. NULL — projektas be priskirto vadovo.
+   */
+  projectResponsibleUserId: number | null;
+  /** DU sistemos projektas — rankinis išlaidų vedimas draudžiamas (auto per DU paskaičiavimą). */
+  projectIsDuSystem: boolean;
 }
 
 export function ExpensesSection({
   projectId,
   defaultAllocationId,
-  projectTenantId,
+  projectResponsibleUserId,
+  projectIsDuSystem,
 }: ExpensesSectionProps): JSX.Element {
   const { user } = useAuth();
   const qc = useQueryClient();
 
-  const isAmAdmin =
-    user?.tenantIsApprover === true && user.role === 'admin';
-  const isOrgAdmin =
-    user?.tenantIsApprover === false &&
-    user.role === 'admin' &&
-    user.tenantId === projectTenantId;
-  const canWrite = isAmAdmin || isOrgAdmin;
+  // UAT #41 PR-001: išlaidas veda TIK projekto vadovas (atsakingas asmuo), ir
+  // tik savo projektui. AM/org administratoriai — read-only. DU sistemos
+  // projektuose rankinis vedimas draudžiamas (išlaidos generuojamos automatiškai).
+  const canWrite =
+    !projectIsDuSystem &&
+    user != null &&
+    projectResponsibleUserId != null &&
+    user.id === projectResponsibleUserId;
 
   const [type, setType] = React.useState<ExpenseType | null>(null);
   const [dateFrom, setDateFrom] = React.useState<string>('');
@@ -176,19 +171,21 @@ export function ExpensesSection({
   // savo elgseną arba cache'as turi senų DU įrašų, vartotojas vis tiek
   // jų nepamato. Du sluoksniai > vienas sluoksnis.
   const rawExpenses = listQ.data ?? [];
-  const expenses = canViewPayroll(user)
-    ? rawExpenses
-    : rawExpenses.filter((e) => e.tipas !== 'du');
-  const total = expenses.reduce(
-    (acc, e) => acc + (Number.parseFloat(e.suma) || 0),
-    0,
-  );
+  const expenses = canViewPayroll(user) ? rawExpenses : rawExpenses.filter((e) => e.tipas !== 'du');
+  const total = expenses.reduce((acc, e) => acc + (Number.parseFloat(e.suma) || 0), 0);
 
   return (
     <Card data-testid="expenses-section">
       <CardContent className="p-4">
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <h3 className="text-sm font-semibold">Išlaidos</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold">Išlaidos</h3>
+            {!canWrite && (
+              <Badge variant="secondary" className="text-[10px]" data-testid="expenses-readonly">
+                Skaitymo režimas
+              </Badge>
+            )}
+          </div>
           {canWrite && (
             <Button
               size="sm"
@@ -208,14 +205,9 @@ export function ExpensesSection({
             </Label>
             <Select
               value={type === null ? ALL_VALUE : type}
-              onValueChange={(v) =>
-                setType(v === ALL_VALUE ? null : (v as ExpenseType))
-              }
+              onValueChange={(v) => setType(v === ALL_VALUE ? null : (v as ExpenseType))}
             >
-              <SelectTrigger
-                id="exp-flt-type"
-                data-testid="expenses-filter-type"
-              >
+              <SelectTrigger id="exp-flt-type" data-testid="expenses-filter-type">
                 <SelectValue placeholder="Visi tipai" />
               </SelectTrigger>
               <SelectContent>
@@ -229,10 +221,7 @@ export function ExpensesSection({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label
-              htmlFor="exp-flt-from"
-              className="text-[11px] text-muted-foreground"
-            >
+            <Label htmlFor="exp-flt-from" className="text-[11px] text-muted-foreground">
               Data nuo
             </Label>
             <Input
@@ -244,10 +233,7 @@ export function ExpensesSection({
             />
           </div>
           <div className="space-y-1">
-            <Label
-              htmlFor="exp-flt-to"
-              className="text-[11px] text-muted-foreground"
-            >
+            <Label htmlFor="exp-flt-to" className="text-[11px] text-muted-foreground">
               Data iki
             </Label>
             <Input
@@ -281,10 +267,7 @@ export function ExpensesSection({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table
-              className="w-full text-sm"
-              data-testid="expenses-table"
-            >
+            <table className="w-full text-sm" data-testid="expenses-table">
               <thead className="bg-muted/40">
                 <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                   <th className="px-3 py-2 font-semibold">Data</th>
@@ -292,28 +275,17 @@ export function ExpensesSection({
                   <th className="px-3 py-2 text-right font-semibold">Suma</th>
                   <th className="px-3 py-2 font-semibold">Aprašymas</th>
                   <th className="px-3 py-2 font-semibold">Šaltiniai</th>
-                  {canWrite && (
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Veiksmai
-                    </th>
-                  )}
+                  {canWrite && <th className="px-3 py-2 text-right font-semibold">Veiksmai</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {expenses.map((e) => (
-                  <tr
-                    key={e.id}
-                    data-testid={`expense-row-${e.id}`}
-                  >
-                    <td className="px-3 py-2 tabular-nums">
-                      {formatDate(e.data)}
-                    </td>
+                  <tr key={e.id} data-testid={`expense-row-${e.id}`}>
+                    <td className="px-3 py-2 tabular-nums">{formatDate(e.data)}</td>
                     <td className="px-3 py-2">
                       <ExpenseTypeBadge type={e.tipas} />
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {formatEur(e.suma)}
-                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatEur(e.suma)}</td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">
                       {e.aprasymas ?? '—'}
                     </td>
@@ -327,9 +299,7 @@ export function ExpensesSection({
                           {e.saltinioDalis.length} šaltiniai
                         </Badge>
                       ) : (
-                        <span className="text-xs text-muted-foreground">
-                          Vienas
-                        </span>
+                        <span className="text-xs text-muted-foreground">Vienas</span>
                       )}
                     </td>
                     {canWrite && (
@@ -339,9 +309,7 @@ export function ExpensesSection({
                             type="button"
                             size="sm"
                             variant="ghost"
-                            onClick={() =>
-                              setDialog({ mode: 'edit', expense: e })
-                            }
+                            onClick={() => setDialog({ mode: 'edit', expense: e })}
                             title="Redaguoti"
                             data-testid={`expense-edit-${e.id}`}
                           >
@@ -392,10 +360,7 @@ export function ExpensesSection({
             onSuccess={() => {
               invalidateAfterMutation();
               toast({
-                title:
-                  dialog.mode === 'create'
-                    ? 'Išlaida pridėta'
-                    : 'Išlaida atnaujinta',
+                title: dialog.mode === 'create' ? 'Išlaida pridėta' : 'Išlaida atnaujinta',
                 variant: 'success',
               });
               setDialog(null);
