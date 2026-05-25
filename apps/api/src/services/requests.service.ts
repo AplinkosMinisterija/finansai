@@ -492,6 +492,29 @@ function canDecide(
   return viewer.amScopeOrgIds.includes(r.tenantId);
 }
 
+/**
+ * Issue #9: per-žingsnį sprendimo teisė. ADITYVUS esamam `canDecide` (tenant +
+ * scope) patikrinimui — niekada nepraplečia matomumo.
+ *
+ *  - viewer turi praeiti esamą `canDecide` (tenantIsApprover + status SUBMITTED
+ *    + scope apima r.tenantId).
+ *  - currentStep neegzistuoja (legacy prašymas be žingsnių) → kaip anksčiau
+ *    (backward compat — tik canDecide).
+ *  - AM admin (role=admin) = super-approver: gali bet kurį žingsnį (atblokuoja
+ *    deadlock'us + dengia in-flight 1-žingsnio prašymus).
+ *  - kitaip — viewer turi turėti dabartinio žingsnio lygio kodą.
+ */
+function canDecideStep(
+  viewer: NonNullable<AuthMeta['user']>,
+  r: { tenantId: number; status: RequestStatus },
+  currentStep: { levelCode: string } | undefined,
+): boolean {
+  if (!canDecide(viewer, r)) return false;
+  if (!currentStep) return true;
+  if (viewer.role === 'admin') return true;
+  return (viewer.approvalLevelCodes ?? []).includes(currentStep.levelCode);
+}
+
 const RequestsService: ServiceSchema = {
   name: 'requests',
 
@@ -1146,11 +1169,31 @@ const RequestsService: ServiceSchema = {
         if (!r) {
           throw new Errors.MoleculerClientError('Prašymas nerastas', 404, 'REQUEST_NOT_FOUND');
         }
+        // Issue #9: per-žingsnį teisė. Užkraunam dabartinį PENDING žingsnį PRIEŠ
+        // permission check, kad galėtume tikrinti lygio atitiktį. Esamas
+        // tenant/scope/status gate (canDecide) lieka — canDecideStep aditive.
+        const currentPendingStep = await ApprovalStep.query()
+          .where({ request_id: r.id, status: 'PENDING' })
+          .orderBy('sequence', 'asc')
+          .first();
         if (!canDecide(me, { tenantId: r.tenantId, status: r.status })) {
           throw new Errors.MoleculerClientError(
             'Neturite teisės arba prašymas ne SUBMITTED būsenoje',
             403,
             'FORBIDDEN',
+          );
+        }
+        if (
+          !canDecideStep(
+            me,
+            { tenantId: r.tenantId, status: r.status },
+            currentPendingStep ? { levelCode: currentPendingStep.levelCode } : undefined,
+          )
+        ) {
+          throw new Errors.MoleculerClientError(
+            'Šį žingsnį tvirtina kitas aprobacijos lygis',
+            403,
+            'FORBIDDEN_STEP',
           );
         }
         const p = ctx.params;

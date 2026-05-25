@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import type { AuthUser, FinancingRequest, RequestStatus } from '@biip-finansai/shared';
+import type {
+  ApprovalStep,
+  AuthUser,
+  FinancingRequest,
+  RequestStatus,
+} from '@biip-finansai/shared';
 import {
   canCreate,
   canDecide,
+  canDecideStep,
   canDelete,
   canEdit,
   canMarkNotRelevant,
   canReactivate,
   canSubmit,
+  currentPendingStep,
   fmtEur,
   isCreateOnBehalf,
   isDeadlineOverdue,
@@ -396,5 +403,79 @@ describe('isDeadlineOverdue (UAT #42 PA-010)', () => {
   it('grąžina false kai terminas — šiandien (dar nepraėjęs)', () => {
     const r = makeRequest({ status: 'APPROVED', implementationDeadline: '2026-05-25' });
     expect(isDeadlineOverdue(r, now)).toBe(false);
+  });
+});
+
+// ---------- Issue #9: per-žingsnį sprendimo teisė ----------
+
+function makeStep(overrides: Partial<ApprovalStep> = {}): ApprovalStep {
+  return {
+    id: 1,
+    requestId: 1,
+    sequence: 1,
+    levelCode: 'AM_ADMIN',
+    levelName: 'AM administratorius',
+    status: 'PENDING',
+    decidedByUserId: null,
+    decidedByName: null,
+    decidedAt: null,
+    comment: null,
+    createdAt: '2026-05-15T00:00:00Z',
+    ...overrides,
+  };
+}
+
+describe('currentPendingStep', () => {
+  it('grąžina mažiausio sequence PENDING žingsnį', () => {
+    const steps = [
+      makeStep({ id: 1, sequence: 1, status: 'APPROVED' }),
+      makeStep({ id: 2, sequence: 2, status: 'PENDING', levelCode: 'DEPARTMENT' }),
+      makeStep({ id: 3, sequence: 3, status: 'PENDING', levelCode: 'CHANCELLOR' }),
+    ];
+    expect(currentPendingStep(steps)?.id).toBe(2);
+  });
+
+  it('grąžina undefined kai nėra PENDING', () => {
+    expect(currentPendingStep([makeStep({ status: 'APPROVED' })])).toBeUndefined();
+    expect(currentPendingStep([])).toBeUndefined();
+    expect(currentPendingStep(undefined)).toBeUndefined();
+  });
+});
+
+describe('canDecideStep', () => {
+  const submitted = makeRequest({ status: 'SUBMITTED' });
+
+  it('AM admin (super) gali bet kurį žingsnį', () => {
+    const admin = makeApprover({ role: 'admin' });
+    const step = makeStep({ levelCode: 'CHANCELLOR' });
+    expect(canDecideStep(admin, submitted, step)).toBe(true);
+  });
+
+  it('AM user su atitinkamu lygiu — gali', () => {
+    const user = makeApprover({ role: 'user', approvalLevelCodes: ['DEPARTMENT'] });
+    const step = makeStep({ levelCode: 'DEPARTMENT' });
+    expect(canDecideStep(user, submitted, step)).toBe(true);
+  });
+
+  it('AM user be atitinkamo lygio — negali', () => {
+    const user = makeApprover({ role: 'user', approvalLevelCodes: ['DEPARTMENT'] });
+    const step = makeStep({ levelCode: 'AM_ADMIN' });
+    expect(canDecideStep(user, submitted, step)).toBe(false);
+  });
+
+  it('legacy be žingsnio (currentStep undefined) → kaip canDecide', () => {
+    const user = makeApprover({ role: 'user', approvalLevelCodes: [] });
+    expect(canDecideStep(user, submitted, undefined)).toBe(true);
+  });
+
+  it('ne SUBMITTED prašymas — negali (canDecide gate)', () => {
+    const admin = makeApprover({ role: 'admin' });
+    const draft = makeRequest({ status: 'DRAFT' });
+    expect(canDecideStep(admin, draft, makeStep())).toBe(false);
+  });
+
+  it('ne-aprover (teikėjas) — negali', () => {
+    const submitter = makeSubmitter();
+    expect(canDecideStep(submitter, submitted, makeStep())).toBe(false);
   });
 });

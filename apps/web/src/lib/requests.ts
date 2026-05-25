@@ -1,4 +1,9 @@
-import type { AuthUser, FinancingRequest, RequestStatus } from '@biip-finansai/shared';
+import type {
+  ApprovalStep,
+  AuthUser,
+  FinancingRequest,
+  RequestStatus,
+} from '@biip-finansai/shared';
 
 export const STATUS_LABELS: Record<RequestStatus, string> = {
   DRAFT: 'Juodraštis',
@@ -110,6 +115,39 @@ export function canDecide(user: AuthUser | null, r: FinancingRequest): boolean {
   if (user.role === 'admin') return true;
   if (user.amScopeOrgIds === null) return true;
   return user.amScopeOrgIds.includes(r.tenantId);
+}
+
+/**
+ * Issue #9: per-žingsnį sprendimo teisė (frontend mirror of backend
+ * `canDecideStep`). Aditive `canDecide`'ui:
+ *  - praeina `canDecide` (aprover + SUBMITTED + scope),
+ *  - currentStep neegzistuoja (legacy) → kaip `canDecide`,
+ *  - AM admin (role=admin) = super-approver → bet kurį žingsnį,
+ *  - kitaip — vartotojas turi dabartinio žingsnio lygio kodą.
+ */
+export function canDecideStep(
+  user: AuthUser | null,
+  r: FinancingRequest,
+  currentStep: ApprovalStep | undefined,
+): boolean {
+  if (!canDecide(user, r)) return false;
+  if (!user) return false;
+  if (!currentStep) return true;
+  if (user.role === 'admin') return true;
+  return (user.approvalLevelCodes ?? []).includes(currentStep.levelCode);
+}
+
+/**
+ * Issue #9: dabartinis (mažiausio sequence) PENDING žingsnis iš prašymo
+ * `approvalSteps`. `undefined` jei žingsnių nėra arba nė vienas nėra PENDING.
+ */
+export function currentPendingStep(
+  steps: ApprovalStep[] | undefined,
+): ApprovalStep | undefined {
+  if (!steps || steps.length === 0) return undefined;
+  return steps
+    .filter((s) => s.status === 'PENDING')
+    .sort((a, b) => a.sequence - b.sequence)[0];
 }
 
 /**
