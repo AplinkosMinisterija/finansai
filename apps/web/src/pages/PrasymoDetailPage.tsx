@@ -838,7 +838,7 @@ export default function PrasymoDetailPage(): JSX.Element {
                 <p className="text-xs text-muted-foreground">
                   {r.fvmProjectId !== null
                     ? 'Iš šio prašymo jau sukurtas FVM projektas.'
-                    : 'Iš patvirtinto prašymo automatiškai sukuriamas FVM projektas su biudžetu = patvirtinta suma.'}
+                    : 'Iš patvirtinto prašymo sukuriamas FVM projektas su biudžetu = patvirtinta suma. Projektas kuriamas tik jei prašymo biudžeto kategorija yra „Specialioji programa" — ją nustatykite tvirtindami (biudžeto kategorizacijos bloke).'}
                 </p>
               </div>
               {r.fvmProjectId !== null ? (

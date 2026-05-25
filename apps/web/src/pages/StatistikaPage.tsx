@@ -21,10 +21,7 @@ import type { DashboardData } from '@biip-finansai/shared';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MonthlyTrendChart } from '@/components/charts/MonthlyTrendChart';
-import {
-  StatusLegend,
-  StatusPieChart,
-} from '@/components/charts/StatusPieChart';
+import { StatusLegend, StatusPieChart } from '@/components/charts/StatusPieChart';
 import { PerTenantBarChart } from '@/components/charts/PerTenantBarChart';
 import { StatusCountAmountChart } from '@/components/charts/StatusCountAmountChart';
 import { CostCategoryChart } from '@/components/charts/CostCategoryChart';
@@ -112,9 +109,7 @@ export default function StatistikaPage(): JSX.Element {
           icon={<Activity className="h-4 w-4" />}
           label="Vid. per patvirtintą"
           value={fmtEur(
-            s.byStatus.APPROVED > 0
-              ? s.totalApprovedThisYear / s.byStatus.APPROVED
-              : 0,
+            s.byStatus.APPROVED > 0 ? s.totalApprovedThisYear / s.byStatus.APPROVED : 0,
           )}
           hint={s.byStatus.APPROVED > 0 ? 'Patvirtintų' : '—'}
         />
@@ -183,8 +178,8 @@ export default function StatistikaPage(): JSX.Element {
             Biudžeto įspėjimai ({d.year} m.)
           </h2>
           <p className="mb-3 text-xs text-muted-foreground">
-            Biudžeto paskirstymai, pasiekę 80% ar daugiau panaudojimo. Rikiavimas
-            pagal panaudojimo procentą — pirmieji svarbiausi.
+            Biudžeto paskirstymai, pasiekę 80% ar daugiau panaudojimo. Rikiavimas pagal panaudojimo
+            procentą — pirmieji svarbiausi.
           </p>
           <BudgetWarningsList year={d.year} topN={5} onlyWarnings={true} />
         </CardContent>
@@ -195,18 +190,17 @@ export default function StatistikaPage(): JSX.Element {
         <CardContent className="p-4">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
             <Layers className="h-4 w-4" />
-            Pagal biudžeto kategoriją (€)
+            Patvirtinti prašymai pagal biudžeto kategoriją (€)
           </h2>
           <p className="mb-3 text-xs text-muted-foreground">
-            FVM lygmens kategorija (du, spec.programa, prekės_paslaugos, ...).
-            Į pjūvį įtraukti tik prašymai su nustatyta biudžeto kategorija.
+            FVM lygmens kategorija (du, spec.programa, prekės_paslaugos, ...). Biudžeto kategoriją
+            nustato AM administratorius tvirtindamas prašymą, tad čia matomi tik kategorizuoti
+            (paprastai patvirtinti) prašymai. Bendram pjūviui pagal lėšų tipą žr. diagramą „Pagal
+            sąnaudų kategoriją".
           </p>
           <BudgetCategoryChart
             data={d.budgetCategoryStats}
-            height={Math.max(
-              260,
-              d.budgetCategoryStats.length * 40 + 80,
-            )}
+            height={Math.max(260, d.budgetCategoryStats.length * 40 + 80)}
           />
         </CardContent>
       </Card>
@@ -248,10 +242,7 @@ export default function StatistikaPage(): JSX.Element {
             ) : (
               <ul className="space-y-2 text-xs" data-testid="stats-activity">
                 {d.recentActivity.slice(0, 6).map((a, i) => (
-                  <li
-                    key={`${a.requestId}-${i}`}
-                    className="border-l-2 border-primary/30 pl-2"
-                  >
+                  <li key={`${a.requestId}-${i}`} className="border-l-2 border-primary/30 pl-2">
                     <div className="font-medium">{a.projectName}</div>
                     <div className="text-muted-foreground">
                       {a.tenantCode} · {a.kind}
@@ -272,7 +263,10 @@ export default function StatistikaPage(): JSX.Element {
               <BarChart3 className="h-4 w-4" />
               Pagal organizaciją (€)
             </h2>
-            <PerTenantBarChart data={d.perTenantBreakdown} height={Math.max(240, d.perTenantBreakdown.length * 32 + 80)} />
+            <PerTenantBarChart
+              data={d.perTenantBreakdown}
+              height={Math.max(240, d.perTenantBreakdown.length * 32 + 80)}
+            />
           </CardContent>
         </Card>
       )}
@@ -288,7 +282,13 @@ interface SummaryCardProps {
   tone?: 'default' | 'primary' | 'success' | 'destructive';
 }
 
-function SummaryCard({ icon, label, value, hint, tone = 'default' }: SummaryCardProps): JSX.Element {
+function SummaryCard({
+  icon,
+  label,
+  value,
+  hint,
+  tone = 'default',
+}: SummaryCardProps): JSX.Element {
   const toneCls = {
     default: '',
     primary: 'border-primary/40',
@@ -303,9 +303,7 @@ function SummaryCard({ icon, label, value, hint, tone = 'default' }: SummaryCard
           {icon}
           {label}
         </div>
-        <div className="mt-1.5 truncate text-xl font-semibold tabular-nums">
-          {value}
-        </div>
+        <div className="mt-1.5 truncate text-xl font-semibold tabular-nums">{value}</div>
         {hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>}
       </CardContent>
     </Card>
