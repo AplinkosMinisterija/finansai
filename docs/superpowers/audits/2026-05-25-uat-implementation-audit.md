@@ -42,3 +42,17 @@ Didžioji dalis reikalavimų **✅ ATITINKA**. Rasta **1 HIGH bug, 2 MEDIUM, kel
 
 ## Vykdymas
 Implementuojama šiame branch'e (`dev`), TDD kur taikoma, mažais commitais, pilna verifikacija (serijinis jest, abu tikri typecheck'ai, web vitest), push, CI, issue komentarai (#9, #42, #8/#6 jei aktualu).
+
+## Rezultatas (2026-05-25)
+
+| ID | Sprendimas | Statusas |
+|---|---|---|
+| **P1** PA-005 dropdown | `buildOrderedItems` įtraukia „našlaičius" (cross-group parent) → programos nebenukrenta. + 3 unit testai. Atstato #8 + PA-005 UI. | ✅ PADARYTA |
+| **P2** #9 metaduomenų deferral | Tarpiniam žingsniui strip'inami VISI sprendimo metaduomenys; audit-trail komentaras be `undefined`. + workflow testas. | ✅ PADARYTA |
+| **P3** #6 BudgetCategoryChart | Perženklinta „Patvirtinti prašymai pagal biudžeto kategoriją" + paaiškinimas, kad kategoriją nustato AM tvirtinant; nuoroda į CostCategoryChart. | ✅ PADARYTA |
+| **P5** createFvmProject UX | Mygtuko aprašyme nurodyta spec.programos prielaida. | ✅ PADARYTA |
+| **P7** years testas + FS catch | `lib/years.test.ts` (5 testai); `fundingSources` update catch += Objection `UniqueViolationError`. | ✅ PADARYTA |
+| **P4** backend enforce admin-only laukus | **SĄMONINGAI ATIDĖTA** — žema vertė (FE jau enforce'ina, admin perrašo, laukai ne saugumui jautrūs) + regresijos rizika (`convertPlanToCurrentYear` kopijuoja juos per `PAYLOAD_FIELDS`; galėtų lūžti planų perkėlimas + esami testai). |  ⏸️ DEFER |
+| **P6** test pool max:1 | **NEDARYTA** — „flakiness" buvo nuo 5 lygiagrečių audito agentų vienoj `finansai_test` DB; serijinis CI (`maxWorkers:1`) — 349/349 PASS du kartus. Pool `max:1` rizikuotų trx+read deadlock'ais. Realaus CI bug'o nėra. | ⏸️ N/A |
+
+**Verifikacija:** backend **349 PASS**, frontend **135 PASS**, tikri typecheck'ai (web `tsconfig.app.json` + api) švarūs.
