@@ -52,6 +52,8 @@ interface UserSeed {
   role: 'admin' | 'user';
   tenantCode: string;
   amScopeOrgCodes?: string[] | null;
+  /** Issue #9: AM tvirtintojo aprobacijos lygiai (approval_levels kodai). */
+  approvalLevelCodes?: string[];
 }
 
 const USERS: UserSeed[] = [
@@ -80,6 +82,8 @@ const USERS: UserSeed[] = [
     role: 'user',
     tenantCode: 'AM',
     // null = visos org'os
+    // Issue #9: AM paraiškų administratorius — 1-as workflow žingsnis.
+    approvalLevelCodes: ['AM_ADMIN'],
   },
   {
     username: 'am-user-aad',
@@ -89,6 +93,25 @@ const USERS: UserSeed[] = [
     role: 'user',
     tenantCode: 'AM',
     amScopeOrgCodes: ['AAD'],
+  },
+  // Issue #9: demo daugiapakopio workflow tvirtintojai (departamentas, kancleris).
+  {
+    username: 'am-departamentas',
+    password: 'demo',
+    fullName: 'Rasa Departamento Vadovė',
+    email: 'rasa.departamentas@am.lt',
+    role: 'user',
+    tenantCode: 'AM',
+    approvalLevelCodes: ['DEPARTMENT'],
+  },
+  {
+    username: 'am-kancleris',
+    password: 'demo',
+    fullName: 'Tomas Kancleris',
+    email: 'tomas.kancleris@am.lt',
+    role: 'user',
+    tenantCode: 'AM',
+    approvalLevelCodes: ['CHANCELLOR'],
   },
   // AAD
   {
@@ -976,6 +999,7 @@ export async function seed(knex: Knex): Promise<void> {
         role: u.role,
         tenant_id: tenantId,
         am_scope_org_ids: amScopeOrgIds,
+        approval_level_codes: u.approvalLevelCodes ?? [],
         active: true,
       })
       .returning('id')) as Array<{ id: number }>;

@@ -17,6 +17,9 @@ interface ItemSeed {
   code: string;
   name: string;
   sortOrder?: number;
+  /** Issue #9: kai kurie klasifikatoriai (pvz. approval_levels) turi neaktyvių
+   * reikšmių. Default — `true`. */
+  active?: boolean;
   children?: ItemSeed[];
 }
 
@@ -104,14 +107,15 @@ const GROUPS: GroupSeed[] = [
     code: 'approval_levels',
     name: 'Aprobacijos lygiai',
     description:
-      'Daugiapakopės aprobacijos žingsniai (issue #9). AAD scope: 1 žingsnis (am_admin). ' +
-      'Vėliau pridedami: skyrius → departamentas → kancleris.',
+      'Daugiapakopės aprobacijos grandinė (issue #9). Aktyvi grandinė = ' +
+      'aktyvūs lygiai sortOrder tvarka: AM_ADMIN → DEPARTMENT → CHANCELLOR. ' +
+      'DIVISION ir DBSIS neaktyvūs (DBSIS = sistema, ne approver).',
     items: [
-      { code: 'AM_ADMIN', name: 'AM administratorius', sortOrder: 1 },
-      { code: 'DEPARTMENT', name: 'Departamentas', sortOrder: 2 },
-      { code: 'DIVISION', name: 'Skyrius', sortOrder: 3 },
-      { code: 'CHANCELLOR', name: 'Kancleris', sortOrder: 4 },
-      { code: 'DBSIS', name: 'DBSIS sistema', sortOrder: 5 },
+      { code: 'AM_ADMIN', name: 'AM administratorius', sortOrder: 1, active: true },
+      { code: 'DEPARTMENT', name: 'Departamentas', sortOrder: 2, active: true },
+      { code: 'CHANCELLOR', name: 'Kancleris', sortOrder: 3, active: true },
+      { code: 'DIVISION', name: 'Skyrius', sortOrder: 4, active: false },
+      { code: 'DBSIS', name: 'DBSIS sistema', sortOrder: 5, active: false },
     ],
   },
 ];
@@ -171,7 +175,7 @@ export async function seed(knex: Knex): Promise<void> {
           code: item.code,
           name: item.name,
           sort_order: item.sortOrder ?? 0,
-          active: true,
+          active: item.active ?? true,
         })
         .returning('id')) as Array<{ id: number }>;
       if (!insertedItem) throw new Error(`Item insert failed: ${g.code}:${item.code}`);
@@ -186,7 +190,7 @@ export async function seed(knex: Knex): Promise<void> {
               code: child.code,
               name: child.name,
               sort_order: child.sortOrder ?? 0,
-              active: true,
+              active: child.active ?? true,
             })
             .returning('id')) as Array<{ id: number }>;
           if (!insertedChild) {
