@@ -54,13 +54,6 @@ const SPEC_PROGRAM_FUNDING_TYPE_VALUES: readonly SpecProgramFundingType[] = [
   'biudzeto_dalis',
 ];
 
-/**
- * Default workflow AAD scope'ui (issue #9, „šiame etape biški mažiau, bet
- * tegul daro normaliai"). AM-wide vėliau bus konfigūruojama per
- * `approval_workflows` lentelę (TODO atskirai).
- */
-const DEFAULT_WORKFLOW_LEVELS = ['AM_ADMIN'] as const;
-
 interface RequestWithRels extends Request {
   tenant?: Tenant;
   createdByUser?: User;
@@ -243,12 +236,22 @@ async function loadRequestDetail(id: number): Promise<RequestWithRels | undefine
   return r as RequestWithRels | undefined;
 }
 
-async function resolveLevelName(code: string): Promise<string> {
-  // Saugom label'ą snapshot — net jei klasifikatorius pasikeis, istorija lieka.
+/**
+ * Issue #9: aktyvi tvirtinimo grandinė — `approval_levels` klasifikatoriaus
+ * aktyvūs (`active=true`) elementai, surikiuoti pagal `sortOrder`.
+ *
+ * Tuščia grandinė (joks lygis aktyvus arba grupės nėra) → fallback vienas
+ * `AM_ADMIN` žingsnis, kad prašymo pateikimas niekada nesulūžtų (backward
+ * compat su AAD scope'u).
+ */
+async function getActiveWorkflowChain(): Promise<{ code: string; name: string }[]> {
   const group = await ClassifierGroup.query().findOne({ code: 'approval_levels' });
-  if (!group) return code;
-  const item = await ClassifierItem.query().findOne({ group_id: group.id, code });
-  return item?.name ?? code;
+  if (!group) return [{ code: 'AM_ADMIN', name: 'AM administratorius' }];
+  const items = await ClassifierItem.query()
+    .where({ group_id: group.id, active: true })
+    .orderBy('sort_order', 'asc');
+  if (items.length === 0) return [{ code: 'AM_ADMIN', name: 'AM administratorius' }];
+  return items.map((i) => ({ code: i.code, name: i.name }));
 }
 
 // ---------- FVM validacijos (Iter 10) ----------
@@ -825,20 +828,21 @@ const RequestsService: ServiceSchema = {
           metadata: { fromStatus: r.status, toStatus: 'SUBMITTED' },
         });
 
-        // Issue #9: sukuriam aprobacijos žingsnius (default workflow).
+        // Issue #9: sukuriam aprobacijos žingsnius iš aktyvios konfigūruojamos
+        // grandinės (`approval_levels` aktyvūs lygiai, sortOrder tvarka).
         // Resubmit iš RETURNED — sukuriam naują seriją žingsnių (next sequence).
+        const chain = await getActiveWorkflowChain();
         const existing = (await ApprovalStep.query()
           .where('request_id', r.id)
           .max('sequence as max')) as unknown as Array<{ max: number | null }>;
         const startSeq = (existing[0]?.max ?? 0) + 1;
-        for (let i = 0; i < DEFAULT_WORKFLOW_LEVELS.length; i++) {
-          const code = DEFAULT_WORKFLOW_LEVELS[i]!;
-          const name = await resolveLevelName(code);
+        for (let i = 0; i < chain.length; i++) {
+          const level = chain[i]!;
           await ApprovalStep.query().insert({
             requestId: r.id,
             sequence: startSeq + i,
-            levelCode: code,
-            levelName: name,
+            levelCode: level.code,
+            levelName: level.name,
             status: 'PENDING',
           });
         }
