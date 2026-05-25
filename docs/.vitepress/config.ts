@@ -15,7 +15,7 @@ export default defineConfig({
   // per GitHub UI, bet ne publikuojami per VitePress dokų svetainę.
   // Skirta išvengti VitePress Vue-kompiliacijos klaidų dėl <placeholder>
   // šabloninių žymeklių brief'uose.
-  srcExclude: ['fvm/**'],
+  srcExclude: ['fvm/**', 'superpowers/**'],
 
   themeConfig: {
     siteTitle: 'Finansai',
