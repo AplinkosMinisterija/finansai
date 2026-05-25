@@ -1308,19 +1308,34 @@ const RequestsService: ServiceSchema = {
           // → newStatus = SUBMITTED (toliau eina kitam approver'iui).
           // Šitam etape (AAD, 1 žingsnis) — neegzistuoja kitas PENDING žingsnis,
           // todėl pereinam į APPROVED, kaip iki šiol.
+          let isFinalApprove = isApprove;
           if (isApprove && currentStep) {
             const nextPending = await ApprovalStep.query(trx)
               .where({ request_id: r.id, status: 'PENDING' })
               .first();
             if (nextPending) {
               newStatus = 'SUBMITTED';
-              // Decision metadata einam atsekti tik kai paskutinis žingsnis OK.
-              delete patch['decisionGrantedAmount'];
-              delete patch['decisionFundingSource'];
-              delete patch['decisionProtocol'];
-              delete patch['decisionOrder'];
-              delete patch['decidedAt'];
-              delete patch['decidedByUserId'];
+              isFinalApprove = false;
+              // UAT auditas (P2): tarpiniam žingsniui NERAŠOM jokių sprendimo
+              // metaduomenų — visi taikomi TIK galutiniam patvirtinimui (spec §6),
+              // kad neliktų pusinių duomenų, kol grandinė dar nebaigta.
+              for (const k of [
+                'decisionGrantedAmount',
+                'decisionFundingSource',
+                'decisionProtocol',
+                'decisionOrder',
+                'decisionOrderDate',
+                'decidedAt',
+                'decidedByUserId',
+                'priority',
+                'procurementStage',
+                'fundingFromIt',
+                'otherFunds',
+                'otherFundsSource',
+                ...Object.keys(fvmPatch),
+              ]) {
+                delete patch[k];
+              }
             }
           }
 
@@ -1337,7 +1352,7 @@ const RequestsService: ServiceSchema = {
               ...(currentStep
                 ? { stepSequence: currentStep.sequence, stepLevel: currentStep.levelCode }
                 : {}),
-              ...(isApprove
+              ...(isFinalApprove
                 ? {
                     grantedAmount: patch['decisionGrantedAmount'],
                     fundingSource: patch['decisionFundingSource'],

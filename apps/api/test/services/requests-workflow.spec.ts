@@ -15,10 +15,7 @@
  * Test'ai kviečia broker'į tiesiogiai (be HTTP gateway'aus).
  */
 import type { ServiceBroker } from 'moleculer';
-import type {
-  FinancingRequest as RequestDTO,
-  FinancingRequestDetail,
-} from '@biip-finansai/shared';
+import type { FinancingRequest as RequestDTO, FinancingRequestDetail } from '@biip-finansai/shared';
 import bcrypt from 'bcryptjs';
 import {
   getTestKnex,
@@ -37,11 +34,7 @@ import { mockAuthUser, mockOrgUser } from '../helpers/auth';
  * grąžina jo DB id. Reikia realaus user'io, nes `approval_steps.decided_by_user_id`
  * turi FK į users.
  */
-async function insertAmUser(
-  tenantId: number,
-  username: string,
-  levels: string[],
-): Promise<number> {
+async function insertAmUser(tenantId: number, username: string, levels: string[]): Promise<number> {
   const knex = getTestKnex();
   const passwordHash = await bcrypt.hash('test', 10);
   const rows = (await knex('users')
@@ -174,11 +167,19 @@ describe('requests service — daugiapakopis workflow (Issue #9)', () => {
   }
 
   async function submit(id: number): Promise<RequestDTO> {
-    return (await broker.call('requests.submit', { id }, { meta: { user: owner() } })) as RequestDTO;
+    return (await broker.call(
+      'requests.submit',
+      { id },
+      { meta: { user: owner() } },
+    )) as RequestDTO;
   }
 
   async function getDetail(id: number, user = amAdmin()): Promise<FinancingRequestDetail> {
-    return (await broker.call('requests.get', { id }, { meta: { user } })) as FinancingRequestDetail;
+    return (await broker.call(
+      'requests.get',
+      { id },
+      { meta: { user } },
+    )) as FinancingRequestDetail;
   }
 
   describe('canDecideStep — per-žingsnį teisė', () => {
@@ -277,6 +278,43 @@ describe('requests service — daugiapakopis workflow (Issue #9)', () => {
       expect(Number(final.decisionGrantedAmount)).toBe(12345);
       const detail = await getDetail(draft.id);
       expect(detail.approvalSteps.every((s) => s.status === 'APPROVED')).toBe(true);
+    });
+
+    it('UAT auditas P2: tarpinis approve NERAŠO sprendimo metaduomenų (tik galutinis)', async () => {
+      await seedApprovalLevels();
+      const draft = await createDraft();
+      await submit(draft.id);
+      // 1-as (AM_ADMIN) žingsnis su metaduomenimis — NETURI persistintis.
+      const afterFirst = (await broker.call(
+        'requests.decision',
+        {
+          id: draft.id,
+          decision: 'approve',
+          grantedAmount: 999,
+          priority: 5,
+          procurementStage: 'vykdoma',
+        },
+        { meta: { user: amUser(['AM_ADMIN']) } },
+      )) as RequestDTO;
+      expect(afterFirst.status).toBe('SUBMITTED'); // dar ne galutinis
+      expect(afterFirst.decisionGrantedAmount).toBeNull();
+      expect(afterFirst.priority).toBeNull();
+      expect(afterFirst.procurementStage).toBeNull();
+      // DEPARTMENT — taip pat tarpinis.
+      await broker.call(
+        'requests.decision',
+        { id: draft.id, decision: 'approve' },
+        { meta: { user: amUser(['DEPARTMENT']) } },
+      );
+      // CHANCELLOR — galutinis, metaduomenys persistinasi.
+      const final = (await broker.call(
+        'requests.decision',
+        { id: draft.id, decision: 'approve', grantedAmount: 12345, priority: 3 },
+        { meta: { user: amUser(['CHANCELLOR']) } },
+      )) as RequestDTO;
+      expect(final.status).toBe('APPROVED');
+      expect(Number(final.decisionGrantedAmount)).toBe(12345);
+      expect(final.priority).toBe(3);
     });
 
     it('grąžinti vidury → RETURNED; resubmit → nauja iteracija', async () => {
