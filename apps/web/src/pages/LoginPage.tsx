@@ -19,14 +19,8 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/lib/auth';
 
 const loginSchema = z.object({
-  username: z
-    .string()
-    .min(1, 'Įveskite vartotojo vardą')
-    .max(64, 'Per ilgas vartotojo vardas'),
-  password: z
-    .string()
-    .min(1, 'Įveskite slaptažodį')
-    .max(200, 'Per ilgas slaptažodis'),
+  username: z.string().min(1, 'Įveskite vartotojo vardą').max(64, 'Per ilgas vartotojo vardas'),
+  password: z.string().min(1, 'Įveskite slaptažodį').max(200, 'Per ilgas slaptažodis'),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
@@ -36,6 +30,8 @@ const DEMO_ACCOUNTS: { username: string; description: string }[] = [
   { username: 'am-admin', description: 'AM administratorius' },
   { username: 'am-user', description: 'AM specialistas (visos org.)' },
   { username: 'am-user-aad', description: 'AM specialistas (tik AAD scope)' },
+  { username: 'am-departamentas', description: 'AM tvirtintojas — Departamento aprobacija (#9)' },
+  { username: 'am-kancleris', description: 'AM tvirtintojas — Kanclerio aprobacija (#9)' },
   { username: 'aad-admin', description: 'AAD administratorius' },
   { username: 'aad-user', description: 'AAD specialistas' },
   { username: 'vstt-admin', description: 'VSTT administratorius' },
@@ -96,9 +92,7 @@ export default function LoginPage(): JSX.Element {
           <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-xl font-bold text-primary-foreground">
             €
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Prisijunkite prie Finansai
-          </h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Prisijunkite prie Finansai</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Aplinkos ministerijos finansavimo prašymų sistema
           </p>
@@ -108,9 +102,7 @@ export default function LoginPage(): JSX.Element {
           <form onSubmit={handleSubmit(onSubmit)} noValidate>
             <CardHeader>
               <CardTitle>Prisijungimas</CardTitle>
-              <CardDescription>
-                Naudokite savo darbo paskyrą arba demo prieigą.
-              </CardDescription>
+              <CardDescription>Naudokite savo darbo paskyrą arba demo prieigą.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
@@ -124,9 +116,7 @@ export default function LoginPage(): JSX.Element {
                   {...register('username')}
                 />
                 {errors.username && (
-                  <p className="text-xs text-destructive">
-                    {errors.username.message}
-                  </p>
+                  <p className="text-xs text-destructive">{errors.username.message}</p>
                 )}
               </div>
 
@@ -140,9 +130,7 @@ export default function LoginPage(): JSX.Element {
                   {...register('password')}
                 />
                 {errors.password && (
-                  <p className="text-xs text-destructive">
-                    {errors.password.message}
-                  </p>
+                  <p className="text-xs text-destructive">{errors.password.message}</p>
                 )}
               </div>
 
@@ -156,12 +144,7 @@ export default function LoginPage(): JSX.Element {
               )}
             </CardContent>
             <CardFooter className="flex flex-col gap-3">
-              <Button
-                type="submit"
-                className="w-full"
-                size="lg"
-                disabled={isSubmitting}
-              >
+              <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
                 {isSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
