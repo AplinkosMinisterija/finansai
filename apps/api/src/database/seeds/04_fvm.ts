@@ -280,6 +280,22 @@ export async function seed(knex: Knex): Promise<void> {
     );
   }
 
+  // #6 demo: patvirtintiems prašymams (be FVM kategorijos) priskiriam biudžeto
+  // kategoriją. Po UAT #42 PA-004 USER jos nebepildo — ją nustato AM tvirtindamas;
+  // be šito „Pagal biudžeto kategoriją" diagrama liktų tuščia. Paskirstom
+  // round-robin per ne-DU kategorijas (DU skirta payroll'ui), kad būtų įvairovė.
+  const approvedForCategory = (await knex('requests')
+    .where({ status: 'APPROVED' })
+    .whereNull('budget_category_id')
+    .orderBy('id', 'asc')
+    .select('id')) as Array<{ id: number }>;
+  const categoryRotation = [categoryPpId, categoryInvId, categorySpecId, categoryKitaId];
+  for (let i = 0; i < approvedForCategory.length; i++) {
+    await knex('requests')
+      .where({ id: approvedForCategory[i]!.id })
+      .update({ budget_category_id: categoryRotation[i % categoryRotation.length]! });
+  }
+
   // Visas darbas vyksta vienoje transakcijoje — atominė operacija. Jei kuris
   // žingsnis fail'ina, viskas roll'inasi atgal.
   await knex.transaction(async (trx) => {

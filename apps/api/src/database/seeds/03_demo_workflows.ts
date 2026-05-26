@@ -31,43 +31,100 @@ export async function seed(knex: Knex): Promise<void> {
     await knex.raw('ALTER SEQUENCE request_reports_id_seq RESTART WITH 1');
   }
 
-  // 1) Aprobacijos žingsniai — visiems pateiktiems / spręstiems prašymams.
-  //    AAD scope: 1 žingsnis su level_code = AM_ADMIN.
-  const requests = (await knex('requests').select(
-    'id',
-    'status',
-    'decided_by_user_id',
-    'decided_at',
-    'submitted_at',
-  )) as Array<{
+  // 1) Aprobacijos žingsniai — pagal AKTYVIĄ tvirtinimo grandinę (#9 multi-step).
+  //    Grandinė = approval_levels su active=true (sortOrder), pvz.
+  //    AM administratorius → Departamentas → Kancleris. Anksčiau (prieš #9) čia
+  //    būdavo hardkodintas 1 AM_ADMIN žingsnis — todėl seed'inti prašymai
+  //    nedemonstravo daugiapakopio workflow. Dabar atspindi realią grandinę.
+  const chainRows = (await knex('classifier_items as ci')
+    .join('classifier_groups as cg', 'cg.id', 'ci.group_id')
+    .where('cg.code', 'approval_levels')
+    .where('ci.active', true)
+    .orderBy('ci.sort_order', 'asc')
+    .select('ci.code as code', 'ci.name as name')) as Array<{ code: string; name: string }>;
+  const chain =
+    chainRows.length > 0 ? chainRows : [{ code: 'AM_ADMIN', name: 'AM administratorius' }];
+
+  // Lygis → demo tvirtintojo user id (FK approval_steps.decided_by_user_id).
+  const levelUsers = (await knex('users')
+    .whereIn('username', ['am-user', 'am-departamentas', 'am-kancleris', 'am-admin'])
+    .select('id', 'username')) as Array<{ id: number; username: string }>;
+  const uid = (username: string): number | null =>
+    levelUsers.find((u) => u.username === username)?.id ?? null;
+  const LEVEL_TO_USERNAME: Record<string, string> = {
+    AM_ADMIN: 'am-user',
+    DEPARTMENT: 'am-departamentas',
+    CHANCELLOR: 'am-kancleris',
+  };
+  const levelUserId = (levelCode: string, fallback: number | null): number | null =>
+    uid(LEVEL_TO_USERNAME[levelCode] ?? 'am-admin') ?? fallback ?? uid('am-admin');
+
+  const requests = (await knex('requests')
+    .select('id', 'status', 'decided_by_user_id', 'decided_at')
+    .orderBy('id', 'asc')) as Array<{
     id: number;
     status: string;
     decided_by_user_id: number | null;
     decided_at: string | null;
-    submitted_at: string | null;
   }>;
 
+  // Demo: pirmi 2 SUBMITTED prašymai paliekami grandinės VIDURYJE — 1-as žingsnis
+  // (AM_ADMIN) patvirtintas, laukia 2-o (Departamentas). Taip matosi per-žingsnį
+  // teisė + „Jūsų eilė" (am-departamentas mato veiksmus, am-kancleris — ne).
+  const midChainIds = new Set(
+    requests
+      .filter((r) => r.status === 'SUBMITTED')
+      .slice(0, 2)
+      .map((r) => r.id),
+  );
+
   for (const r of requests) {
-    // DRAFT — neturėjo būti pateiktas, žingsnių nesukuriam.
-    if (r.status === 'DRAFT') continue;
+    // DRAFT / NEAKTUALU — niekada nebuvo pateikti, žingsnių nekuriam.
+    if (r.status === 'DRAFT' || r.status === 'NEAKTUALU') continue;
 
-    let stepStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETURNED';
-    if (r.status === 'SUBMITTED') stepStatus = 'PENDING';
-    else if (r.status === 'APPROVED') stepStatus = 'APPROVED';
-    else if (r.status === 'REJECTED') stepStatus = 'REJECTED';
-    else if (r.status === 'RETURNED') stepStatus = 'RETURNED';
-    else continue;
-
-    await knex('approval_steps').insert({
-      request_id: r.id,
-      sequence: 1,
-      level_code: 'AM_ADMIN',
-      level_name: 'AM administratorius',
-      status: stepStatus,
-      decided_by_user_id: stepStatus === 'PENDING' ? null : r.decided_by_user_id,
-      decided_at: stepStatus === 'PENDING' ? null : r.decided_at,
-      comment: null,
-    });
+    if (r.status === 'APPROVED') {
+      // Visa grandinė patvirtinta (kiekvienas lygis — savo tvirtintojas).
+      for (let i = 0; i < chain.length; i++) {
+        await knex('approval_steps').insert({
+          request_id: r.id,
+          sequence: i + 1,
+          level_code: chain[i]!.code,
+          level_name: chain[i]!.name,
+          status: 'APPROVED',
+          decided_by_user_id: levelUserId(chain[i]!.code, r.decided_by_user_id),
+          decided_at: r.decided_at,
+          comment: null,
+        });
+      }
+    } else if (r.status === 'REJECTED' || r.status === 'RETURNED') {
+      // Sustabdyta 1-ame žingsnyje (atmesta / grąžinta pirmo lygio).
+      const lvl = chain[0]!;
+      await knex('approval_steps').insert({
+        request_id: r.id,
+        sequence: 1,
+        level_code: lvl.code,
+        level_name: lvl.name,
+        status: r.status === 'REJECTED' ? 'REJECTED' : 'RETURNED',
+        decided_by_user_id: levelUserId(lvl.code, r.decided_by_user_id),
+        decided_at: r.decided_at,
+        comment: null,
+      });
+    } else if (r.status === 'SUBMITTED') {
+      const mid = midChainIds.has(r.id);
+      for (let i = 0; i < chain.length; i++) {
+        const approvedFirst = mid && i === 0;
+        await knex('approval_steps').insert({
+          request_id: r.id,
+          sequence: i + 1,
+          level_code: chain[i]!.code,
+          level_name: chain[i]!.name,
+          status: approvedFirst ? 'APPROVED' : 'PENDING',
+          decided_by_user_id: approvedFirst ? levelUserId(chain[i]!.code, null) : null,
+          decided_at: approvedFirst ? new Date().toISOString() : null,
+          comment: null,
+        });
+      }
+    }
   }
 
   // 2) Demo dokumentai — vienas potvarkio PDF prie pirmų 3 APPROVED prašymų.
