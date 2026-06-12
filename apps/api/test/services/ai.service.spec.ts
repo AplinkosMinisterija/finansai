@@ -291,6 +291,47 @@ describe('ai service', () => {
       expect(types[types.length - 1]).toBe('done');
     });
 
+    it('spec atsakymo tekste (be tool call) išgelbėjamas į dashboard', async () => {
+      process.env.LLM_BASE_URL = 'http://llm-mock.test/v1';
+      const specInText = JSON.stringify({
+        title: 'Tekste paskendęs vaizdas',
+        widgets: [{ id: 'r1', type: 'stat', title: 'X', value: '7 €' }],
+      });
+      global.fetch = jest.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: {
+                role: 'assistant',
+                content: `Štai jūsų dashboard:\n\`\`\`json\n${specInText}\n\`\`\`\nViskas atnaujinta.`,
+              },
+            },
+          ],
+        }),
+        text: async () => '',
+      })) as unknown as typeof fetch;
+
+      const stream = (await broker.call(
+        'ai.chat',
+        { messages: [{ role: 'user', content: 'perpiešk' }] },
+        { meta: { user: mockAuthUser() } },
+      )) as PassThrough;
+
+      const events = await collectSse(stream);
+      const specEvent = events.find((e) => e.type === 'spec') as
+        | { spec: { title?: string; widgets: Array<{ id: string }> } }
+        | undefined;
+      expect(specEvent).toBeDefined();
+      expect(specEvent?.spec.title).toBe('Tekste paskendęs vaizdas');
+      const replyEvent = events.find((e) => e.type === 'reply') as { text: string };
+      // Tekste nebėra JSON'o — tik žmogiška dalis.
+      expect(replyEvent.text).not.toContain('"widgets"');
+      expect(replyEvent.text).toContain('Štai jūsų dashboard');
+    });
+
     /**
      * REGRESIJA (review 2026-06-12, critical): duomenų tool'ai NETURI paveldėti
      * Moleculer distributed timeout iš request konteksto. Su `ctx.call` po

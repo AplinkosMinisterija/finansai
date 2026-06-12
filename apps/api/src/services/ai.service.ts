@@ -295,6 +295,48 @@ function toSpecOrNull(raw: unknown): AiDashboardSpec | null {
   return result.ok ? result.spec : null;
 }
 
+/**
+ * Gelbėjimas: modelis kartais (ignoruodamas instrukcijas) įdeda widget spec'ą
+ * į atsakymo TEKSTĄ (\`\`\`json blokas arba plikas JSON) vietoj render_dashboard
+ * tool call'o. Ištraukiam spec'ą iš teksto — jei validus, perpiešiam vaizdą,
+ * o tekste paliekam tik žmogišką dalį.
+ */
+function tryRescueSpecFromText(
+  text: string,
+): { spec: AiDashboardSpec; cleanedText: string } | null {
+  if (!text.includes('"widgets"')) return null;
+
+  const candidates: Array<{ raw: string; whole: string }> = [];
+  const fenceRe = /```(?:json)?\s*([\s\S]*?)```/gi;
+  let m: RegExpExecArray | null;
+  while ((m = fenceRe.exec(text)) !== null) {
+    candidates.push({ raw: m[1] ?? '', whole: m[0] });
+  }
+  // Be fence'ų — bandome nuo pirmo '{' iki paskutinio '}'.
+  if (candidates.length === 0) {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      const raw = text.slice(start, end + 1);
+      candidates.push({ raw, whole: raw });
+    }
+  }
+
+  for (const c of candidates) {
+    if (!c.raw.includes('"widgets"')) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(c.raw.trim());
+    } catch {
+      continue;
+    }
+    const result = validateDashboardSpec(parsed);
+    if (!result.ok) continue;
+    return { spec: result.spec, cleanedText: text.replace(c.whole, '').trim() };
+  }
+  return null;
+}
+
 /** Tolerantiška sveiko skaičiaus koercija — LLM dažnai siunčia "2026" kaip string. */
 function toInt(value: unknown): number | undefined {
   const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
@@ -371,7 +413,8 @@ KAIP DIRBI:
 2. Duomenis imk TIK iš duomenų tool rezultatų — NIEKADA neišgalvok skaičių. Jei tool grąžina klaidą ar tuščius duomenis — pasakyk tai atvirai.
 3. Kai vartotojas prašo pakeisti/parodyti vaizdą — kviesk ${SPEC_TOOL_NAME} su PILNU nauju spec (jis pakeičia visą dashboardą). Jei prašoma tik papildyti — perduok ir esamus widgetus (su tais pačiais id) + naujus.
 4. Jei klausimas atsakomas trumpai ir vaizdo keisti neprašoma — atsakyk vien tekstu, be perpiešimo.
-5. Po sėkmingo ${SPEC_TOOL_NAME} atsakyk trumpai (1–2 sakiniai) lietuviškai, ką pakeitei. Jokio JSON atsakymo tekste.
+5. Po sėkmingo ${SPEC_TOOL_NAME} atsakyk trumpai (1–2 sakiniai) lietuviškai, ką pakeitei.
+6. KRITIŠKAI SVARBU: widget JSON NIEKADA nerašomas į atsakymo TEKSTĄ — jokių \`\`\`json blokų, jokio spec'o pokalbyje. Vaizdas keičiamas TIK per ${SPEC_TOOL_NAME} tool call. Jei pastebi, kad ruošiesi rašyti JSON tekste — sustok ir kviesk ${SPEC_TOOL_NAME}.
 
 DABARTINIS DASHBOARD SPEC:
 ${specJson}
@@ -638,6 +681,19 @@ async function runChatLoop(
           text: renderedThisTurn
             ? 'Atnaujinau vaizdą.'
             : 'Atsiprašau, nepavyko sugeneruoti atsakymo. Pabandykite dar kartą.',
+        });
+        return;
+      }
+      // Gelbėjimas: modelis spec'ą įrašė į tekstą vietoj tool call'o —
+      // perpiešiam vaizdą patys ir tekste paliekam tik žmogišką dalį.
+      const rescued = tryRescueSpecFromText(text);
+      if (rescued) {
+        logger.warn('AI: spec rastas atsakymo tekste (ne tool call) — išgelbėtas į dashboard');
+        renderedThisTurn = true;
+        sseWrite(stream, { type: 'spec', spec: rescued.spec });
+        sseWrite(stream, {
+          type: 'reply',
+          text: rescued.cleanedText || 'Atnaujinau vaizdą pagal prašymą.',
         });
         return;
       }
