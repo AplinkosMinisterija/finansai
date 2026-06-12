@@ -18,6 +18,13 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/
 import { ChatPanel, type AiChatDisplayMessage } from '@/components/ai/ChatPanel';
 import { DashboardCanvas } from '@/components/ai/DashboardCanvas';
 import { aiChatStream, aiGetDashboard, type AiChatStreamHandle } from '@/lib/api/ai';
+import {
+  aiSpecStorageKey,
+  clearSavedAiSpec,
+  loadSavedAiSpec,
+  saveAiSpec,
+} from '@/lib/ai-spec-storage';
+import { useAuth } from '@/lib/auth';
 
 const SUGGESTIONS = [
   'Rodyk biudžeto vykdymą pagal finansavimo šaltinius',
@@ -27,6 +34,9 @@ const SUGGESTIONS = [
 ];
 
 export default function AiHomePage(): JSX.Element {
+  const { user } = useAuth();
+  const storageKey = aiSpecStorageKey(user?.id);
+
   const defaultQuery = useQuery({
     queryKey: ['ai-dashboard'],
     queryFn: aiGetDashboard,
@@ -34,7 +44,10 @@ export default function AiHomePage(): JSX.Element {
   });
 
   // null = dar nepersirašyta per chat'ą; rodom default'inį iš query.
-  const [overrideSpec, setOverrideSpec] = React.useState<AiDashboardSpec | null>(null);
+  // Pradinė reikšmė — paskutinis AI nupieštas vaizdas iš localStorage (jei yra).
+  const [overrideSpec, setOverrideSpec] = React.useState<AiDashboardSpec | null>(() =>
+    loadSavedAiSpec(storageKey),
+  );
   const [generation, setGeneration] = React.useState(0);
   const [messages, setMessages] = React.useState<AiChatDisplayMessage[]>([]);
   const [busy, setBusy] = React.useState(false);
@@ -48,34 +61,39 @@ export default function AiHomePage(): JSX.Element {
   // Unmount — nutraukiam aktyvų stream'ą.
   React.useEffect(() => () => streamRef.current?.abort(), []);
 
-  const handleEvent = React.useCallback((event: AiChatEvent): void => {
-    switch (event.type) {
-      case 'status':
-        setStatusLabel(event.label);
-        break;
-      case 'spec':
-        setOverrideSpec(event.spec);
-        setGeneration((g) => g + 1);
-        break;
-      case 'reply':
-        setMessages((prev) => [...prev, { role: 'assistant', content: event.text }]);
-        break;
-      case 'error':
-        setMessages((prev) => [
-          ...prev,
-          { role: 'assistant', content: event.message, error: true },
-        ]);
-        // Kliento pusės klaidos (HTTP !ok, tinklo nutrūkimas) NEatsiunčia 'done' —
-        // error traktuojam kaip terminalinį (serverio done po jo — no-op).
-        setBusy(false);
-        setStatusLabel(null);
-        break;
-      case 'done':
-        setBusy(false);
-        setStatusLabel(null);
-        break;
-    }
-  }, []);
+  const handleEvent = React.useCallback(
+    (event: AiChatEvent): void => {
+      switch (event.type) {
+        case 'status':
+          setStatusLabel(event.label);
+          break;
+        case 'spec':
+          setOverrideSpec(event.spec);
+          setGeneration((g) => g + 1);
+          // Persistuojam paskutinį vaizdą — po reload grįš jis, ne default.
+          saveAiSpec(storageKey, event.spec);
+          break;
+        case 'reply':
+          setMessages((prev) => [...prev, { role: 'assistant', content: event.text }]);
+          break;
+        case 'error':
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', content: event.message, error: true },
+          ]);
+          // Kliento pusės klaidos (HTTP !ok, tinklo nutrūkimas) NEatsiunčia 'done' —
+          // error traktuojam kaip terminalinį (serverio done po jo — no-op).
+          setBusy(false);
+          setStatusLabel(null);
+          break;
+        case 'done':
+          setBusy(false);
+          setStatusLabel(null);
+          break;
+      }
+    },
+    [storageKey],
+  );
 
   const send = React.useCallback(
     (text: string): void => {
@@ -107,8 +125,9 @@ export default function AiHomePage(): JSX.Element {
   const reset = React.useCallback((): void => {
     setOverrideSpec(null);
     setGeneration((g) => g + 1);
+    clearSavedAiSpec(storageKey);
     void defaultQuery.refetch();
-  }, [defaultQuery]);
+  }, [defaultQuery, storageKey]);
 
   const spec = overrideSpec ?? defaultQuery.data?.spec ?? null;
 
