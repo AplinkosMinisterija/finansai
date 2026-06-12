@@ -25,6 +25,7 @@ import payrollService from './services/payroll.service';
 import reportsService from './services/reports.service';
 import requestAttachmentsService from './services/requestAttachments.service';
 import requestReportsService from './services/requestReports.service';
+import aiService from './services/ai.service';
 import { initDb, runMigrations, runSeeds, getKnex, closeDb } from './database/db';
 import { closeRedis } from './utils/redis';
 
@@ -109,6 +110,7 @@ async function main(): Promise<void> {
   broker.createService(reportsService);
   broker.createService(requestAttachmentsService);
   broker.createService(requestReportsService);
+  broker.createService(aiService);
   broker.createService(apiService);
 
   await broker.start();

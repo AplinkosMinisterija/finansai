@@ -39,6 +39,7 @@ import payrollService from '../../src/services/payroll.service';
 import reportsService from '../../src/services/reports.service';
 import requestAttachmentsService from '../../src/services/requestAttachments.service';
 import requestReportsService from '../../src/services/requestReports.service';
+import aiService from '../../src/services/ai.service';
 import { getTestKnex } from './db';
 
 /** Visi servisai pagal nutylėjimą — be `api.service` (HTTP gateway). */
@@ -58,6 +59,7 @@ export const ALL_SERVICES: readonly ServiceSchema[] = [
   reportsService,
   requestAttachmentsService,
   requestReportsService,
+  aiService,
 ];
 
 export interface CreateTestBrokerOpts {

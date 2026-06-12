@@ -178,6 +178,7 @@ const ApiService: ServiceSchema = {
           'reports.*',
           'requestAttachments.*',
           'requestReports.*',
+          'ai.*',
         ],
         use: [],
         authentication: true,
@@ -306,6 +307,12 @@ const ApiService: ServiceSchema = {
 
           'POST /reports/:id/submit': 'requestReports.submit',
           'DELETE /reports/:id': 'requestReports.delete',
+
+          // AI generatyvinis dashboard'as (Iter 17, eksperimentinis).
+          // `/ai/chat` grąžina SSE stream'ą (text/event-stream) — handler'is
+          // atiduoda stream'ą iškart, tad broker requestTimeout netrukdo.
+          'GET /ai/dashboard': 'ai.dashboard',
+          'POST /ai/chat': 'ai.chat',
         },
         bodyParsers: {
           // 10MB JSON — leidžia įkelti ~5MB failus base64 enkoduotame payload'e.

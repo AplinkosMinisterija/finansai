@@ -714,6 +714,25 @@ export type {
   CopyBudgetResponse,
 } from './fvm';
 
+// ---------- AI generatyvinis dashboard'as (Iter 17, eksperimentinis) ----------
+
+export type {
+  AiWidgetType,
+  AiValueFormat,
+  AiChartSeries,
+  AiTableColumn,
+  AiProgressItem,
+  AiStatTrend,
+  AiWidget,
+  AiDashboardSpec,
+  AiChatMessage,
+  AiChatRequest,
+  AiChatEvent,
+  AiDashboardResponse,
+  AiSpecValidationResult,
+} from './ai';
+export { validateDashboardSpec, AI_SPEC_LIMITS } from './ai';
+
 // ---------- Reports (Iter 14, FVM-6) ----------
 
 export type {
