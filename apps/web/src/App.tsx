@@ -4,6 +4,7 @@ import { Layout } from '@/components/Layout';
 import { Spinner } from '@/components/ui/spinner';
 import { ProtectedRoute } from '@/lib/auth';
 
+const AiHomePage = lazy(() => import('@/pages/AiHomePage'));
 const HomePage = lazy(() => import('@/pages/HomePage'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const VartotojaiPage = lazy(() => import('@/pages/VartotojaiPage'));
@@ -44,7 +45,10 @@ export default function App(): JSX.Element {
             </ProtectedRoute>
           }
         >
-          <Route path="/" element={<HomePage />} />
+          {/* Iter 17 (eksperimentinis): AI generatyvinis dashboard'as — naujas
+              numatytasis vaizdas. Klasikinė pradžia laikinai lieka /pradzia. */}
+          <Route path="/" element={<AiHomePage />} />
+          <Route path="/pradzia" element={<HomePage />} />
           <Route path="/vartotojai" element={<VartotojaiPage />} />
           <Route path="/organizacijos" element={<OrganizacijosPage />} />
           <Route path="/statistika" element={<StatistikaPage />} />

@@ -12,6 +12,7 @@ import {
   FileText,
   LayoutDashboard,
   LogOut,
+  Sparkles,
   Tags,
   Users,
   Wallet,
@@ -48,7 +49,10 @@ interface NavItemEx extends NavItem {
 }
 
 const PRIMARY_NAV: NavItemEx[] = [
-  { to: '/', label: 'Pradžia', icon: LayoutDashboard },
+  // Iter 17 (eksperimentinis): AI generatyvinis dashboard'as — pagrindinė
+  // pradžia. Klasikinis dashboard'as laikinai paliktas /pradzia adresu.
+  { to: '/', label: 'Pradžia (AI)', icon: Sparkles },
+  { to: '/pradzia', label: 'Pradžia', icon: LayoutDashboard },
   { to: '/prasymai', label: 'Prašymai', icon: FileText },
   { to: '/statistika', label: 'Statistika', icon: BarChart3 },
   { to: '/finansavimo-saltiniai', label: 'Finansavimo šaltiniai', icon: Coins },
