@@ -2,6 +2,48 @@
 
 Naujausi įrašai viršuje. Vienas įrašas = vienas sprendimas/diskusija.
 
+## 2026-06-12 — Iter 17 (eksperimentinis) — AI generatyvinis dashboard'as („Pradžia (AI)")
+
+CopilotKit „Generative UI" pattern'o demo ant realių finansų duomenų: naujas numatytasis
+pradžios puslapis `/` su dinamine widget drobe + dešiniąja chat panele. LLM (qwen3.6 35B
+ant spark2 vLLM, OpenAI-compatible API su native tool-calling) per pokalbį perpiešia
+dashboard'ą — renka duomenis per vidinius Moleculer action'us ir grąžina deklaratyvų
+JSON spec'ą.
+
+**Architektūra**:
+
+- **Deklaratyvus widget spec'as** (A2UI stiliaus): `AiDashboardSpec` su 8 widget tipais
+  (stat / bar / line / area / pie / table / progress / markdown), tipai + validatorius
+  `packages/shared/src/ai.ts`. LLM output'as = nepatikimas input'as → serveris validuoja
+  ir sanitizuoja per `validateDashboardSpec` (salvage strategija: blogi widget'ai
+  atmetami su klaidomis, kurios grąžinamos modeliui pasitaisyti; limitai: ≤12 widget'ų,
+  ≤200 data points, ≤100 rows).
+- **`ai.service.ts`** (API): `GET /ai/dashboard` — deterministinis pradinis spec'as iš
+  `dashboard.get` + `dashboard.fvmSummary` (be LLM, greitas pirmas atvaizdavimas);
+  `POST /ai/chat` — SSE stream'as (status / spec / reply / error / done event'ai).
+  Tool-loop'as: 6 duomenų tool'ai (fvm_suvestine, bendra_statistika, biudzeto_vykdymas,
+  projektai, projekto_suvestine, islaidos) + `render_dashboard`. Max 8 LLM žingsniai,
+  tuščio atsakymo retry (qwen kartais grąžina tuščią content be tool call'ų).
+- **Broker requestTimeout (10s) apėjimas**: chat handler'is grąžina PassThrough stream'ą
+  IŠKART, LLM ciklas tęsiasi asinchroniškai — moleculer-web pipe'ina stream'ą su
+  `$responseType: text/event-stream`.
+- **ADR-005 sauga**: visi duomenų tool'ai vykdomi per `ctx.call` su propaguotu
+  `meta.user` — tenant scope + DU filtrai galioja identiškai tiesioginiams API
+  kvietimams. Payroll tool'ų NĖRA; `islaidos` tool'as grąžina tik agregatus (ne raw
+  eilutes su aprašymais).
+- **Web**: `AiHomePage` (`/`) — drobė (`DashboardCanvas` + `WidgetRenderer` ant
+  recharts/shadcn) + `ChatPanel` (controlled, SSE per fetch reader, pasiūlymų chip'ai,
+  Stop, mobile Sheet). Klasikinė pradžia palikta `/pradzia` (sidebar: „Pradžia (AI)" +
+  „Pradžia") — vėliau, jei pasiteisina, AI versija pakeis seną.
+- **Env**: `LLM_BASE_URL` (be jo /ai/chat → 503, dashboard veikia), `LLM_MODEL`,
+  `LLM_AUTH_HEADER` (deploy'ui per viešą endpoint'ą). Lokaliai: spark2 LAN
+  (`http://192.168.50.55:8000/v1`).
+
+**Statusas**: veikia lokaliai (dev DB + spark2). Į GitHub NEpush'inta — vartotojo
+sprendimu kol kas tik lokalus demo. Deploy'ui į dev-finansai.biip.lt reikės: (1) viešo
+HTTPS kelio iki spark2 vLLM (smala.lt K3s ingress + auth), (2) `LLM_*` env'ų biip-infra
+`.env.dev` + compose. Testai: 11 naujų API (mock LLM, be tinklo) + 7 nauji web.
+
 ## 2026-05-22 — Iter 16 (FVM-8) baigta — E2E + Staging UAT + ship-ready v0.3.0
 
 Aštuntoji ir paskutinė FVM iteracija. Ship readiness — Playwright E2E pradinis suite startuotas; demo data refresh; visi dokumentai atnaujinti; CHANGELOG.md su v0.3.0 release entry paruoštas. Po Giedrės staging UAT sign-off — vartotojo prašymu tag'uosim v0.3.0. 4 subagent'ai (QA, DevOps, Tech Writer, Independent Auditor).

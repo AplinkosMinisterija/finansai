@@ -4,6 +4,23 @@ Visi reikšmingi pakeitimai šiame projekte dokumentuojami šiame faile.
 
 Versionavimas — [Semantic Versioning](https://semver.org/lang/lt/). Naujausi įrašai viršuje.
 
+## [Neišleista]
+
+### Pridėta
+
+#### AI generatyvinis dashboard'as (Iter 17, eksperimentinis)
+
+- Naujas numatytasis pradžios puslapis `/` („Pradžia (AI)") — dinaminė widget drobė,
+  kurią AI asistentas perpiešia pagal lietuvišką prašymą pokalbio panelėje (CopilotKit
+  „Generative UI" pattern'as). Klasikinė pradžia palikta `/pradzia`.
+- Pradinis vaizdas — deterministinis, iš realių `dashboard.get` + `dashboard.fvmSummary`
+  agregatų (be LLM). Mygtukas „Pradinis vaizdas" grąžina jį bet kada.
+- AI duomenis renka tik per vidinius action'us su vartotojo teisėmis (ADR-005 tenant
+  scope + DU filtrai galioja), payroll tool'ų nėra, išlaidos — tik agregatai.
+- LLM: OpenAI-compatible endpoint'as per `LLM_BASE_URL`/`LLM_MODEL`/`LLM_AUTH_HEADER`
+  env'us (demo — qwen3.6 35B ant lokalaus vLLM). Be konfigūracijos AI chat'as grąžina
+  503, o pradinis dashboard'as veikia įprastai.
+
 ## [0.3.0] — 2026-05-22 — FVM (Finansų valdymo modulis)
 
 Pilnas finansų valdymo modulis pagal Giedrės techninį užsakymą „Finansų valdymo modulis (FVM) v0.1" (`docs/fvm/spec/FVM-v0.1.md`). 8 iteracijos (Iter 9-16), 5 ADR, ~278+ backend testai + ~88+ frontend testai + Playwright E2E infrastruktūra startuota.
