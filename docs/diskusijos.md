@@ -39,10 +39,22 @@ JSON spec'ą.
   `LLM_AUTH_HEADER` (deploy'ui per viešą endpoint'ą). Lokaliai: spark2 LAN
   (`http://192.168.50.55:8000/v1`).
 
-**Statusas**: veikia lokaliai (dev DB + spark2). Į GitHub NEpush'inta — vartotojo
-sprendimu kol kas tik lokalus demo. Deploy'ui į dev-finansai.biip.lt reikės: (1) viešo
-HTTPS kelio iki spark2 vLLM (smala.lt K3s ingress + auth), (2) `LLM_*` env'ų biip-infra
-`.env.dev` + compose. Testai: 11 naujų API (mock LLM, be tinklo) + 7 nauji web.
+**Statusas (atnaujinta tos pačios dienos vakare)**: DEPLOY'INTA į dev-finansai.biip.lt.
+Viešas kelias iki modelio: `https://llm.smala.lt/v1` (homelab K3s Traefik ingress +
+basicAuth + cert-manager TLS; Service be selector + Endpoints → spark2 192.168.50.55:8000),
+biip-infra finansai-api gavo `LLM_*` env'us per `INPUT_FINANSAI_API_*` (git-crypt .env).
+Papildomai po pirmo demo: (1) suskleidžiamas sidebar'as (icon-rail, localStorage);
+(2) spec-tekste gelbėjimas — kai modelis įdeda widget JSON į chat tekstą vietoj tool
+call'o, serveris jį ištraukia ir perpiešia; (3) paskutinio AI vaizdo persistencija
+localStorage per user.id; (4) fix: shared paketo `main` → `dist` (pirmas runtime
+importas iš shared lūžo konteineryje — verifikacija dabar apima production-like
+`node dist/runner.js` paleidimą).
+
+**Žinomas ribotumas**: AI vaizdo skaičiai — momentinė nuotrauka (literalios reikšmės
+spec'e, persistuotos localStorage) — iš DB NEatsinaujina. Šviežia tik „Pradinis vaizdas"
+(serveris perskaičiuoja kiekvieną kartą) arba naujas chat prašymas. Galimi sprendimai
+ateičiai (nedaryta): refresh mygtukas per LLM; duomenų nuorodos spec'e su serverio
+hidracija; persistencijos TTL. Žr. README „AI generatyvinis dashboard'as".
 
 ## 2026-05-22 — Iter 16 (FVM-8) baigta — E2E + Staging UAT + ship-ready v0.3.0
 

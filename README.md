@@ -35,6 +35,26 @@ Detalė — žr. [docs/01-kontekstas.md](docs/01-kontekstas.md), [docs/06-implem
 - **FVM dashboard**: biudžeto suvestinė + top warnings + artėjantys terminai (next 30d)
 - **Multi-year planning**: F16 — kopijavimas iš praėjusių metų į kitus
 
+### AI generatyvinis dashboard'as (Iter 17, eksperimentinis) 🧪
+
+„Pradžia (AI)" (`/`) — dinaminė widget drobė + AI chat panelė (CopilotKit „Generative UI"
+pattern'as). Asistentas (qwen3.6 per `LLM_BASE_URL` OpenAI-compatible endpoint'ą) surenka
+realius duomenis per vidinius action'us (ADR-005 teisės galioja) ir perpiešia vaizdą pagal
+lietuvišką prašymą. Klasikinė pradžia — `/pradzia`. Be `LLM_BASE_URL` chat'as grąžina 503,
+pradinis vaizdas veikia. Architektūra — `docs/diskusijos.md` (2026-06-12 įrašas).
+
+**Žinomas ribotumas — AI vaizdo duomenys yra momentinė nuotrauka.** Modelis įrašo
+skaičius tiesiai į widget spec'ą kaip literalias reikšmes, o paskutinis vaizdas
+persistuojamas localStorage (per vartotoją). Po perkrovimo grįžta išsaugotas vaizdas
+su **generavimo metu buvusiais** skaičiais — jie iš DB NEatsinaujina. Šviežius duomenis
+visada rodo tik pradinis vaizdas (mygtukas „Pradinis vaizdas" — serveris perskaičiuoja
+iš DB kiekvieną kartą) arba naujas prašymas chat'e. Jei AI vaizdams reikės gyvų duomenų,
+keliai (nedaryta): (1) „Atnaujinti duomenis" mygtukas — LLM perpiešia tą patį layout'ą
+šviežiais skaičiais; (2) spec'e vietoj literalių reikšmių laikyti duomenų nuorodas
+(pvz. `{source: "islaidos_pagal_menesi", year}`), kurias serveris hidruoja kiekvieno
+užkrovimo metu — layout'as iš AI, duomenys visada iš DB; (3) persistuoto vaizdo TTL
+(pvz. iki paros pabaigos, po to — default).
+
 ## Kur dabar esam
 
 - ✅ **Iter 0** — bootstrap: repo, deploy pipeline, blank shell, sesijos auth, demo account
@@ -54,6 +74,7 @@ Detalė — žr. [docs/01-kontekstas.md](docs/01-kontekstas.md), [docs/06-implem
 - ✅ **Iter 14** — FVM-6: ataskaitos + Excel/PDF eksportas
 - ✅ **Iter 15** — FVM-7: FVM dashboard + multi-year planning
 - ✅ **Iter 16** — FVM-8: E2E setup, demo data refresh, dokumentacija ship-ready (production tag — po Giedrės staging UAT)
+- 🧪 **Iter 17** — AI generatyvinis dashboard'as (eksperimentinis): „Pradžia (AI)" + chat, deploy'inta į dev
 
 **MVP + FVM ready**. Detalė — [docs/06-implementacijos-planas.md](docs/06-implementacijos-planas.md), FVM eiga — [docs/fvm/PROGRESS.md](docs/fvm/PROGRESS.md).
 
