@@ -35,6 +35,16 @@ describe('ai-spec-storage', () => {
     expect(loadSavedAiSpec(key)).toBeNull();
   });
 
+  it('senas (Iter 17, be versijos) spec atmetamas — net jei validus', () => {
+    const key = aiSpecStorageKey(1);
+    // Iter 17 formatas: {spec, savedAt} be `v` — literalūs užšalę skaičiai.
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({ spec: SPEC, savedAt: '2026-06-12T00:00:00Z' }),
+    );
+    expect(loadSavedAiSpec(key)).toBeNull();
+  });
+
   it('clear pašalina įrašą', () => {
     const key = aiSpecStorageKey(1);
     saveAiSpec(key, SPEC);

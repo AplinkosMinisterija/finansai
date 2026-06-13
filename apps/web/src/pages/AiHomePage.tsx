@@ -85,36 +85,52 @@ export default function AiHomePage(): JSX.Element {
   const streamRef = React.useRef<AiChatStreamHandle | null>(null);
   const specRef = React.useRef<AiDashboardSpec | null>(null);
   specRef.current = overrideSpec ?? defaultQuery.data?.spec ?? null;
+  const busyRef = React.useRef(false);
+  busyRef.current = busy;
+  const overrideSpecRef = React.useRef<AiDashboardSpec | null>(null);
+  overrideSpecRef.current = overrideSpec;
 
   // Unmount — nutraukiam aktyvų stream'ą.
   React.useEffect(() => () => streamRef.current?.abort(), []);
 
-  // Iš localStorage įkeltą vaizdą HIDRUOJAM — užpildom dataRef'us šviežiais DB
-  // duomenimis (kad grafikai neužšaltų po savaitės). Vyksta vieną kartą,
-  // tik jei išsaugotas spec'as turi dataRef'ų. Server'is jau grąžina hidruotus
-  // chat/default spec'us, todėl čia svarbus tik localStorage atvejis.
-  const hydratedOnceRef = React.useRef(false);
-  React.useEffect(() => {
-    if (hydratedOnceRef.current) return;
-    hydratedOnceRef.current = true;
-    const saved = overrideSpec;
-    if (!saved || !specHasDataRefs(saved)) return;
-    let cancelled = false;
-    aiHydrate(saved)
+  /**
+   * Persihidruoja dabartinį (override) vaizdą — užpildo dataRef'us ŠVIEŽIAIS DB
+   * duomenimis. Naudojam (a) įkėlus iš localStorage, (b) grįžus į tab'ą. Default
+   * vaizdą react-query atnaujina pati; čia rūpi tik AI nupieštas override.
+   */
+  const refreshOverride = React.useCallback((): void => {
+    if (busyRef.current) return;
+    const current = overrideSpecRef.current;
+    if (!current || !specHasDataRefs(current)) return;
+    aiHydrate(current)
       .then((fresh) => {
-        if (cancelled) return;
         setOverrideSpec(fresh);
         setGeneration((g) => g + 1);
         saveAiSpec(storageKey, fresh);
       })
       .catch(() => {
-        /* nepavyko — paliekam išsaugotus (galimai senstelėjusius) skaičius */
+        /* nepavyko — paliekam esamus skaičius */
       });
-    return () => {
-      cancelled = true;
-    };
+  }, [storageKey]);
+
+  // (a) Įkėlus iš localStorage — vieną kartą persihidruojam (kad nerodytų senų skaičių).
+  const hydratedOnceRef = React.useRef(false);
+  React.useEffect(() => {
+    if (hydratedOnceRef.current) return;
+    hydratedOnceRef.current = true;
+    refreshOverride();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // (b) Grįžus į tab'ą (visibilitychange → visible) — atnaujinam skaičius iš DB,
+  // kad AI vaizdas neliktų užšalęs, kol vartotojas jį žiūri.
+  React.useEffect(() => {
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') refreshOverride();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [refreshOverride]);
 
   const handleEvent = React.useCallback(
     (event: AiChatEvent): void => {
