@@ -27,6 +27,7 @@ import requestAttachmentsService from './services/requestAttachments.service';
 import requestReportsService from './services/requestReports.service';
 import aiService from './services/ai.service';
 import { initDb, runMigrations, runSeeds, getKnex, closeDb } from './database/db';
+import { isShowcaseSeeded } from './database/seed-meta';
 import { closeRedis } from './utils/redis';
 
 async function maybeSeed(): Promise<void> {
@@ -63,6 +64,17 @@ async function maybeSeed(): Promise<void> {
           await runSeeds();
           return;
         }
+      }
+      // Iter 18: showcase versijos trigeris — jei esamoje (jau seed'intoje) DB
+      // nėra naujo praplėsto FVM dataset'o, paleidžiam pilną reseed (demo
+      // aplinkose tai saugu; 01_initial wipe'ina ir atstato viską). Vyksta
+      // vieną kartą — po reseed showcase aptinkamas → daugiau nereseed'inama.
+      if (!(await isShowcaseSeeded(knex))) {
+        console.log(
+          `Showcase demo data missing (${count} requests exist) — re-seeding richer FVM dataset`,
+        );
+        await runSeeds();
+        return;
       }
       console.log(`Seeds already complete (${count} requests) — skipping`);
       return;

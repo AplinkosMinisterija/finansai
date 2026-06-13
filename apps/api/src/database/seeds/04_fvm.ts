@@ -240,6 +240,7 @@ export async function seed(knex: Knex): Promise<void> {
 
   const biudzetasTypeId = fundingTypeItems.get('biudzetas');
   const esTypeId = fundingTypeItems.get('es');
+  const kitaTypeId = fundingTypeItems.get('kita') ?? biudzetasTypeId;
   if (biudzetasTypeId === undefined || esTypeId === undefined) {
     throw new Error(
       "[04_fvm] funding_source_type klasifikatoriaus item'ai (biudzetas/es) nerasti — paleisk FVM migracijas",
@@ -593,6 +594,369 @@ export async function seed(knex: Knex): Promise<void> {
         created_by_user_id: creatorUserId,
       },
     ]);
+
+    // ── E2) SHOWCASE praplėtimas (Iter 18) ──────────────────────────────
+    // Tikslas: turtingesni demo duomenys, kad AI dashboard'o grafai (Sankey,
+    // Treemap, mėnesinis trendas, biudžeto vykdymas) atrodytų įspūdingai.
+    // Pridedam 2 papildomus finansavimo šaltinius, jų eilutes, 3 projektus ir
+    // išlaidas, paskirstytas per sausį–birželį (vieną eilutę — virš limito).
+
+    const [klimatoSource] = (await trx('funding_sources')
+      .insert({
+        tenant_id: amTenant.id,
+        pavadinimas: 'Klimato kaitos programa 2026',
+        kodas: 'KK-2026-FVM',
+        tipas_classifier_item_id: kitaTypeId,
+        metai: FVM_YEAR,
+        metine_suma: '800000.00',
+        aprasymas: 'Klimato kaitos specialiosios programos lėšos. Demo FVM seed.',
+        aktyvus: true,
+      })
+      .returning(['id'])) as Array<{ id: number }>;
+    if (!klimatoSource) throw new Error('Nepavyko sukurti Klimato funding_source');
+
+    const [remimoSource] = (await trx('funding_sources')
+      .insert({
+        tenant_id: amTenant.id,
+        pavadinimas: 'Aplinkos apsaugos rėmimo programa 2026',
+        kodas: 'AARP-2026-FVM',
+        tipas_classifier_item_id: biudzetasTypeId,
+        metai: FVM_YEAR,
+        metine_suma: '350000.00',
+        aprasymas: 'Aplinkos apsaugos rėmimo programos lėšos. Demo FVM seed.',
+        aktyvus: true,
+      })
+      .returning(['id'])) as Array<{ id: number }>;
+    if (!remimoSource) throw new Error('Nepavyko sukurti Rėmimo funding_source');
+
+    // Eilutės naujiems šaltiniams.
+    const [kkInvAlloc] = (await trx('budget_allocations_v2')
+      .insert({
+        funding_source_id: klimatoSource.id,
+        category_classifier_item_id: categoryInvId,
+        pavadinimas: 'Klimato investicijos (saulės jėgainės)',
+        spec_prog_tipas: null,
+        planuota_suma: '500000.00',
+        metai: FVM_YEAR,
+        pastabos: 'Atsinaujinančios energetikos investicijos.',
+      })
+      .returning(['id'])) as Array<{ id: number }>;
+    const [kkPpAlloc] = (await trx('budget_allocations_v2')
+      .insert({
+        funding_source_id: klimatoSource.id,
+        category_classifier_item_id: categoryPpId,
+        pavadinimas: 'Klimato stebėsenos paslaugos',
+        spec_prog_tipas: null,
+        planuota_suma: '300000.00',
+        metai: FVM_YEAR,
+        pastabos: 'Oro kokybės monitoringo paslaugos.',
+      })
+      .returning(['id'])) as Array<{ id: number }>;
+    const [aaPpAlloc] = (await trx('budget_allocations_v2')
+      .insert({
+        funding_source_id: remimoSource.id,
+        category_classifier_item_id: categoryPpId,
+        pavadinimas: 'Aplinkosaugos švietimas',
+        spec_prog_tipas: null,
+        planuota_suma: '150000.00',
+        metai: FVM_YEAR,
+        pastabos: 'Visuomenės švietimo kampanijos.',
+      })
+      .returning(['id'])) as Array<{ id: number }>;
+    const [aaKitaAlloc] = (await trx('budget_allocations_v2')
+      .insert({
+        funding_source_id: remimoSource.id,
+        category_classifier_item_id: categoryKitaId,
+        pavadinimas: 'Gamtotvarkos darbai',
+        spec_prog_tipas: null,
+        planuota_suma: '200000.00',
+        metai: FVM_YEAR,
+        pastabos: 'Saugomų teritorijų tvarkymas.',
+      })
+      .returning(['id'])) as Array<{ id: number }>;
+    if (!kkInvAlloc || !kkPpAlloc || !aaPpAlloc || !aaKitaAlloc) {
+      throw new Error('Nepavyko sukurti showcase eilučių');
+    }
+
+    // Projektai naujose eilutėse (su artėjančiais terminais — kad rodytųsi
+    // „artėjantys terminai" widget'as; šiandien ~2026-06).
+    const [klimatoProject] = (await trx('projects')
+      .insert({
+        tenant_id: amTenant.id,
+        budget_allocation_id: kkInvAlloc.id,
+        request_id: null,
+        pavadinimas: 'Saulės jėgainių parkas „Žalioji AM"',
+        tipas: 'projektas',
+        biudzetas: '500000.00',
+        pradzios_data: dateStr(FVM_YEAR, 1, 10),
+        pabaigos_data: dateStr(FVM_YEAR, 6, 30),
+        statusas: 'vykdoma',
+        atsakingas_user_id: amUser?.id ?? amAdmin?.id ?? creatorUserId,
+        aprasymas: 'Atsinaujinančios energetikos diegimas AM pastatuose.',
+        is_du_system: false,
+      })
+      .returning(['id'])) as Array<{ id: number }>;
+    const [stebProject] = (await trx('projects')
+      .insert({
+        tenant_id: amTenant.id,
+        budget_allocation_id: kkPpAlloc.id,
+        request_id: null,
+        pavadinimas: 'Oro kokybės stebėsenos tinklas',
+        tipas: 'veikla',
+        biudzetas: '300000.00',
+        pradzios_data: dateStr(FVM_YEAR, 2, 1),
+        pabaigos_data: dateStr(FVM_YEAR, 7, 10),
+        statusas: 'vykdoma',
+        atsakingas_user_id: amUser?.id ?? amAdmin?.id ?? creatorUserId,
+        aprasymas: 'Monitoringo stočių diegimas ir priežiūra.',
+        is_du_system: false,
+      })
+      .returning(['id'])) as Array<{ id: number }>;
+    const [svietimoProject] = (await trx('projects')
+      .insert({
+        tenant_id: amTenant.id,
+        budget_allocation_id: aaPpAlloc.id,
+        request_id: null,
+        pavadinimas: 'Aplinkosaugos švietimo kampanija 2026',
+        tipas: 'veikla',
+        biudzetas: '150000.00',
+        pradzios_data: dateStr(FVM_YEAR, 1, 20),
+        pabaigos_data: dateStr(FVM_YEAR, 12, 15),
+        statusas: 'vykdoma',
+        atsakingas_user_id: amUser?.id ?? amAdmin?.id ?? creatorUserId,
+        aprasymas: 'Visuomenės informavimas apie aplinkosaugą.',
+        is_du_system: false,
+      })
+      .returning(['id'])) as Array<{ id: number }>;
+    if (!klimatoProject || !stebProject || !svietimoProject) {
+      throw new Error('Nepavyko sukurti showcase projektų');
+    }
+
+    // Išlaidos, paskirstytos per sausį–birželį (mėnuo, diena, suma, tipas,
+    // projektas, eilutė, šaltinis). `aaPpAlloc` (150k) sąmoningai perkrauta
+    // (~170k) — kad treemap/progress rodytų raudoną „virš limito".
+    type ShowcaseExpense = {
+      m: number;
+      d: number;
+      suma: string;
+      tipas: 'sutartis' | 'saskaita' | 'tiesiogine';
+      projectId: number;
+      allocationId: number;
+      sourceId: number;
+      apr: string;
+    };
+    const showcaseExpenses: ShowcaseExpense[] = [
+      {
+        m: 1,
+        d: 18,
+        suma: '45000.00',
+        tipas: 'sutartis',
+        projectId: klimatoProject.id,
+        allocationId: kkInvAlloc.id,
+        sourceId: klimatoSource.id,
+        apr: 'Saulės modulių pirmoji partija',
+      },
+      {
+        m: 2,
+        d: 12,
+        suma: '60000.00',
+        tipas: 'sutartis',
+        projectId: klimatoProject.id,
+        allocationId: kkInvAlloc.id,
+        sourceId: klimatoSource.id,
+        apr: 'Inverterių ir montavimo darbai',
+      },
+      {
+        m: 3,
+        d: 20,
+        suma: '38000.00',
+        tipas: 'saskaita',
+        projectId: klimatoProject.id,
+        allocationId: kkInvAlloc.id,
+        sourceId: klimatoSource.id,
+        apr: 'Elektros pajungimo darbai',
+      },
+      {
+        m: 4,
+        d: 15,
+        suma: '52000.00',
+        tipas: 'sutartis',
+        projectId: klimatoProject.id,
+        allocationId: kkInvAlloc.id,
+        sourceId: klimatoSource.id,
+        apr: 'Antroji modulių partija',
+      },
+      {
+        m: 5,
+        d: 22,
+        suma: '41000.00',
+        tipas: 'saskaita',
+        projectId: klimatoProject.id,
+        allocationId: kkInvAlloc.id,
+        sourceId: klimatoSource.id,
+        apr: 'Stebėsenos sistemos diegimas',
+      },
+
+      {
+        m: 2,
+        d: 8,
+        suma: '28000.00',
+        tipas: 'sutartis',
+        projectId: stebProject.id,
+        allocationId: kkPpAlloc.id,
+        sourceId: klimatoSource.id,
+        apr: 'Monitoringo stočių pirkimas',
+      },
+      {
+        m: 3,
+        d: 14,
+        suma: '22000.00',
+        tipas: 'saskaita',
+        projectId: stebProject.id,
+        allocationId: kkPpAlloc.id,
+        sourceId: klimatoSource.id,
+        apr: 'Jutiklių kalibravimas',
+      },
+      {
+        m: 5,
+        d: 6,
+        suma: '31000.00',
+        tipas: 'tiesiogine',
+        projectId: stebProject.id,
+        allocationId: kkPpAlloc.id,
+        sourceId: klimatoSource.id,
+        apr: 'Duomenų perdavimo paslaugos',
+      },
+      {
+        m: 6,
+        d: 4,
+        suma: '19000.00',
+        tipas: 'saskaita',
+        projectId: stebProject.id,
+        allocationId: kkPpAlloc.id,
+        sourceId: klimatoSource.id,
+        apr: 'Stočių priežiūra Q2',
+      },
+
+      // Švietimas — perkrauta eilutė (planuota 150k, faktinė ~170k → virš limito).
+      {
+        m: 1,
+        d: 25,
+        suma: '30000.00',
+        tipas: 'sutartis',
+        projectId: svietimoProject.id,
+        allocationId: aaPpAlloc.id,
+        sourceId: remimoSource.id,
+        apr: 'Reklamos kampanijos kūrimas',
+      },
+      {
+        m: 2,
+        d: 18,
+        suma: '35000.00',
+        tipas: 'saskaita',
+        projectId: svietimoProject.id,
+        allocationId: aaPpAlloc.id,
+        sourceId: remimoSource.id,
+        apr: 'Spaudos ir TV reklama',
+      },
+      {
+        m: 3,
+        d: 28,
+        suma: '28000.00',
+        tipas: 'tiesiogine',
+        projectId: svietimoProject.id,
+        allocationId: aaPpAlloc.id,
+        sourceId: remimoSource.id,
+        apr: 'Renginiai mokyklose',
+      },
+      {
+        m: 4,
+        d: 19,
+        suma: '40000.00',
+        tipas: 'saskaita',
+        projectId: svietimoProject.id,
+        allocationId: aaPpAlloc.id,
+        sourceId: remimoSource.id,
+        apr: 'Lauko reklama ir stendai',
+      },
+      {
+        m: 5,
+        d: 30,
+        suma: '37000.00',
+        tipas: 'sutartis',
+        projectId: svietimoProject.id,
+        allocationId: aaPpAlloc.id,
+        sourceId: remimoSource.id,
+        apr: 'Edukacinių filmų gamyba',
+      },
+
+      // Papildomos išlaidos esamoms (VB) eilutėms — kad mėnesinis trendas + VB
+      // faktinė būtų sodresni.
+      {
+        m: 1,
+        d: 30,
+        suma: '18000.00',
+        tipas: 'saskaita',
+        projectId: regularProject.id,
+        allocationId: ppAllocation.id,
+        sourceId: vbSource.id,
+        apr: 'IT licencijos Q1',
+      },
+      {
+        m: 4,
+        d: 10,
+        suma: '24000.00',
+        tipas: 'sutartis',
+        projectId: regularProject.id,
+        allocationId: ppAllocation.id,
+        sourceId: vbSource.id,
+        apr: 'AADIS plėtros sprintas Q2',
+      },
+      {
+        m: 5,
+        d: 16,
+        suma: '21000.00',
+        tipas: 'saskaita',
+        projectId: regularProject.id,
+        allocationId: ppAllocation.id,
+        sourceId: vbSource.id,
+        apr: 'Debesijos infrastruktūra',
+      },
+      {
+        m: 6,
+        d: 2,
+        suma: '15000.00',
+        tipas: 'tiesiogine',
+        projectId: regularProject.id,
+        allocationId: ppAllocation.id,
+        sourceId: vbSource.id,
+        apr: 'Mokymai komandai',
+      },
+      {
+        m: 4,
+        d: 24,
+        suma: '33000.00',
+        tipas: 'sutartis',
+        projectId: specProject.id,
+        allocationId: specAllocation.id,
+        sourceId: vbSource.id,
+        apr: 'Spec.programos plėtros etapas Q2',
+      },
+    ];
+
+    for (const e of showcaseExpenses) {
+      await trx('expenses').insert({
+        project_id: e.projectId,
+        budget_allocation_id: e.allocationId,
+        tipas: e.tipas,
+        suma: e.suma,
+        data: dateStr(FVM_YEAR, e.m, e.d),
+        aprasymas: e.apr,
+        saltinio_dalis: JSON.stringify([{ funding_source_id: e.sourceId, suma: e.suma }]),
+        payroll_profile_id: null,
+        created_by_user_id: creatorUserId,
+      });
+    }
 
     // ── F) Payroll profiles (2 vnt) ────────────────────────────────────
     // 2 darbuotojai AM tenant'e su skirtingu DU paskirstymu.
