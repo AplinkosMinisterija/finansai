@@ -248,6 +248,33 @@ function tryRescueSpecFromText(
   return null;
 }
 
+/**
+ * Ar tekstas atrodo kaip widget spec'o „dump'as" (modelis JSON įmetė į tekstą
+ * vietoj tool call'o). Naudojam, kai rescue NEPAVYKSTA (pvz. JSON nukirstas dėl
+ * max_tokens) — tada NErodom žalio JSON vartotojui, o verčiam modelį perdaryti.
+ */
+function looksLikeSpecDump(text: string): boolean {
+  if (!text.includes('"widgets"')) return false;
+  return text.includes('"type"') || text.includes('"dataRef"') || text.includes('```json');
+}
+
+/**
+ * Galutinė apsauga: pašalina ```json ... ``` blokus ir „plikus" {…"widgets"…}
+ * fragmentus iš rodomos žinutės — kad net praslydęs JSON nepasiektų vartotojo.
+ * Grąžina išvalytą tekstą (arba tuščią, jei nieko žmogiško neliko).
+ */
+function stripJsonBlocks(text: string): string {
+  let out = text.replace(/```(?:json)?[\s\S]*?```/gi, ' ').trim();
+  // Nukirstas (be uždarymo) ```json blokas — viskas nuo jo iki galo.
+  out = out.replace(/```(?:json)?[\s\S]*$/i, ' ').trim();
+  // Plikas spec fragmentas tekste (nukirstas ar ne).
+  if (out.includes('"widgets"')) {
+    const i = out.indexOf('{');
+    if (i !== -1) out = out.slice(0, i).trim();
+  }
+  return out;
+}
+
 // ---------- System prompt ----------
 
 const WIDGET_DOCS = `WIDGET TIPAI (visi turi privalomus "id" (unikalus, stabilus) ir "type"; "title" — LT antraštė; "span" — plotis 1–4):
@@ -311,7 +338,11 @@ KAIP DIRBI:
    ir esamus widgetus (su tais pačiais id) + naujus.
 4. Jei klausimas atsakomas trumpai ir vaizdo keisti neprašoma — atsakyk vien tekstu.
 5. Po sėkmingo ${SPEC_TOOL_NAME} atsakyk trumpai (1–2 sakiniai) lietuviškai, ką pakeitei.
-6. NIEKADA nerašyk widget JSON į atsakymo TEKSTĄ (jokių \`\`\`json blokų). Vaizdas keičiamas TIK per ${SPEC_TOOL_NAME}.
+6. ⛔ KRITIŠKA: vaizdą keisk TIK per ${SPEC_TOOL_NAME} tool call. Į atsakymo TEKSTĄ NIEKADA
+   nerašyk widget JSON (jokių \`\`\`json blokų, jokio {"widgets":...}). Tekste matomas JSON =
+   klaida; vartotojas jo nemato gražiai, o jei nukerpamas — vaizdas neperpiešiamas.
+   BLOGAI: atsakyme rašai \`\`\`json {"widgets":[...]}\`\`\`.
+   GERAI: kvieti ${SPEC_TOOL_NAME}({"widgets":[...]}), o tekste — tik „Atnaujinau vaizdą…".
 
 DABARTINIS DASHBOARD (layout):
 ${specJson}
@@ -397,6 +428,7 @@ async function runChatLoop(
   let renderAttempts = 0;
   let renderedThisTurn = false;
   let emptyRetries = 0;
+  let specInTextRetries = 0;
 
   const deadlineReply = (): void => {
     sseWrite(stream, {
@@ -480,14 +512,41 @@ async function runChatLoop(
         } catch {
           /* emit be hidracijos */
         }
+        renderedThisTurn = true;
         sseWrite(stream, { type: 'spec', spec: hydrated });
         sseWrite(stream, {
           type: 'reply',
-          text: rescued.cleanedText || 'Atnaujinau vaizdą pagal prašymą.',
+          text: stripJsonBlocks(rescued.cleanedText) || 'Atnaujinau vaizdą pagal prašymą.',
         });
         return;
       }
-      sseWrite(stream, { type: 'reply', text });
+      // Tekste yra spec'o požymių, bet neišparsinamas (pvz. nukirstas dėl
+      // max_tokens) — NErodom žalio JSON. Verčiam modelį perdaryti per tool'ą.
+      if (looksLikeSpecDump(text) && specInTextRetries < MAX_RENDER_ATTEMPTS) {
+        specInTextRetries += 1;
+        logger.warn(
+          `AI: spec dump tekste (neparsinamas) — verčiam tool'ą, retry ${specInTextRetries}`,
+        );
+        // Trumpinam assistant turną (kad nesprogtų kontekstas), bet išlaikom
+        // role alternaciją (assistant → user).
+        llmMessages.push({ role: 'assistant', content: text.slice(0, 300) });
+        llmMessages.push({
+          role: 'user',
+          content:
+            'KLAIDA: įdėjai widget JSON į atsakymo tekstą — tai DRAUDŽIAMA ir vartotojui nematoma. ' +
+            'Iškviesk render_dashboard tool su tuo pačiu vaizdu (widgetai su dataRef). Atsakyme JOKIO JSON.',
+        });
+        continue;
+      }
+      const cleaned = stripJsonBlocks(text);
+      sseWrite(stream, {
+        type: 'reply',
+        text:
+          cleaned ||
+          (renderedThisTurn
+            ? 'Atnaujinau vaizdą.'
+            : 'Atsiprašau — nepavyko paruošti vaizdo. Pabandykite suformuluoti paprasčiau.'),
+      });
       return;
     }
 

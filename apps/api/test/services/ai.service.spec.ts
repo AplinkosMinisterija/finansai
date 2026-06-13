@@ -450,6 +450,93 @@ describe('ai service', () => {
       expect(replyEvent.text).toContain('Štai jūsų dashboard');
     });
 
+    it('nukirstas spec tekste — verčia perdaryti per tool, žalio JSON vartotojas nemato', async () => {
+      process.env.LLM_BASE_URL = 'http://llm-mock.test/v1';
+      // 1: modelis įmeta NUKIRSTĄ (neparsinamą) JSON į tekstą.
+      // 2: po korekcijos — teisingas render_dashboard tool call.
+      let call = 0;
+      const fetchMock = jest.fn(async () => {
+        call += 1;
+        let body: unknown;
+        if (call === 1) {
+          body = {
+            choices: [
+              {
+                finish_reason: 'length',
+                message: {
+                  role: 'assistant',
+                  content:
+                    'Štai vaizdas:\n```json\n{"title":"X","widgets":[{"id":"w1","type":"stat","title":"Biudžetas","dataRef":{"source":"metric","params":{"metric":"biudzeto', // nukirsta
+                },
+              },
+            ],
+          };
+        } else if (call === 2) {
+          body = {
+            choices: [
+              {
+                finish_reason: 'tool_calls',
+                message: {
+                  role: 'assistant',
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: 'c1',
+                      type: 'function',
+                      function: {
+                        name: 'render_dashboard',
+                        arguments: JSON.stringify({
+                          widgets: [
+                            {
+                              id: 'w1',
+                              type: 'stat',
+                              title: 'Biudžetas',
+                              dataRef: { source: 'metric', params: { metric: 'prasymu_skaicius' } },
+                            },
+                          ],
+                        }),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        } else {
+          body = {
+            choices: [
+              {
+                finish_reason: 'stop',
+                message: { role: 'assistant', content: 'Atnaujinau vaizdą.' },
+              },
+            ],
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => body,
+          text: async () => '',
+        } as unknown as Response;
+      });
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      const stream = (await broker.call(
+        'ai.chat',
+        { messages: [{ role: 'user', content: 'perpiešk' }] },
+        { meta: { user: mockAuthUser() } },
+      )) as PassThrough;
+
+      const events = await collectSse(stream);
+      // Pirmas (nukirstas) JSON NEturi tapti reply su žaliu JSON.
+      const replies = events.filter((e) => e.type === 'reply') as Array<{ text: string }>;
+      for (const r of replies) expect(r.text).not.toContain('"widgets"');
+      // Po korekcijos modelis iškvietė render_dashboard → spec event yra.
+      expect(events.some((e) => e.type === 'spec')).toBe(true);
+      // Bent korekcijos retry įvyko (≥ 2 LLM kvietimai).
+      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
     /**
      * REGRESIJA (review 2026-06-12, critical): duomenų tool'ai NETURI paveldėti
      * Moleculer distributed timeout iš request konteksto. Su `ctx.call` po
