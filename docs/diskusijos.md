@@ -2,6 +2,54 @@
 
 Naujausi įrašai viršuje. Vienas įrašas = vienas sprendimas/diskusija.
 
+## 2026-06-13 — Iter 18 — AI dashboard v2: duomenų nuorodos, nauji grafai, showcase seed
+
+Praplėtas Iter 17 AI dashboard'as pagal vartotojo prašymą (kuo daugiau galimybių +
+gyvi duomenys + įspūdinga pradžia + atrandami pavyzdžiai).
+
+**1. Duomenų nuorodų katalogas + hidracija (esminė architektūra).** Vietoj literalių
+skaičių spec'e, widget'ai nurodo serverio duomenų ŠALTINĮ per `dataRef:{source,params}`.
+Serveris hidruoja juos ŠVIEŽIAIS DB duomenimis kiekvieno užkrovimo metu — layout'as iš
+AI, skaičiai visada iš DB (nebeužšąla po savaitės). `apps/api/src/services/ai/catalog.ts`:
+15 šaltinių (metric, requests_by_status/monthly_trend, cost_categories,
+budget_execution_by_source, budget_lines_usage/table, tenants_breakdown, expenses_monthly/
+by_type, projects_table, upcoming_deadlines, budget_flow_sankey, budget_hierarchy_treemap).
+Kiekvienas kviečia esamus action'us su vartotojo meta → ADR-005 galioja. `applyHydration`
+adaptuoja šaltinio rezultatą (kind) prie widget.type (series↔pie, categorical↔bar).
+Per-pass memo nedublikuoja action call'ų.
+
+**2. Endpoint'ai.** `GET /ai/dashboard` — default layout su dataRef'ais, iškart hidruotas.
+`POST /ai/hydrate` — užpildo išsaugoto (localStorage) spec'o dataRef'us šviežiais (taip
+išspręstas „grafikai užšąla po savaitės" — README užfiksuotas ribotumas dabar pašalintas).
+`POST /ai/chat` — `query_data` (katalogo šaltinis) + `render_dashboard` (widget'ai su
+dataRef); spec'as hidruojamas prieš emit.
+
+**3. Nauji widget tipai:** sankey (biudžeto srautai šaltinis→kategorija→eilutė), treemap
+(hierarchija langeliais, spalva pagal % panaudojimą — raudona virš limito), radar.
+Recharts 3.8.1 (jau įdiegta). FE renderer'iai `widgets.tsx`.
+
+**4. Cool default dashboard:** 4 stat kortelės + Sankey + Treemap + mėn. trendo area +
+kategorijų pie + biudžeto eilučių progress + organizacijų/eilučių lentelė. Viskas per
+dataRef → gyvi duomenys.
+
+**5. Showcase seed + dev reseed.** 04_fvm praplėstas: 4 finansavimo šaltiniai (buvo 2),
+9 eilutės, 6 projektai, ~27 išlaidos per sausį–birželį (viena eilutė virš limito →
+raudona). Versijos trigeris: `runner.ts:maybeSeed` aptinka, kad nėra showcase dataset'o
+(<4 šaltiniai) → paleidžia pilną reseed (01_initial wipe+rebuild). Auto-heal'ina dev/local
+vieną kartą. `seed-meta.ts` — detekcija. (seed-meta NE seeds kataloge — knex reikalauja
+`seed` funkcijos kiekvienam seeds/ failui.)
+
+**6. UX — atrandamos galimybės:** chat'o pasiūlymai sugrupuoti (Apžvalga / Srautai ir
+hierarchija / Pjūviai / Lentelės) — vartotojas mato, ką gali paprašyti.
+
+**Plėtros taškas ateičiai:** naujas widget/šaltinis = tipas shared'e + validatorius +
+FE renderer'is + 1 įrašas katalogo registre. Modelis automatiškai pradeda naudoti (katalogas
+generuojamas į system prompt'ą).
+
+**Verifikacija:** 23 nauji/atnaujinti API testai (375 viso), 153 web testai; production-like
+`node dist/runner.js` prieš švarią DB (seed enrichment + visi endpoint'ai); live spark2 chat
+(sankey+treemap per dataRef) + naršyklės QA.
+
 ## 2026-06-12 — Iter 17 (eksperimentinis) — AI generatyvinis dashboard'as („Pradžia (AI)")
 
 CopilotKit „Generative UI" pattern'o demo ant realių finansų duomenų: naujas numatytasis

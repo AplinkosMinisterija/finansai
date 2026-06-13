@@ -35,25 +35,28 @@ Detalė — žr. [docs/01-kontekstas.md](docs/01-kontekstas.md), [docs/06-implem
 - **FVM dashboard**: biudžeto suvestinė + top warnings + artėjantys terminai (next 30d)
 - **Multi-year planning**: F16 — kopijavimas iš praėjusių metų į kitus
 
-### AI generatyvinis dashboard'as (Iter 17, eksperimentinis) 🧪
+### AI generatyvinis dashboard'as (Iter 17–18, eksperimentinis) 🧪
 
 „Pradžia (AI)" (`/`) — dinaminė widget drobė + AI chat panelė (CopilotKit „Generative UI"
-pattern'as). Asistentas (qwen3.6 per `LLM_BASE_URL` OpenAI-compatible endpoint'ą) surenka
-realius duomenis per vidinius action'us (ADR-005 teisės galioja) ir perpiešia vaizdą pagal
-lietuvišką prašymą. Klasikinė pradžia — `/pradzia`. Be `LLM_BASE_URL` chat'as grąžina 503,
-pradinis vaizdas veikia. Architektūra — `docs/diskusijos.md` (2026-06-12 įrašas).
+pattern'as). Asistentas (qwen3.6 per `LLM_BASE_URL` OpenAI-compatible endpoint'ą) perpiešia
+vaizdą pagal lietuvišką prašymą. Klasikinė pradžia — `/pradzia`. Be `LLM_BASE_URL` chat'as
+grąžina 503, pradinis vaizdas + hidracija veikia. Architektūra — `docs/diskusijos.md`.
 
-**Žinomas ribotumas — AI vaizdo duomenys yra momentinė nuotrauka.** Modelis įrašo
-skaičius tiesiai į widget spec'ą kaip literalias reikšmes, o paskutinis vaizdas
-persistuojamas localStorage (per vartotoją). Po perkrovimo grįžta išsaugotas vaizdas
-su **generavimo metu buvusiais** skaičiais — jie iš DB NEatsinaujina. Šviežius duomenis
-visada rodo tik pradinis vaizdas (mygtukas „Pradinis vaizdas" — serveris perskaičiuoja
-iš DB kiekvieną kartą) arba naujas prašymas chat'e. Jei AI vaizdams reikės gyvų duomenų,
-keliai (nedaryta): (1) „Atnaujinti duomenis" mygtukas — LLM perpiešia tą patį layout'ą
-šviežiais skaičiais; (2) spec'e vietoj literalių reikšmių laikyti duomenų nuorodas
-(pvz. `{source: "islaidos_pagal_menesi", year}`), kurias serveris hidruoja kiekvieno
-užkrovimo metu — layout'as iš AI, duomenys visada iš DB; (3) persistuoto vaizdo TTL
-(pvz. iki paros pabaigos, po to — default).
+**Widget tipai:** stat, bar/line/area, pie, radar, **sankey** (biudžeto srautai),
+**treemap** (hierarchija), table, progress, markdown.
+
+**Gyvi duomenys per duomenų nuorodas (Iter 18).** Widget'ai nurodo serverio duomenų
+ŠALTINĮ per `dataRef:{source,params}` (15 šaltinių katalogas — `apps/api/src/services/ai/
+catalog.ts`), o serveris HIDRUOJA juos šviežiais DB duomenimis kiekvieno užkrovimo metu
+(`GET /ai/dashboard`, `POST /ai/hydrate`, ir prieš chat „spec" emit). Layout'as iš AI,
+skaičiai visada iš DB — grafikai NEUŽŠĄLA. Visi šaltiniai kviečia esamus action'us su
+vartotojo teisėmis (ADR-005: tenant scope + DU filtrai galioja). Naujas widget/šaltinis =
+tipas shared'e + validatorius + FE renderer'is + 1 įrašas katalogo registre (modelis pradeda
+naudoti automatiškai — katalogas generuojamas į system prompt'ą).
+
+Modelis gali naudoti ir literalius (snapshot) duomenis specialiems pjūviams be katalogo
+šaltinio — tokie widget'ai lieka momentine nuotrauka. „Pradinis vaizdas" mygtukas grąžina
+default layout'ą.
 
 ## Kur dabar esam
 
@@ -75,6 +78,7 @@ užkrovimo metu — layout'as iš AI, duomenys visada iš DB; (3) persistuoto va
 - ✅ **Iter 15** — FVM-7: FVM dashboard + multi-year planning
 - ✅ **Iter 16** — FVM-8: E2E setup, demo data refresh, dokumentacija ship-ready (production tag — po Giedrės staging UAT)
 - 🧪 **Iter 17** — AI generatyvinis dashboard'as (eksperimentinis): „Pradžia (AI)" + chat, deploy'inta į dev
+- 🧪 **Iter 18** — AI dashboard v2: duomenų nuorodos + hidracija (gyvi duomenys), sankey/treemap/radar, praplėstas demo seed
 
 **MVP + FVM ready**. Detalė — [docs/06-implementacijos-planas.md](docs/06-implementacijos-planas.md), FVM eiga — [docs/fvm/PROGRESS.md](docs/fvm/PROGRESS.md).
 

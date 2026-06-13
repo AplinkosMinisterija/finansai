@@ -8,6 +8,20 @@ Versionavimas — [Semantic Versioning](https://semver.org/lang/lt/). Naujausi �
 
 ### Pridėta
 
+#### AI dashboard v2 — gyvi duomenys + nauji grafai (Iter 18, eksperimentinis)
+
+- **Duomenų nuorodos + hidracija**: widget'ai nurodo serverio duomenų šaltinį
+  (`dataRef:{source,params}`), o serveris užpildo juos ŠVIEŽIAIS DB duomenimis kiekvieno
+  užkrovimo metu (`POST /ai/hydrate`). Grafikai nebeužšąla — layout'as iš AI, skaičiai iš DB.
+  15 šaltinių katalogas, visi su ADR-005 teisėmis.
+- **Nauji widget tipai**: sankey (biudžeto srautai), treemap (hierarchija), radar.
+- **Įspūdingesnė pradžia**: 4 rodikliai + Sankey + Treemap + trendas + pjūviai, visi per
+  gyvas duomenų nuorodas.
+- **Praplėstas demo seed**: 4 finansavimo šaltiniai, 6 projektai, ~27 išlaidos per pusmetį
+  (su viršyta eilute). Dev/local persiseedina automatiškai (versijos trigeris).
+- **Atrandami pavyzdžiai**: chat'o pasiūlymai sugrupuoti (Apžvalga / Srautai / Pjūviai /
+  Lentelės).
+
 #### AI generatyvinis dashboard'as (Iter 17, eksperimentinis)
 
 - Naujas numatytasis pradžios puslapis `/` („Pradžia (AI)") — dinaminė widget drobė,
