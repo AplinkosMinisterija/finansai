@@ -635,7 +635,7 @@ function buildDefaultLayout(me: AuthUser, year: number): AiDashboardSpec {
     {
       id: 'stat-planuota',
       type: 'stat',
-      title: `Biudžetas ${year}`,
+      title: 'Planuojamas biudžetas',
       span: 1,
       dataRef: ref('metric', { metric: 'biudzetas_planuota', year }),
     },
@@ -718,8 +718,11 @@ function buildDefaultLayout(me: AuthUser, year: number): AiDashboardSpec {
   return {
     title: 'Finansų apžvalga',
     // Globalūs metai — serveris pritaiko visiems dataRef (žr. hydrateSpec).
+    // Metai NEdedami į title/subtitle — juos rodo metų selektorius (kitaip
+    // pakeitus metus liktų senas tekstas).
     year,
-    subtitle: `Gyvi ${year} m. duomenys. Paprašykite asistento perpiešti vaizdą — pvz. „parodyk biudžeto srautą" arba „išlaidos pagal mėnesius".`,
+    subtitle:
+      'Gyvi duomenys. Paprašykite asistento perpiešti vaizdą — pvz. „parodyk biudžeto srautą" arba „išlaidos pagal mėnesius".',
     widgets,
   };
 }

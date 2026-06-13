@@ -122,6 +122,9 @@ describe('hydrateSpec — globalūs metai (spec.year override)', () => {
       broker: {
         call: (action: string, params: unknown) => {
           calls.push({ action, params });
+          if (action === 'requests.list') {
+            return Promise.resolve({ items: [], total: 0, page: 1, pageSize: 200 });
+          }
           if (action === 'dashboard.fvmSummary') {
             return Promise.resolve({
               year: (params as { year: number }).year,
@@ -189,5 +192,21 @@ describe('hydrateSpec — globalūs metai (spec.year override)', () => {
     );
     const fvmCall = calls.find((c) => c.action === 'dashboard.fvmSummary');
     expect((fvmCall?.params as { year: number }).year).toBe(2026);
+  });
+
+  it('prašymų šaltiniai metų-jautrūs — requests.list gauna globalų year', async () => {
+    const calls: Array<{ action: string; params: unknown }> = [];
+    const ctx = makeFakeCtx(calls);
+    await hydrateSpec(
+      ctx,
+      {
+        year: 2025,
+        widgets: [{ id: 's', type: 'bar', dataRef: { source: 'requests_by_status' } }],
+      },
+      2030,
+    );
+    const reqCall = calls.find((c) => c.action === 'requests.list');
+    expect(reqCall).toBeDefined();
+    expect((reqCall?.params as { year: number }).year).toBe(2025);
   });
 });

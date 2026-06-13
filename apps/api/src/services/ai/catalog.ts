@@ -33,9 +33,10 @@ import type {
   AiWidget,
   AiWidgetType,
   BudgetExecutionReport,
-  DashboardData,
   Expense,
+  FinancingRequest,
   FvmSummaryResponse,
+  PaginatedResponse,
   Project,
 } from '@biip-finansai/shared';
 import { isXyWidgetType } from '@biip-finansai/shared';
@@ -111,17 +112,6 @@ const PALETTE = [
   '#0891b2',
 ];
 
-const COST_LABELS: Record<string, string> = {
-  du: 'Darbo užmokestis',
-  equipment: 'Įranga',
-  creation: 'Kūrimas',
-  analysis: 'Analizė',
-  development: 'Vystymas',
-  maintenance: 'Palaikymas',
-  modernization: 'Modernizavimas',
-  decommissioning: 'Nutraukimas',
-};
-
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Juodraščiai',
   SUBMITTED: 'Pateikti',
@@ -146,12 +136,6 @@ function cached<T>(hc: HydrationCtx, key: string, run: () => Promise<T>): Promis
   const p = run();
   hc.cache.set(key, p);
   return p;
-}
-
-function getDashboard(hc: HydrationCtx): Promise<DashboardData> {
-  return cached(hc, 'dashboard.get', () =>
-    callAction<DashboardData, Record<string, never>>(hc.ctx, 'dashboard.get', {}),
-  );
 }
 
 function getFvm(hc: HydrationCtx, year: number): Promise<FvmSummaryResponse | null> {
@@ -179,6 +163,44 @@ function getExpenses(hc: HydrationCtx, year: number, projectId?: number): Promis
       year,
       ...(projectId !== undefined ? { projectId } : {}),
     }).catch(() => []),
+  );
+}
+
+/**
+ * Metų-jautri prašymų užklausa. KRITIŠKA: `dashboard.get` agregatai naudoja
+ * hardcodintus einamuosius metus ir NEpriima metų — todėl prašymų widget'ai
+ * ignoruodavo pasirinktus metus (stat kortelės rodė 0 už 2025, o grafikai —
+ * 2026 duomenis). Vietoj to imam prašymus per `requests.list({year})` ir
+ * agreguojam patys → 2025 (be duomenų) tampa tuščias, nuoseklu su biudžeto
+ * kortelėmis. ADR-005: requests.list pats taiko tenant scope.
+ */
+function getYearRequests(hc: HydrationCtx, year: number): Promise<FinancingRequest[]> {
+  return cached(hc, `requests.list:${year}`, async () => {
+    const all: FinancingRequest[] = [];
+    const pageSize = 200;
+    for (let page = 1; page <= 5; page += 1) {
+      const res = await callAction<
+        PaginatedResponse<FinancingRequest>,
+        { year: number; page: number; pageSize: number }
+      >(hc.ctx, 'requests.list', { year, page, pageSize }).catch(() => null);
+      if (!res || !Array.isArray(res.items) || res.items.length === 0) break;
+      all.push(...res.items);
+      if (all.length >= (res.total ?? all.length)) break;
+    }
+    return all;
+  });
+}
+
+/** Prašymo „prašyta" suma — 7 cost laukai be DU (kaip dashboard.totalRequestedFromRow). */
+function requestedAmount(r: FinancingRequest): number {
+  return (
+    Number(r.costEquipment ?? 0) +
+    Number(r.costCreation ?? 0) +
+    Number(r.costAnalysis ?? 0) +
+    Number(r.costDevelopment ?? 0) +
+    Number(r.costMaintenance ?? 0) +
+    Number(r.costModernization ?? 0) +
+    Number(r.costDecommissioning ?? 0)
   );
 }
 
@@ -245,28 +267,40 @@ const SOURCES: CatalogSource[] = [
       if (
         metric === 'prasymu_skaicius' ||
         metric === 'prasyta_suma' ||
-        metric === 'patvirtinta_suma'
+        metric === 'patvirtinta_suma' ||
+        metric === 'pateikti_laukia'
       ) {
-        const dash = await getDashboard(hc);
+        // Metų-jautru: imam nurodytų metų prašymus (ne year-blind dashboard.get).
+        const reqs = await getYearRequests(hc, year);
+        const submitted = reqs.filter((r) => r.status === 'SUBMITTED').length;
+        const approved = reqs.filter((r) => r.status === 'APPROVED').length;
         if (metric === 'prasymu_skaicius') {
           return {
             kind: 'stat',
-            value: String(dash.stats.totalRequests),
-            subtitle: `Pateikti: ${dash.stats.byStatus.SUBMITTED} · Patvirtinti: ${dash.stats.byStatus.APPROVED}`,
+            value: String(reqs.length),
+            subtitle: `${year} m. · Pateikti: ${submitted} · Patvirtinti: ${approved}`,
+          };
+        }
+        if (metric === 'pateikti_laukia') {
+          return {
+            kind: 'stat',
+            value: String(submitted),
+            subtitle: `${year} m. · laukia sprendimo`,
           };
         }
         if (metric === 'prasyta_suma') {
-          return {
-            kind: 'stat',
-            value: fmtEur(dash.stats.totalRequestedThisYear),
-            subtitle: `${dash.year} m.`,
-          };
+          const sum = reqs.reduce((acc, r) => acc + requestedAmount(r), 0);
+          return { kind: 'stat', value: fmtEur(sum), subtitle: `${year} m.` };
         }
-        return {
-          kind: 'stat',
-          value: fmtEur(dash.stats.totalApprovedThisYear),
-          subtitle: `${dash.year} m.`,
-        };
+        const granted = reqs.reduce(
+          (acc, r) =>
+            acc +
+            (r.status === 'APPROVED' && r.decisionGrantedAmount !== null
+              ? Number(r.decisionGrantedAmount)
+              : 0),
+          0,
+        );
+        return { kind: 'stat', value: fmtEur(granted), subtitle: `${year} m.` };
       }
       const fvm = await getFvm(hc, year);
       if (!fvm) return { kind: 'stat', value: '—', subtitle: 'Nėra duomenų' };
@@ -302,14 +336,6 @@ const SOURCES: CatalogSource[] = [
             value: String(fvm.activeProjectsCount),
             subtitle: `Baigti: ${fvm.completedProjectsCount}`,
           };
-        case 'pateikti_laukia': {
-          const dash = await getDashboard(hc);
-          return {
-            kind: 'stat',
-            value: String(dash.stats.byStatus.SUBMITTED),
-            subtitle: 'Laukia sprendimo',
-          };
-        }
         case 'biudzetas_planuota':
         default:
           return {
@@ -321,18 +347,22 @@ const SOURCES: CatalogSource[] = [
     },
   },
 
-  // --- Prašymai pagal statusą ---
+  // --- Prašymai pagal statusą (metų-jautru) ---
   {
     id: 'requests_by_status',
     kind: 'series',
     widgetTypes: ['bar', 'pie', 'radar', 'table'],
-    description: 'Prašymų kiekiai pagal statusą (juodraščiai/pateikti/patvirtinti/...).',
+    description:
+      'Nurodytų metų prašymų kiekiai pagal statusą (juodraščiai/pateikti/patvirtinti/...).',
     params: [YEAR_PARAM],
-    async run(hc) {
-      const dash = await getDashboard(hc);
-      const data: Row[] = Object.entries(dash.stats.byStatus)
-        .filter(([, v]) => (v as number) > 0)
-        .map(([k, v]) => ({ statusas: STATUS_LABELS[k] ?? k, kiekis: v as number }));
+    async run(hc, params) {
+      const year = paramInt(params, 'year') ?? hc.year;
+      const reqs = await getYearRequests(hc, year);
+      const counts = new Map<string, number>();
+      for (const r of reqs) counts.set(r.status, (counts.get(r.status) ?? 0) + 1);
+      const data: Row[] = [...counts.entries()]
+        .filter(([, v]) => v > 0)
+        .map(([k, v]) => ({ statusas: STATUS_LABELS[k] ?? k, kiekis: v }));
       return {
         kind: 'series',
         data,
@@ -343,19 +373,34 @@ const SOURCES: CatalogSource[] = [
     },
   },
 
-  // --- Mėnesinis prašymų trendas ---
+  // --- Mėnesinis prašymų trendas (metų-jautru) ---
   {
     id: 'requests_monthly_trend',
     kind: 'series',
     widgetTypes: ['bar', 'line', 'area', 'table'],
-    description: 'Pateiktų ir patvirtintų prašymų skaičius per 12 mėnesių.',
+    description:
+      'Nurodytų metų prašymų pateikimo ir patvirtinimo aktyvumas pagal mėnesį (pagal pateikimo/sprendimo datą).',
     params: [YEAR_PARAM],
-    async run(hc) {
-      const dash = await getDashboard(hc);
-      const data: Row[] = dash.monthlyTrend.map((m) => ({
-        menuo: m.month,
-        pateikta: m.submitted,
-        patvirtinta: m.approved,
+    async run(hc, params) {
+      const year = paramInt(params, 'year') ?? hc.year;
+      const reqs = await getYearRequests(hc, year);
+      const submitted = new Map<string, number>();
+      const approved = new Map<string, number>();
+      for (const r of reqs) {
+        if (r.submittedAt) {
+          const m = r.submittedAt.slice(0, 7);
+          submitted.set(m, (submitted.get(m) ?? 0) + 1);
+        }
+        if (r.decidedAt && r.status === 'APPROVED') {
+          const m = r.decidedAt.slice(0, 7);
+          approved.set(m, (approved.get(m) ?? 0) + 1);
+        }
+      }
+      const months = [...new Set([...submitted.keys(), ...approved.keys()])].sort();
+      const data: Row[] = months.map((m) => ({
+        menuo: m,
+        pateikta: submitted.get(m) ?? 0,
+        patvirtinta: approved.get(m) ?? 0,
       }));
       return {
         kind: 'series',
@@ -370,26 +415,36 @@ const SOURCES: CatalogSource[] = [
     },
   },
 
-  // --- Prašyta pagal lėšų kategorijas ---
+  // --- Prašyta pagal lėšų kategorijas (metų-jautru) ---
   {
     id: 'cost_categories',
     kind: 'categorical',
     widgetTypes: ['pie', 'bar', 'table'],
-    description: 'Prašyta suma (EUR) pagal lėšų kategorijas (DU, įranga, vystymas, ...).',
+    description:
+      'Nurodytų metų prašyta suma (EUR) pagal lėšų kategorijas (DU, įranga, vystymas, ...).',
     params: [YEAR_PARAM],
-    async run(hc) {
-      const dash = await getDashboard(hc);
-      const cats = dash.costCategories
-        .filter((c) => c.requested > 0)
-        .sort((a, b) => b.requested - a.requested);
-      const top = cats.slice(0, 7);
-      const restSum = cats.slice(7).reduce((acc, c) => acc + c.requested, 0);
-      const data = top.map((c) => ({
-        name: c.label ?? COST_LABELS[c.key] ?? c.key,
-        value: toNum(c.requested),
+    async run(hc, params) {
+      const year = paramInt(params, 'year') ?? hc.year;
+      const reqs = await getYearRequests(hc, year);
+      const fields: Array<{ key: string; label: string; field: keyof FinancingRequest }> = [
+        { key: 'du', label: 'Darbo užmokestis', field: 'costDu' },
+        { key: 'equipment', label: 'Įranga / licencijos', field: 'costEquipment' },
+        { key: 'creation', label: 'Kūrimas', field: 'costCreation' },
+        { key: 'analysis', label: 'Analizė', field: 'costAnalysis' },
+        { key: 'development', label: 'Vystymas', field: 'costDevelopment' },
+        { key: 'maintenance', label: 'Palaikymas', field: 'costMaintenance' },
+        { key: 'modernization', label: 'Modernizavimas', field: 'costModernization' },
+        { key: 'decommissioning', label: 'Likvidavimas', field: 'costDecommissioning' },
+      ];
+      const sums = fields.map((f) => ({
+        name: f.label,
+        value: reqs.reduce((acc, r) => acc + Number(r[f.field] ?? 0), 0),
       }));
-      if (restSum > 0) data.push({ name: 'Kita', value: toNum(restSum) });
-      return { kind: 'categorical', data, format: 'eur' };
+      const nonZero = sums.filter((s) => s.value > 0).sort((a, b) => b.value - a.value);
+      const top = nonZero.slice(0, 7).map((s) => ({ name: s.name, value: toNum(s.value) }));
+      const restSum = nonZero.slice(7).reduce((acc, s) => acc + s.value, 0);
+      if (restSum > 0) top.push({ name: 'Kita', value: toNum(restSum) });
+      return { kind: 'categorical', data: top, format: 'eur' };
     },
   },
 
@@ -401,8 +456,8 @@ const SOURCES: CatalogSource[] = [
     description:
       'Biudžeto vykdymas pagal finansavimo šaltinius: planuota vs faktinė kiekvienam šaltiniui.',
     params: [YEAR_PARAM],
-    async run(hc) {
-      const year = hc.year;
+    async run(hc, params) {
+      const year = paramInt(params, 'year') ?? hc.year;
       const rep = await getBudgetExecution(hc, year);
       const data: Row[] = (rep?.bySource ?? []).map((s) => ({
         saltinis: s.fundingSourceName,
@@ -430,8 +485,8 @@ const SOURCES: CatalogSource[] = [
     description:
       'Biudžeto eilučių panaudojimas — juostos (faktinė / planuota %), arti limito viršuje.',
     params: [YEAR_PARAM],
-    async run(hc) {
-      const rep = await getBudgetExecution(hc, hc.year);
+    async run(hc, params) {
+      const rep = await getBudgetExecution(hc, paramInt(params, 'year') ?? hc.year);
       const lines: AiProgressItem[] = [];
       for (const s of rep?.bySource ?? []) {
         for (const c of s.byCategory) {
@@ -455,8 +510,8 @@ const SOURCES: CatalogSource[] = [
     widgetTypes: ['table'],
     description: 'Biudžeto eilučių lentelė: šaltinis, eilutė, planuota, faktinė, likutis, %.',
     params: [YEAR_PARAM],
-    async run(hc) {
-      const rep = await getBudgetExecution(hc, hc.year);
+    async run(hc, params) {
+      const rep = await getBudgetExecution(hc, paramInt(params, 'year') ?? hc.year);
       const rows: Row[] = [];
       for (const s of rep?.bySource ?? []) {
         for (const c of s.byCategory) {
@@ -486,20 +541,45 @@ const SOURCES: CatalogSource[] = [
     },
   },
 
-  // --- Organizacijų suvestinė ---
+  // --- Organizacijų suvestinė (metų-jautru) ---
   {
     id: 'tenants_breakdown',
     kind: 'table',
     widgetTypes: ['table', 'bar'],
     description:
-      'Organizacijų suvestinė (tik tvirtintojams): prašymų skaičius, prašyta/patvirtinta suma per org.',
+      'Nurodytų metų organizacijų suvestinė (tik tvirtintojams): prašymų skaičius, prašyta/patvirtinta suma per org.',
     params: [YEAR_PARAM],
-    async run(hc) {
-      const dash = await getDashboard(hc);
-      const breakdown = (dash.perTenantBreakdown ?? [])
-        .filter((t) => t.total > 0)
-        .sort((a, b) => b.totalRequested - a.totalRequested)
-        .slice(0, 12);
+    async run(hc, params) {
+      const year = paramInt(params, 'year') ?? hc.year;
+      const reqs = await getYearRequests(hc, year);
+      const byTenant = new Map<
+        string,
+        { org: string; prasymu: number; prasyta: number; patvirtinta: number }
+      >();
+      for (const r of reqs) {
+        const key = String(r.tenantId);
+        const t = byTenant.get(key) ?? {
+          org: r.tenantName ?? r.tenantCode ?? key,
+          prasymu: 0,
+          prasyta: 0,
+          patvirtinta: 0,
+        };
+        t.prasymu += 1;
+        t.prasyta += requestedAmount(r);
+        if (r.status === 'APPROVED' && r.decisionGrantedAmount !== null) {
+          t.patvirtinta += Number(r.decisionGrantedAmount);
+        }
+        byTenant.set(key, t);
+      }
+      const rows = [...byTenant.values()]
+        .sort((a, b) => b.prasyta - a.prasyta)
+        .slice(0, 12)
+        .map((t) => ({
+          org: t.org,
+          prasymu: t.prasymu,
+          prasyta: toNum(t.prasyta),
+          patvirtinta: toNum(t.patvirtinta),
+        }));
       return {
         kind: 'table',
         columns: [
@@ -508,12 +588,7 @@ const SOURCES: CatalogSource[] = [
           { key: 'prasyta', label: 'Prašyta', format: 'eur', align: 'right' },
           { key: 'patvirtinta', label: 'Patvirtinta', format: 'eur', align: 'right' },
         ],
-        rows: breakdown.map((t) => ({
-          org: t.tenantName,
-          prasymu: t.total,
-          prasyta: toNum(t.totalRequested),
-          patvirtinta: toNum(t.totalApproved),
-        })),
+        rows,
       };
     },
   },
@@ -639,8 +714,8 @@ const SOURCES: CatalogSource[] = [
     widgetTypes: ['table'],
     description: 'Artėjantys projektų terminai (30 dienų): projektas, data, liko dienų.',
     params: [YEAR_PARAM],
-    async run(hc) {
-      const fvm = await getFvm(hc, hc.year);
+    async run(hc, params) {
+      const fvm = await getFvm(hc, paramInt(params, 'year') ?? hc.year);
       return {
         kind: 'table',
         columns: [
@@ -674,7 +749,7 @@ const SOURCES: CatalogSource[] = [
       },
     ],
     async run(hc, params) {
-      const rep = await getBudgetExecution(hc, hc.year);
+      const rep = await getBudgetExecution(hc, paramInt(params, 'year') ?? hc.year);
       const preferred = paramStr(params, 'sizeBy') === 'planuota' ? 'planuota' : 'faktine';
       return buildSankey(rep, preferred);
     },
@@ -697,7 +772,7 @@ const SOURCES: CatalogSource[] = [
       },
     ],
     async run(hc, params) {
-      const rep = await getBudgetExecution(hc, hc.year);
+      const rep = await getBudgetExecution(hc, paramInt(params, 'year') ?? hc.year);
       const sizeBy = paramStr(params, 'sizeBy') === 'faktine' ? 'faktine' : 'planuota';
       return buildTreemap(rep, sizeBy);
     },
@@ -842,10 +917,12 @@ export function applyHydration(widget: AiWidget, result: HydrationResult): AiWid
   const w: AiWidget = { ...widget };
   switch (result.kind) {
     case 'stat':
+      // Šaltinis valdo value/subtitle/trend (data-derived). PERRAŠOM — kitaip
+      // perhidruojant (pvz. pakeitus metus) liktų SENA paantraštė/trendas
+      // (rodytų pernykščius „4 šaltiniai" nors metai jau kiti).
       w.value = result.value;
-      if (result.subtitle !== undefined && widget.subtitle === undefined)
-        w.subtitle = result.subtitle;
-      if (result.trend && !widget.trend) w.trend = result.trend;
+      w.subtitle = result.subtitle;
+      w.trend = result.trend;
       break;
     case 'series':
       if (widget.type === 'pie') {

@@ -579,32 +579,21 @@ describe('ai service', () => {
         requestTimeout: 300,
       });
       slowBroker.createService(aiService);
-      // Stub dashboard servisas — tikrinam tik timeout mechaniką, ne duomenis.
+      // Stub requests servisas — requests_by_status šaltinis kviečia requests.list.
+      // Tikrinam tik timeout mechaniką: 7 APPROVED → kiekis 7.
       slowBroker.createService({
-        name: 'dashboard',
+        name: 'requests',
         actions: {
-          get: {
+          list: {
             handler: () => ({
-              year: 2026,
-              stats: {
-                totalRequests: 7,
-                byStatus: {
-                  DRAFT: 0,
-                  SUBMITTED: 0,
-                  RETURNED: 0,
-                  APPROVED: 7,
-                  REJECTED: 0,
-                  NEAKTUALU: 0,
-                },
-                amountsByStatus: { SUBMITTED: 0, RETURNED: 0, APPROVED: 0, REJECTED: 0 },
-                totalRequestedThisYear: 0,
-                totalApprovedThisYear: 0,
-                totalRejectedThisYear: 0,
-                usersCount: 1,
-              },
-              monthlyTrend: [],
-              costCategories: [],
-              budgetCategoryStats: [],
+              items: Array.from({ length: 7 }, (_, i) => ({
+                id: i + 1,
+                status: 'APPROVED',
+                year: 2026,
+              })),
+              total: 7,
+              page: 1,
+              pageSize: 200,
             }),
           },
         },
