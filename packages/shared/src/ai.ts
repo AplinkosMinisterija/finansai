@@ -145,6 +145,13 @@ export type AiWidget = {
 export type AiDashboardSpec = {
   title?: string;
   subtitle?: string;
+  /**
+   * Globalūs metai visam vaizdui. Kai nustatyti, serveris hidruodamas
+   * PRIVERSTINAI pritaiko šiuos metus VISŲ widget'ų dataRef'ams (perrašo
+   * kiekvieno widget'o `params.year`). Taip metų keitimas vienu žodžiu
+   * („rodyk 2025") atsinaujina nuosekliai visuose grafikuose.
+   */
+  year?: number;
   widgets: AiWidget[];
 };
 
@@ -628,6 +635,13 @@ export function validateDashboardSpec(input: unknown): AiSpecValidationResult {
   if (title) spec.title = title;
   const subtitle = clampStr(raw.subtitle, AI_SPEC_LIMITS.maxTitleLen);
   if (subtitle) spec.subtitle = subtitle;
+  if (isFiniteNumber(raw.year)) {
+    const y = Math.round(raw.year);
+    if (y >= 2000 && y <= 3000) spec.year = y;
+  } else if (typeof raw.year === 'string') {
+    const y = Math.round(Number(raw.year));
+    if (Number.isFinite(y) && y >= 2000 && y <= 3000) spec.year = y;
+  }
   return { ok: true, spec, errors };
 }
 

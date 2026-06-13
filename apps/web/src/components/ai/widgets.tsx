@@ -638,7 +638,7 @@ const SPAN_CLASSES: Record<number, string> = {
 };
 
 /** Ar widget'as turi minimalius laukus, kad jį būtų prasminga piešti. */
-function isRenderableWidget(widget: AiWidget): boolean {
+export function isRenderableWidget(widget: AiWidget): boolean {
   switch (widget.type) {
     case 'stat':
       return widget.value !== undefined;

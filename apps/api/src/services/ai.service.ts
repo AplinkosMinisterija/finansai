@@ -115,6 +115,11 @@ const LLM_TOOLS = [
         properties: {
           title: { type: 'string' },
           subtitle: { type: 'string' },
+          year: {
+            type: 'integer',
+            description:
+              'Globalūs metai visam vaizdui — serveris pritaiko VISIEMS widget dataRef. Naudok šitą, kai vartotojas keičia metus (pvz. „rodyk 2025").',
+          },
           widgets: {
             type: 'array',
             maxItems: AI_SPEC_LIMITS.maxWidgets,
@@ -316,6 +321,7 @@ function buildSystemPrompt(
     // skaičių (jie keičiasi; modeliui reikia žinoti tik kas nupiešta).
     specJson = JSON.stringify({
       title: currentSpec.title,
+      ...(currentSpec.year ? { year: currentSpec.year } : {}),
       widgets: currentSpec.widgets.map((w) => ({
         id: w.id,
         type: w.type,
@@ -348,6 +354,14 @@ DABARTINIS DASHBOARD (layout):
 ${specJson}
 
 ${WIDGET_DOCS}
+
+METAI (svarbu):
+- Kai vartotojas keičia metus (pvz. „rodyk 2025", „tik už 2026") — nustatyk render_dashboard
+  TOP-LEVEL "year" lauką. Serveris jį pritaikys VISIEMS widget'ams automatiškai. NEREIKIA
+  rašyti year į kiekvieno widget dataRef.params — užtenka vieno top-level "year".
+- Jei vartotojas prašo tik metų pakeitimo (UI nesikeičia) — perduok TĄ PATĮ widgetų sąrašą
+  (tie patys id/dataRef) + naują top-level "year".
+- Jei pasirinktiems metams nėra duomenų — grafikai bus tušti; tai NORMALU, pasakyk tai vartotojui.
 
 GEROS PRAKTIKOS:
 - Pirmoje eilėje 3–4 stat kortelės (span 1, dataRef "metric"), žemiau span 2 grafikai/lentelės.
@@ -703,6 +717,8 @@ function buildDefaultLayout(me: AuthUser, year: number): AiDashboardSpec {
   ];
   return {
     title: 'Finansų apžvalga',
+    // Globalūs metai — serveris pritaiko visiems dataRef (žr. hydrateSpec).
+    year,
     subtitle: `Gyvi ${year} m. duomenys. Paprašykite asistento perpiešti vaizdą — pvz. „parodyk biudžeto srautą" arba „išlaidos pagal mėnesius".`,
     widgets,
   };

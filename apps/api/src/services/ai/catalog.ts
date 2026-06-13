@@ -921,14 +921,20 @@ export async function hydrateSpec(
   spec: AiDashboardSpec,
   defaultYear: number,
 ): Promise<AiDashboardSpec> {
-  const hc: HydrationCtx = { ctx, year: defaultYear, cache: new Map() };
+  // Globalūs metai (spec.year) PERRAŠO kiekvieno dataRef year — kad metų
+  // keitimas atsinaujintų nuosekliai VISUOSE widget'uose (modelis nebeprivalo
+  // pataikyti į kiekvieną widget atskirai).
+  const globalYear = typeof spec.year === 'number' ? spec.year : undefined;
+  const hc: HydrationCtx = { ctx, year: globalYear ?? defaultYear, cache: new Map() };
   const widgets = await Promise.all(
     spec.widgets.map(async (widget) => {
       if (!widget.dataRef) return widget;
       const source = getSource(widget.dataRef.source);
       if (!source) return widget;
+      const params: Record<string, unknown> = { ...(widget.dataRef.params ?? {}) };
+      if (globalYear !== undefined) params.year = globalYear;
       try {
-        const result = await source.run(hc, widget.dataRef.params ?? {});
+        const result = await source.run(hc, params);
         return applyHydration(widget, result);
       } catch {
         return widget;

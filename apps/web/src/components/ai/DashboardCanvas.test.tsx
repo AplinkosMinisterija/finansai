@@ -145,6 +145,19 @@ describe('DashboardCanvas', () => {
     expect(screen.queryByTestId('ai-widget-tm-bad')).not.toBeInTheDocument();
   });
 
+  it('kai nė vienas widget nepiešiamas (pvz. metai be duomenų) — rodo „nėra duomenų"', () => {
+    const spec: AiDashboardSpec = {
+      title: 'Biudžeto srautai (2025)',
+      widgets: [
+        { id: 'sk', type: 'sankey' }, // be nodes/links → nerenderable
+        { id: 's', type: 'stat' }, // be value → nerenderable
+      ],
+    };
+    render(<DashboardCanvas spec={spec} generation={5} />);
+    expect(screen.getByText('Biudžeto srautai (2025)')).toBeInTheDocument();
+    expect(screen.getByText(/duomenų nėra/i)).toBeInTheDocument();
+  });
+
   it('nekrenta su minimaliu/degeneruotu spec', () => {
     const spec: AiDashboardSpec = {
       widgets: [

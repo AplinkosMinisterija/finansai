@@ -6,7 +6,9 @@
  * testuojamos tiesiogiai (pure funkcija, be DB).
  */
 import type { AiWidget } from '@biip-finansai/shared';
-import { applyHydration, type HydrationResult } from '../../src/services/ai/catalog';
+import type { Context } from 'moleculer';
+import { applyHydration, hydrateSpec, type HydrationResult } from '../../src/services/ai/catalog';
+import type { AuthMeta } from '../../src/services/auth.service';
 
 function widget(type: AiWidget['type'], extra: Partial<AiWidget> = {}): AiWidget {
   return { id: 'w', type, ...extra };
@@ -107,5 +109,85 @@ describe('applyHydration', () => {
       treemap: [{ name: 'src', children: [{ name: 'a', value: 5 }] }],
     });
     expect(treemap.treemap).toHaveLength(1);
+  });
+});
+
+describe('hydrateSpec — globalūs metai (spec.year override)', () => {
+  /** Fake ctx, kuris įrašo broker.call'us ir grąžina kanonines reikšmes. */
+  function makeFakeCtx(
+    calls: Array<{ action: string; params: unknown }>,
+  ): Context<unknown, AuthMeta> {
+    return {
+      meta: { user: { id: 1 } },
+      broker: {
+        call: (action: string, params: unknown) => {
+          calls.push({ action, params });
+          if (action === 'dashboard.fvmSummary') {
+            return Promise.resolve({
+              year: (params as { year: number }).year,
+              generatedAt: '',
+              budgetTotals: {
+                planuota: '0',
+                faktine: '0',
+                likutis: '0',
+                percentUsed: 0,
+                isWarning: false,
+                isOver: false,
+              },
+              topWarnings: [],
+              upcomingDeadlines: [],
+              activeProjectsCount: 0,
+              completedProjectsCount: 0,
+              totalSourcesCount: 0,
+              totalAllocationsCount: 0,
+            });
+          }
+          return Promise.resolve({});
+        },
+      },
+    } as unknown as Context<unknown, AuthMeta>;
+  }
+
+  it('spec.year perrašo kiekvieno dataRef year (net jei widget nurodė kitą)', async () => {
+    const calls: Array<{ action: string; params: unknown }> = [];
+    const ctx = makeFakeCtx(calls);
+    await hydrateSpec(
+      ctx,
+      {
+        year: 2025,
+        widgets: [
+          {
+            id: 'm',
+            type: 'stat',
+            dataRef: { source: 'metric', params: { metric: 'islaidos_faktine', year: 2026 } },
+          },
+        ],
+      },
+      2030,
+    );
+    const fvmCall = calls.find((c) => c.action === 'dashboard.fvmSummary');
+    expect(fvmCall).toBeDefined();
+    // Globalūs 2025 nugali ir widget'o 2026, ir default 2030.
+    expect((fvmCall?.params as { year: number }).year).toBe(2025);
+  });
+
+  it('be spec.year — naudoja widget year, kitaip default', async () => {
+    const calls: Array<{ action: string; params: unknown }> = [];
+    const ctx = makeFakeCtx(calls);
+    await hydrateSpec(
+      ctx,
+      {
+        widgets: [
+          {
+            id: 'm',
+            type: 'stat',
+            dataRef: { source: 'metric', params: { metric: 'islaidos_faktine', year: 2026 } },
+          },
+        ],
+      },
+      2030,
+    );
+    const fvmCall = calls.find((c) => c.action === 'dashboard.fvmSummary');
+    expect((fvmCall?.params as { year: number }).year).toBe(2026);
   });
 });

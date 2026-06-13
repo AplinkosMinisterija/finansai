@@ -137,6 +137,24 @@ describe('validateDashboardSpec', () => {
     }
   });
 
+  it('priima globalų spec.year (skaičių ir string), atmeta ribas', () => {
+    const ok = validateDashboardSpec({
+      year: 2025,
+      widgets: [{ id: 's', type: 'stat', value: '1' }],
+    });
+    expect(ok.ok && ok.spec.year).toBe(2025);
+    const str = validateDashboardSpec({
+      year: '2027',
+      widgets: [{ id: 's', type: 'stat', value: '1' }],
+    });
+    expect(str.ok && str.spec.year).toBe(2027);
+    const bad = validateDashboardSpec({
+      year: 99,
+      widgets: [{ id: 's', type: 'stat', value: '1' }],
+    });
+    expect(bad.ok && bad.spec.year).toBeUndefined();
+  });
+
   it('išmeta ne-primityvias reikšmes iš data/rows (sanitizacija)', () => {
     const result = validateDashboardSpec({
       widgets: [
