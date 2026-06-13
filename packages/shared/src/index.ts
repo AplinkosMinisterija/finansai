@@ -723,15 +723,21 @@ export type {
   AiTableColumn,
   AiProgressItem,
   AiStatTrend,
+  AiSankeyNode,
+  AiSankeyLink,
+  AiTreemapNode,
+  AiDataRef,
   AiWidget,
   AiDashboardSpec,
   AiChatMessage,
   AiChatRequest,
   AiChatEvent,
   AiDashboardResponse,
+  AiHydrateRequest,
+  AiHydrateResponse,
   AiSpecValidationResult,
 } from './ai';
-export { validateDashboardSpec, AI_SPEC_LIMITS } from './ai';
+export { validateDashboardSpec, isXyWidgetType, AI_SPEC_LIMITS } from './ai';
 
 // ---------- Reports (Iter 14, FVM-6) ----------
 

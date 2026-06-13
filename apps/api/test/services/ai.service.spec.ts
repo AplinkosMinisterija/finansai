@@ -12,7 +12,7 @@
  */
 import type { ServiceBroker } from 'moleculer';
 import type { PassThrough } from 'stream';
-import { validateDashboardSpec } from '@biip-finansai/shared';
+import { AI_SPEC_LIMITS, validateDashboardSpec } from '@biip-finansai/shared';
 import { createTestBroker } from '../helpers/broker';
 import { getTestKnex, closeTestKnex, truncateAll, seedBaseFixtures } from '../helpers/db';
 import { mockAuthUser, mockOrgUser } from '../helpers/auth';
@@ -71,7 +71,7 @@ describe('validateDashboardSpec', () => {
   });
 
   it('karpo viršlimitinius widget`us ir dubliuotus id pervadina', () => {
-    const widgets = Array.from({ length: 15 }, (_, i) => ({
+    const widgets = Array.from({ length: 20 }, (_, i) => ({
       id: 'same',
       type: 'stat',
       value: String(i),
@@ -79,9 +79,61 @@ describe('validateDashboardSpec', () => {
     const result = validateDashboardSpec({ widgets });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.spec.widgets.length).toBeLessThanOrEqual(12);
+      expect(result.spec.widgets.length).toBeLessThanOrEqual(AI_SPEC_LIMITS.maxWidgets);
       const ids = result.spec.widgets.map((w) => w.id);
       expect(new Set(ids).size).toBe(ids.length);
+    }
+  });
+
+  it('dataRef widgetai praleidžiami be literalių data laukų', () => {
+    const result = validateDashboardSpec({
+      widgets: [
+        {
+          id: 's',
+          type: 'stat',
+          title: 'X',
+          dataRef: { source: 'metric', params: { metric: 'islaidos_faktine' } },
+        },
+        { id: 'sk', type: 'sankey', title: 'Srautas', dataRef: { source: 'budget_flow_sankey' } },
+        {
+          id: 'tm',
+          type: 'treemap',
+          title: 'Hierarchija',
+          dataRef: { source: 'budget_hierarchy_treemap' },
+        },
+        { id: 'r', type: 'radar', title: 'Radaras', dataRef: { source: 'requests_by_status' } },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.widgets).toHaveLength(4);
+      expect(result.spec.widgets[0]?.dataRef?.source).toBe('metric');
+      // Be dataRef ir be literalių laukų — atmetama.
+      const bad = validateDashboardSpec({ widgets: [{ id: 'x', type: 'sankey' }] });
+      expect(bad.ok).toBe(false);
+    }
+  });
+
+  it('validuoja literalų sankey (nodes+links, indeksai ribose, value>0)', () => {
+    const result = validateDashboardSpec({
+      widgets: [
+        {
+          id: 'sk',
+          type: 'sankey',
+          nodes: [{ name: 'A' }, { name: 'B' }, { name: 'C' }],
+          links: [
+            { source: 0, target: 1, value: 100 },
+            { source: 1, target: 2, value: 50 },
+            { source: 0, target: 9, value: 10 }, // indeksas už ribų — atmetamas
+            { source: 0, target: 1, value: -5 }, // value<=0 — atmetamas
+          ],
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const w = result.spec.widgets[0];
+      expect(w?.links).toHaveLength(2);
     }
   });
 
@@ -153,6 +205,72 @@ describe('ai service', () => {
       await expect(broker.call('ai.dashboard', {}, { meta: {} })).rejects.toMatchObject({
         code: 401,
       });
+    });
+
+    it('default spec turi dataRef widgetus (gyvi duomenys, ne snapshot)', async () => {
+      const result = (await broker.call(
+        'ai.dashboard',
+        {},
+        { meta: { user: mockAuthUser() } },
+      )) as {
+        spec: { widgets: Array<{ type: string; dataRef?: { source: string } }> };
+      };
+      // Bent stat + sankey + treemap turi dataRef.
+      expect(result.spec.widgets.every((w) => w.dataRef?.source)).toBe(true);
+      expect(result.spec.widgets.some((w) => w.type === 'sankey')).toBe(true);
+      expect(result.spec.widgets.some((w) => w.type === 'treemap')).toBe(true);
+    });
+  });
+
+  describe('ai.hydrate', () => {
+    it('užpildo dataRef widget šviežiais DB duomenimis', async () => {
+      const result = (await broker.call(
+        'ai.hydrate',
+        {
+          spec: {
+            widgets: [
+              {
+                id: 'm',
+                type: 'stat',
+                title: 'Prašymai',
+                dataRef: { source: 'metric', params: { metric: 'prasymu_skaicius' } },
+              },
+            ],
+          },
+        },
+        { meta: { user: mockAuthUser() } },
+      )) as { spec: { widgets: Array<{ value?: string }> }; generatedAt: string };
+      expect(result.generatedAt).toBeTruthy();
+      expect(result.spec.widgets[0]?.value).toBeDefined();
+    });
+
+    it('nežinomas šaltinis — widget paliekamas (be crash)', async () => {
+      const result = (await broker.call(
+        'ai.hydrate',
+        {
+          spec: {
+            widgets: [{ id: 's', type: 'stat', value: '42', dataRef: { source: 'nera_tokio' } }],
+          },
+        },
+        { meta: { user: mockAuthUser() } },
+      )) as { spec: { widgets: Array<{ value?: string }> } };
+      expect(result.spec.widgets[0]?.value).toBe('42');
+    });
+
+    it('netinkamas spec — 422', async () => {
+      await expect(
+        broker.call('ai.hydrate', { spec: { widgets: [] } }, { meta: { user: mockAuthUser() } }),
+      ).rejects.toMatchObject({ type: 'AI_BAD_SPEC' });
+    });
+
+    it('be user — 401', async () => {
+      await expect(
+        broker.call(
+          'ai.hydrate',
+          { spec: { widgets: [{ id: 'x', type: 'stat', value: '1' }] } },
+          { meta: {} },
+        ),
+      ).rejects.toMatchObject({ code: 401 });
     });
   });
 
@@ -363,7 +481,22 @@ describe('ai service', () => {
           get: {
             handler: () => ({
               year: 2026,
-              stats: { totalRequests: 7 },
+              stats: {
+                totalRequests: 7,
+                byStatus: {
+                  DRAFT: 0,
+                  SUBMITTED: 0,
+                  RETURNED: 0,
+                  APPROVED: 7,
+                  REJECTED: 0,
+                  NEAKTUALU: 0,
+                },
+                amountsByStatus: { SUBMITTED: 0, RETURNED: 0, APPROVED: 0, REJECTED: 0 },
+                totalRequestedThisYear: 0,
+                totalApprovedThisYear: 0,
+                totalRejectedThisYear: 0,
+                usersCount: 1,
+              },
               monthlyTrend: [],
               costCategories: [],
               budgetCategoryStats: [],
@@ -395,7 +528,10 @@ describe('ai service', () => {
                               {
                                 id: 'tc-1',
                                 type: 'function',
-                                function: { name: 'bendra_statistika', arguments: '{}' },
+                                function: {
+                                  name: 'query_data',
+                                  arguments: '{"source":"requests_by_status"}',
+                                },
                               },
                             ],
                           },
@@ -433,7 +569,7 @@ describe('ai service', () => {
         };
         const toolMsg = secondBody.messages.find((m) => m.role === 'tool');
         expect(toolMsg).toBeDefined();
-        expect(toolMsg?.content).toContain('"totalRequests":7');
+        expect(toolMsg?.content).toContain('"kiekis":7');
         expect(toolMsg?.content).not.toContain('Nepavyko gauti duomenų');
       } finally {
         await slowBroker.stop();

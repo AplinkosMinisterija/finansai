@@ -308,10 +308,12 @@ const ApiService: ServiceSchema = {
           'POST /reports/:id/submit': 'requestReports.submit',
           'DELETE /reports/:id': 'requestReports.delete',
 
-          // AI generatyvinis dashboard'as (Iter 17, eksperimentinis).
+          // AI generatyvinis dashboard'as (Iter 17–18, eksperimentinis).
           // `/ai/chat` grąžina SSE stream'ą (text/event-stream) — handler'is
           // atiduoda stream'ą iškart, tad broker requestTimeout netrukdo.
+          // `/ai/hydrate` užpildo išsaugoto spec'o dataRef'us šviežiais DB duomenimis.
           'GET /ai/dashboard': 'ai.dashboard',
+          'POST /ai/hydrate': 'ai.hydrate',
           'POST /ai/chat': 'ai.chat',
         },
         bodyParsers: {

@@ -1,27 +1,23 @@
 /**
- * AI generatyvinio dashboard'o servisas (Iter 17, eksperimentinis).
+ * AI generatyvinio dashboard'o servisas (Iter 17–18, eksperimentinis).
  *
- * Du endpoint'ai:
- *  - `ai.dashboard` (GET /ai/dashboard) — deterministinis pradinis spec'as,
- *    sugeneruotas iš realių dashboard.get + dashboard.fvmSummary duomenų
- *    (be LLM — greitas pirmas atvaizdavimas).
- *  - `ai.chat` (POST /ai/chat) — SSE stream'as: LLM tool-loop'as, kuris
- *    renka duomenis per vidinius action'us ir perpiešia dashboard'ą per
- *    `render_dashboard` tool-call'ą.
+ * Endpoint'ai:
+ *  - `ai.dashboard` (GET /ai/dashboard) — default layout (dataRef'ai) + iškart
+ *    hidruoti duomenys. Greitas pirmas atvaizdavimas be LLM.
+ *  - `ai.hydrate` (POST /ai/hydrate) — užpildo išsaugoto spec'o dataRef'us
+ *    ŠVIEŽIAIS DB duomenimis (taip grafikai neužšąla po savaitės).
+ *  - `ai.chat` (POST /ai/chat) — SSE stream'as: LLM tool-loop'as. Modelis renka
+ *    duomenis per `query_data` (katalogo šaltiniai) ir perpiešia per
+ *    `render_dashboard` (widget'ai su dataRef). Spec'as hidruojamas prieš emit.
  *
- * LLM: OpenAI-compatible endpoint'as (vLLM / qwen3.6), konfigūruojamas per env:
- *  - LLM_BASE_URL    (pvz. http://192.168.50.55:8000/v1) — be jo /ai/chat grąžina 503
+ * LLM: OpenAI-compatible endpoint'as (vLLM / qwen3.6), env:
+ *  - LLM_BASE_URL    — be jo /ai/chat grąžina 503 (dashboard/hydrate veikia)
  *  - LLM_MODEL       (default 'qwen3.6')
  *  - LLM_AUTH_HEADER (optional — pilna Authorization header reikšmė)
  *
- * SAUGUMAS (ADR-005): visi duomenų tool'ai vykdomi per `ctx.call` — meta.user
- * propaguojasi, tad tenant scope + DU filtrai taikomi lygiai taip pat, kaip
- * tiesioginiams API kvietimams. AI sluoksnis NIEKADA nekviečia DB tiesiogiai
- * ir neturi payroll tool'ų.
- *
- * Broker `requestTimeout` (10s) neblokuoja ilgo LLM ciklo: handler'is grąžina
- * PassThrough stream'ą iškart, o darbas tęsiasi asinchroniškai rašant SSE
- * event'us į stream'ą.
+ * SAUGUMAS (ADR-005): duomenys imami TIK per katalogo šaltinius (žr.
+ * `ai/catalog.ts`), kurie kviečia esamus action'us su vartotojo meta — tenant
+ * scope + DU filtrai galioja. Jokio payroll, jokio tiesioginio DB.
  */
 import { PassThrough } from 'stream';
 import type { Context, LoggerInstance, ServiceSchema } from 'moleculer';
@@ -31,30 +27,22 @@ import type {
   AiChatMessage,
   AiDashboardResponse,
   AiDashboardSpec,
+  AiHydrateResponse,
   AiWidget,
   AuthUser,
-  BudgetExecutionReport,
-  DashboardData,
-  Expense,
-  FvmSummaryResponse,
-  Project,
-  ProjectSummary,
 } from '@biip-finansai/shared';
 import { AI_SPEC_LIMITS, validateDashboardSpec } from '@biip-finansai/shared';
 import type { AuthMeta } from './auth.service';
+import { buildCatalogPromptDoc, hydrateSpec, listSourceIds, runSourceForTool } from './ai/catalog';
 
 // ---------- Konfigūracija ----------
 
 const LLM_MODEL_DEFAULT = 'qwen3.6';
 const MAX_LLM_STEPS = 8;
 const MAX_RENDER_ATTEMPTS = 3;
-/** Kiek kartų perbandyti, kai modelis grąžina tuščią atsakymą be tool call'ų. */
 const MAX_EMPTY_RETRIES = 2;
 const LLM_CALL_TIMEOUT_MS = 120_000;
 const CHAT_DEADLINE_MS = 300_000;
-/** Vidinių duomenų action'ų timeout (per broker.call — žr. callAction). */
-const TOOL_CALL_TIMEOUT_MS = 30_000;
-/** Max lygiagrečių chat stream'ų vienam vartotojui (GPU apsauga). */
 const MAX_CONCURRENT_CHATS_PER_USER = 2;
 const MAX_TOOL_RESULT_CHARS = 14_000;
 const MAX_HISTORY_MESSAGES = 24;
@@ -84,7 +72,6 @@ type LlmAssistantMessage = {
   role: 'assistant';
   content: string | null;
   tool_calls?: LlmToolCall[];
-  /** vLLM reasoning parser output — perduodam atgal multi-step'e, FE nerodom. */
   reasoning_content?: string | null;
 };
 
@@ -98,88 +85,22 @@ type LlmChoice = { message: LlmAssistantMessage; finish_reason: string };
 // ---------- Tool definicijos ----------
 
 const SPEC_TOOL_NAME = 'render_dashboard';
+const QUERY_TOOL_NAME = 'query_data';
 
 const LLM_TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'fvm_suvestine',
+      name: QUERY_TOOL_NAME,
       description:
-        'FVM biudžeto suvestinė metams: planuota/faktinė/likutis/% panaudojimas, top įspėjimai (eilutės arti limito), artėjantys projektų terminai, projektų ir šaltinių skaičiai.',
-      parameters: {
-        type: 'object',
-        properties: { year: { type: 'integer', description: 'Metai, pvz. 2026' } },
-        required: ['year'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'bendra_statistika',
-      description:
-        'Finansavimo prašymų statistika: kiekiai ir sumos pagal statusą, 12 mėn. pateikimų/patvirtinimų trendas, pjūviai pagal lėšų ir biudžeto kategorijas, (tvirtintojams) suvestinė pagal organizacijas.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'biudzeto_vykdymas',
-      description:
-        'Detali biudžeto vykdymo ataskaita metams: finansavimo šaltiniai ir jų biudžeto eilutės su planuota/faktine/likučiu/% kiekvienai.',
-      parameters: {
-        type: 'object',
-        properties: { year: { type: 'integer' } },
-        required: ['year'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'projektai',
-      description:
-        'Projektų sąrašas: id, pavadinimas, tipas, statusas, biudžetas, organizacija, terminai. Galima filtruoti pagal metus ir statusą.',
+        'Gauk realius finansų duomenis iš katalogo šaltinio (kad matytum skaičius prieš piešdamas). Grąžina suvestinę su tikrais skaičiais. Šaltinių sąrašas — sistemos žinutėje.',
       parameters: {
         type: 'object',
         properties: {
-          year: { type: 'integer' },
-          status: {
-            type: 'string',
-            enum: ['planuojama', 'vykdoma', 'baigta', 'uzdaryta'],
-          },
+          source: { type: 'string', enum: listSourceIds(), description: 'Katalogo šaltinio id' },
+          params: { type: 'object', description: 'Šaltinio parametrai, pvz. {"year":2026}' },
         },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'projekto_suvestine',
-      description:
-        'Vieno projekto finansinė suvestinė: planuota, faktinė, likutis, % panaudojimas.',
-      parameters: {
-        type: 'object',
-        properties: {
-          id: { type: 'integer', description: 'Projekto id (iš projektai tool rezultato)' },
-        },
-        required: ['id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'islaidos',
-      description:
-        'Faktinių išlaidų agregatai: suma pagal mėnesį, pagal tipą, bendra suma ir įrašų skaičius. Galima filtruoti pagal metus ir projektą.',
-      parameters: {
-        type: 'object',
-        properties: {
-          year: { type: 'integer' },
-          projectId: { type: 'integer' },
-        },
+        required: ['source'],
       },
     },
   },
@@ -188,7 +109,7 @@ const LLM_TOOLS = [
     function: {
       name: SPEC_TOOL_NAME,
       description:
-        'Perpiešia dashboardą. Pateik PILNĄ naują vaizdą — jis PAKEIČIA dabartinį. Naudok realius skaičius iš duomenų tool rezultatų.',
+        'Perpiešia dashboardą. Pateik PILNĄ naują vaizdą — jis PAKEIČIA dabartinį. PIRMENYBĖ: kiekvienam widget naudok "dataRef":{"source","params"} — serveris užpildys šviežius duomenis (jie neužšals). Literalius data laukus naudok tik specialiems pjūviams be katalogo šaltinio.',
       parameters: {
         type: 'object',
         properties: {
@@ -203,10 +124,30 @@ const LLM_TOOLS = [
                 id: { type: 'string' },
                 type: {
                   type: 'string',
-                  enum: ['stat', 'bar', 'line', 'area', 'pie', 'table', 'progress', 'markdown'],
+                  enum: [
+                    'stat',
+                    'bar',
+                    'line',
+                    'area',
+                    'pie',
+                    'radar',
+                    'table',
+                    'progress',
+                    'markdown',
+                    'sankey',
+                    'treemap',
+                  ],
                 },
                 title: { type: 'string' },
                 span: { type: 'integer', minimum: 1, maximum: 4 },
+                dataRef: {
+                  type: 'object',
+                  properties: {
+                    source: { type: 'string', enum: listSourceIds() },
+                    params: { type: 'object' },
+                  },
+                  required: ['source'],
+                },
                 value: { type: 'string' },
                 subtitle: { type: 'string' },
                 trend: {
@@ -219,24 +160,16 @@ const LLM_TOOLS = [
                 },
                 data: { type: 'array', items: { type: 'object' } },
                 xKey: { type: 'string' },
-                series: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      key: { type: 'string' },
-                      label: { type: 'string' },
-                      color: { type: 'string' },
-                    },
-                    required: ['key'],
-                  },
-                },
+                series: { type: 'array', items: { type: 'object' } },
                 stacked: { type: 'boolean' },
                 format: { type: 'string', enum: ['eur', 'number', 'percent', 'text'] },
                 columns: { type: 'array', items: { type: 'object' } },
                 rows: { type: 'array', items: { type: 'object' } },
                 items: { type: 'array', items: { type: 'object' } },
                 content: { type: 'string' },
+                nodes: { type: 'array', items: { type: 'object' } },
+                links: { type: 'array', items: { type: 'object' } },
+                treemap: { type: 'array', items: { type: 'object' } },
               },
               required: ['id', 'type'],
             },
@@ -248,16 +181,6 @@ const LLM_TOOLS = [
   },
 ] as const;
 
-const TOOL_STATUS_LABELS: Record<string, string> = {
-  fvm_suvestine: 'Renkama FVM biudžeto suvestinė…',
-  bendra_statistika: 'Renkama prašymų statistika…',
-  biudzeto_vykdymas: 'Renkami biudžeto vykdymo duomenys…',
-  projektai: 'Renkamas projektų sąrašas…',
-  projekto_suvestine: 'Renkama projekto suvestinė…',
-  islaidos: 'Agreguojamos išlaidos…',
-  [SPEC_TOOL_NAME]: 'Piešiamas naujas vaizdas…',
-};
-
 // ---------- Pagalbinės ----------
 
 function requireMe(ctx: Context<unknown, AuthMeta>): AuthUser {
@@ -267,18 +190,6 @@ function requireMe(ctx: Context<unknown, AuthMeta>): AuthUser {
   return ctx.meta.user;
 }
 
-function fmtEurStat(amount: string | number): string {
-  const n = typeof amount === 'number' ? amount : Number(amount);
-  if (!Number.isFinite(n)) return String(amount);
-  return `${n.toLocaleString('lt-LT', { maximumFractionDigits: 0 })} €`;
-}
-
-function toNum(amount: string | number | null | undefined): number {
-  const n = typeof amount === 'number' ? amount : Number(amount ?? 0);
-  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
-}
-
-/** JSON stringify su dydžio lubomis — kad tool result'ai nesprogdintų konteksto. */
 function compactJson(value: unknown, maxChars = MAX_TOOL_RESULT_CHARS): string {
   const s = JSON.stringify(value);
   if (s.length <= maxChars) return s;
@@ -295,24 +206,25 @@ function toSpecOrNull(raw: unknown): AiDashboardSpec | null {
   return result.ok ? result.spec : null;
 }
 
+function toInt(value: unknown): number | undefined {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isFinite(n) ? Math.round(n) : undefined;
+}
+
 /**
- * Gelbėjimas: modelis kartais (ignoruodamas instrukcijas) įdeda widget spec'ą
- * į atsakymo TEKSTĄ (\`\`\`json blokas arba plikas JSON) vietoj render_dashboard
- * tool call'o. Ištraukiam spec'ą iš teksto — jei validus, perpiešiam vaizdą,
- * o tekste paliekam tik žmogišką dalį.
+ * Gelbėjimas: modelis kartais įdeda widget spec'ą į atsakymo TEKSTĄ (```json
+ * blokas) vietoj render_dashboard tool call'o. Ištraukiam, validuojam.
  */
 function tryRescueSpecFromText(
   text: string,
 ): { spec: AiDashboardSpec; cleanedText: string } | null {
   if (!text.includes('"widgets"')) return null;
-
   const candidates: Array<{ raw: string; whole: string }> = [];
   const fenceRe = /```(?:json)?\s*([\s\S]*?)```/gi;
   let m: RegExpExecArray | null;
   while ((m = fenceRe.exec(text)) !== null) {
     candidates.push({ raw: m[1] ?? '', whole: m[0] });
   }
-  // Be fence'ų — bandome nuo pirmo '{' iki paskutinio '}'.
   if (candidates.length === 0) {
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
@@ -321,7 +233,6 @@ function tryRescueSpecFromText(
       candidates.push({ raw, whole: raw });
     }
   }
-
   for (const c of candidates) {
     if (!c.raw.includes('"widgets"')) continue;
     let parsed: unknown;
@@ -337,42 +248,27 @@ function tryRescueSpecFromText(
   return null;
 }
 
-/** Tolerantiška sveiko skaičiaus koercija — LLM dažnai siunčia "2026" kaip string. */
-function toInt(value: unknown): number | undefined {
-  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
-  return Number.isFinite(n) ? Math.round(n) : undefined;
-}
-
-/**
- * KRITINIS: vidiniai duomenų action'ai kviečiami per `broker.call` su nauju
- * root kontekstu, o NE per `ctx.call`. Originalus request ctx paveldi
- * Moleculer distributed timeout (requestTimeout=10s nuo request pradžios) —
- * ilgame LLM cikle visi `ctx.call` po 10s mirtų su RequestSkippedError.
- * `meta` perduodam eksplicitiškai, tad ADR-005 tenant scope + DU filtrai
- * galioja identiškai (servisai skaito ctx.meta.user).
- */
-function callAction<TResult, TParams>(
-  ctx: Context<ChatParams, AuthMeta>,
-  action: string,
-  params: TParams,
-): Promise<TResult> {
-  return ctx.broker.call<TResult, TParams>(action, params, {
-    meta: { ...ctx.meta },
-    timeout: TOOL_CALL_TIMEOUT_MS,
-  });
-}
-
 // ---------- System prompt ----------
 
-const WIDGET_DOCS = `Widget tipai (visi turi privalomus "id" (unikalus, stabilus — jei widgetas lieka po perpiešimo, išlaikyk tą patį id) ir "type"; "title" — LT antraštė; "span" — plotis 1–4 stulpelių tinklelyje):
-- stat: { value: "1 234 567 €" (jau suformatuotas string), subtitle?, trend?: {direction: up|down|flat, text, positive?: bool} }. span default 1.
-- bar | line | area: { data: [{<xKey>: "2026-01", <serijos raktas>: 12345}, ...], xKey, series: [{key, label?, color?: "#hex"}], stacked?, format?: eur|number|percent }. Mėnesius duok "YYYY-MM" formatu — UI pats suformatuoja. Skaičiai — gryni number (ne string).
-- pie: { data: [{name: "Kategorija", value: 12345}, ...], format? }. Max ~8 gabalai — smulkius sujunk į "Kita".
-- table: { columns: [{key, label, format?: eur|number|percent|text, align?: left|right|center}], rows: [{<key>: reikšmė}] }. Max ~15 eilučių.
-- progress: { items: [{label, value, max, format?}] } — panaudojimo juostos (pvz. biudžeto eilučių naudojimas; value=faktinė, max=planuota).
-- markdown: { content } — trumpos tekstinės įžvalgos (## antraštės, **bold**, - sąrašai).
+const WIDGET_DOCS = `WIDGET TIPAI (visi turi privalomus "id" (unikalus, stabilus) ir "type"; "title" — LT antraštė; "span" — plotis 1–4):
+- stat — kortelė su vienu skaičiumi (su dataRef šaltiniu "metric").
+- bar | line | area — stulpeliai/linijos/plotai (data+xKey+series, arba dataRef).
+- pie — skritulinė (data:[{name,value}] arba dataRef).
+- radar — radaras (kaip bar: data+xKey+series, arba dataRef). Tinka palyginimams.
+- sankey — SRAUTŲ diagrama (šaltinis→kategorija→eilutė). Naudok dataRef "budget_flow_sankey".
+- treemap — HIERARCHIJA langeliais (šaltinis→eilutės). Naudok dataRef "budget_hierarchy_treemap".
+- table — lentelė (columns+rows, arba dataRef).
+- progress — panaudojimo juostos (arba dataRef "budget_lines_usage").
+- markdown — trumpos tekstinės įžvalgos (## antraštės, **bold**, - sąrašai).
 
-Spalvų paletė (naudok šitas): #0f766e (pagrindinė teal), #15803d (žalia/teigiama), #b45309 (gintarinė/įspėjimas), #be123c (raudona/viršyta), #0369a1 (mėlyna), #7c3aed (violetinė), #475569 (pilka).`;
+DATAREF (SVARBIAUSIA): vietoj literalių skaičių naudok "dataRef":{"source":"<id>","params":{...}} —
+serveris užpildys ŠVIEŽIUS duomenis iš DB kiekvieno užkrovimo metu (skaičiai neužšals).
+Beveik visada naudok dataRef. Literalų data tik kai NĖRA tinkamo katalogo šaltinio.
+
+DUOMENŲ ŠALTINIŲ KATALOGAS (source id → kuriems widget tipams tinka → ką grąžina):
+${buildCatalogPromptDoc()}
+
+Spalvų paletė (jei rašai literalų series.color): #0f766e #15803d #b45309 #be123c #0369a1 #7c3aed #475569.`;
 
 function buildSystemPrompt(
   me: AuthUser,
@@ -387,20 +283,19 @@ function buildSystemPrompt(
       ? `organizacijos „${me.tenantName}" administratorius`
       : `organizacijos „${me.tenantName}" specialistas`;
 
-  // Spec'as į prompt'ą: pilnas JSON jei telpa; kitaip — santrauka (id/type/title),
-  // kad netrunkuotume JSON'o per vidurį (modelis negalėtų atkurti widget'ų).
   let specJson = 'null (dar nenupieštas)';
   if (currentSpec) {
-    const full = JSON.stringify(currentSpec);
-    specJson =
-      full.length <= 6000
-        ? full
-        : JSON.stringify({
-            title: currentSpec.title,
-            _pastaba:
-              'Pilnas spec per didelis — čia tik widgetų sąrašas. Duomenis perkrauk per duomenų tools.',
-            widgets: currentSpec.widgets.map((w) => ({ id: w.id, type: w.type, title: w.title })),
-          });
+    // Į prompt'ą — tik layout struktūra (id/type/title/dataRef), be hidruotų
+    // skaičių (jie keičiasi; modeliui reikia žinoti tik kas nupiešta).
+    specJson = JSON.stringify({
+      title: currentSpec.title,
+      widgets: currentSpec.widgets.map((w) => ({
+        id: w.id,
+        type: w.type,
+        title: w.title,
+        ...(w.dataRef ? { dataRef: w.dataRef } : {}),
+      })),
+    });
   }
 
   return `Tu esi BIIP „Finansai" sistemos (Aplinkos ministerijos finansavimo prašymų ir finansų valdymo platforma) AI asistentas, valdantis generatyvinį dashboardą.
@@ -410,22 +305,23 @@ Vartotojas: ${me.fullName}, ${roleDesc}.
 
 KAIP DIRBI:
 1. Vartotojas lietuviškai prašo pakeisti vaizdą arba užduoda klausimą apie finansus.
-2. Duomenis imk TIK iš duomenų tool rezultatų — NIEKADA neišgalvok skaičių. Jei tool grąžina klaidą ar tuščius duomenis — pasakyk tai atvirai.
-3. Kai vartotojas prašo pakeisti/parodyti vaizdą — kviesk ${SPEC_TOOL_NAME} su PILNU nauju spec (jis pakeičia visą dashboardą). Jei prašoma tik papildyti — perduok ir esamus widgetus (su tais pačiais id) + naujus.
-4. Jei klausimas atsakomas trumpai ir vaizdo keisti neprašoma — atsakyk vien tekstu, be perpiešimo.
+2. Realius skaičius gauk per ${QUERY_TOOL_NAME} (katalogo šaltinis). NIEKADA neišgalvok skaičių.
+3. Kai prašoma keisti/parodyti vaizdą — kviesk ${SPEC_TOOL_NAME} su PILNU nauju spec.
+   Kiekvienam widget naudok dataRef (kad duomenys liktų švieži). Jei tik papildyti — perduok
+   ir esamus widgetus (su tais pačiais id) + naujus.
+4. Jei klausimas atsakomas trumpai ir vaizdo keisti neprašoma — atsakyk vien tekstu.
 5. Po sėkmingo ${SPEC_TOOL_NAME} atsakyk trumpai (1–2 sakiniai) lietuviškai, ką pakeitei.
-6. KRITIŠKAI SVARBU: widget JSON NIEKADA nerašomas į atsakymo TEKSTĄ — jokių \`\`\`json blokų, jokio spec'o pokalbyje. Vaizdas keičiamas TIK per ${SPEC_TOOL_NAME} tool call. Jei pastebi, kad ruošiesi rašyti JSON tekste — sustok ir kviesk ${SPEC_TOOL_NAME}.
+6. NIEKADA nerašyk widget JSON į atsakymo TEKSTĄ (jokių \`\`\`json blokų). Vaizdas keičiamas TIK per ${SPEC_TOOL_NAME}.
 
-DABARTINIS DASHBOARD SPEC:
+DABARTINIS DASHBOARD (layout):
 ${specJson}
 
 ${WIDGET_DOCS}
 
 GEROS PRAKTIKOS:
-- Pirmoje eilėje 3–4 stat kortelės (span 1), žemiau span 2 grafikai/lentelės. Iš viso 4–8 widgetai.
-- Pinigus stat kortelėse formatuok "1 234 567 €" (tarpai tūkstančiams). Grafikuose/lentelėse — gryni skaičiai + format: "eur".
-- Visos etiketės lietuviškai.
-- Jei duomenų mažai — geriau mažiau, bet prasmingų widgetų.`;
+- Pirmoje eilėje 3–4 stat kortelės (span 1, dataRef "metric"), žemiau span 2 grafikai/lentelės.
+- Įdomiems pjūviams naudok sankey (biudžeto srautai) ir treemap (hierarchija).
+- Visos etiketės lietuviškai. Iš viso 4–10 widgetų.`;
 }
 
 // ---------- LLM kvietimas ----------
@@ -453,159 +349,8 @@ async function callLlm(cfg: LlmConfig, messages: LlmMessage[]): Promise<LlmAssis
   }
   const data = (await res.json()) as { choices?: LlmChoice[] };
   const message = data.choices?.[0]?.message;
-  if (!message) {
-    throw new Error('LLM atsakymas be choices[0].message');
-  }
+  if (!message) throw new Error('LLM atsakymas be choices[0].message');
   return message;
-}
-
-// ---------- Duomenų tool'ai ----------
-
-/** Išlaidų agregacija LLM'ui — niekada negrąžinam raw eilučių (dydis + privatumas). */
-function aggregateExpenses(expenses: Expense[]): {
-  visoEur: number;
-  irasuSkaicius: number;
-  pagalMenesi: Array<{ menuo: string; suma: number }>;
-  pagalTipa: Array<{ tipas: string; suma: number; kiekis: number }>;
-} {
-  const byMonth = new Map<string, number>();
-  const byType = new Map<string, { suma: number; kiekis: number }>();
-  let total = 0;
-  for (const e of expenses) {
-    const suma = toNum(e.suma);
-    total += suma;
-    const month = typeof e.data === 'string' ? e.data.slice(0, 7) : 'nežinoma';
-    byMonth.set(month, (byMonth.get(month) ?? 0) + suma);
-    const t = byType.get(e.tipas) ?? { suma: 0, kiekis: 0 };
-    t.suma += suma;
-    t.kiekis += 1;
-    byType.set(e.tipas, t);
-  }
-  return {
-    visoEur: Math.round(total * 100) / 100,
-    irasuSkaicius: expenses.length,
-    pagalMenesi: [...byMonth.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([menuo, suma]) => ({ menuo, suma: Math.round(suma * 100) / 100 })),
-    pagalTipa: [...byType.entries()].map(([tipas, v]) => ({
-      tipas,
-      suma: Math.round(v.suma * 100) / 100,
-      kiekis: v.kiekis,
-    })),
-  };
-}
-
-/**
- * Duomenų tool vykdymas per `callAction` (broker.call su explicit meta) —
- * meta.user propaguojasi, todėl ADR-005 tenant scope + DU filtrai galioja
- * automatiškai. Klaidos grąžinamos kaip {error} tool result (ne throw) —
- * modelis gali prisitaikyti.
- */
-async function executeDataTool(
-  ctx: Context<ChatParams, AuthMeta>,
-  logger: LoggerInstance,
-  name: string,
-  args: Record<string, unknown>,
-  defaultYear: number,
-): Promise<string> {
-  const year = toInt(args.year) ?? defaultYear;
-  try {
-    switch (name) {
-      case 'fvm_suvestine': {
-        const r = await callAction<FvmSummaryResponse, { year: number }>(
-          ctx,
-          'dashboard.fvmSummary',
-          { year },
-        );
-        return compactJson(r);
-      }
-      case 'bendra_statistika': {
-        const r = await callAction<DashboardData, Record<string, never>>(ctx, 'dashboard.get', {});
-        return compactJson({
-          year: r.year,
-          stats: r.stats,
-          monthlyTrend: r.monthlyTrend,
-          costCategories: r.costCategories,
-          budgetCategoryStats: r.budgetCategoryStats,
-          perTenantBreakdown: r.perTenantBreakdown ?? undefined,
-        });
-      }
-      case 'biudzeto_vykdymas': {
-        const r = await callAction<BudgetExecutionReport, { year: number; format: 'json' }>(
-          ctx,
-          'reports.budgetExecution',
-          { year, format: 'json' },
-        );
-        return compactJson({
-          year: r.year,
-          totalPlanuota: r.totalPlanuota,
-          totalFaktine: r.totalFaktine,
-          totalLikutis: r.totalLikutis,
-          saltiniuViso: r.bySource.length,
-          bySource: r.bySource.slice(0, 20).map((s) => ({
-            fundingSourceName: s.fundingSourceName,
-            tipas: s.fundingSourceTypeName,
-            planuota: s.planuota,
-            faktine: s.faktine,
-            likutis: s.likutis,
-            percentUsed: s.percentUsed,
-            eilutes: s.byCategory.slice(0, 40).map((c) => ({
-              pavadinimas: c.allocationName,
-              kategorija: c.categoryName,
-              planuota: c.planuota,
-              faktine: c.faktine,
-              likutis: c.likutis,
-              percentUsed: c.percentUsed,
-              isWarning: c.isWarning,
-              isOver: c.isOver,
-            })),
-          })),
-        });
-      }
-      case 'projektai': {
-        const params: { year?: number; status?: string } = {};
-        if (args.year !== undefined) params.year = year;
-        if (typeof args.status === 'string') params.status = args.status;
-        const r = await callAction<Project[], typeof params>(ctx, 'projects.list', params);
-        return compactJson({
-          count: r.length,
-          projektai: r.slice(0, 60).map((p) => ({
-            id: p.id,
-            pavadinimas: p.pavadinimas,
-            tipas: p.tipas,
-            statusas: p.statusas,
-            biudzetas: p.biudzetas,
-            organizacija: (p as Project & { tenantCode?: string }).tenantCode ?? null,
-            pradzia: p.pradziosData,
-            pabaiga: p.pabaigosData,
-          })),
-        });
-      }
-      case 'projekto_suvestine': {
-        const id = toInt(args.id);
-        if (id === undefined) return JSON.stringify({ error: 'Trūksta projekto id' });
-        const r = await callAction<ProjectSummary, { id: number }>(ctx, 'projects.summary', {
-          id,
-        });
-        return compactJson(r);
-      }
-      case 'islaidos': {
-        const params: { year?: number; projectId?: number } = { year };
-        const projectId = toInt(args.projectId);
-        if (projectId !== undefined) params.projectId = projectId;
-        const r = await callAction<Expense[], typeof params>(ctx, 'expenses.list', params);
-        // `metai` įdedam, kad modelis matytų, kurių metų agregatas grąžintas
-        // (year filtras taikomas visada — default einamieji metai).
-        return compactJson({ metai: year, ...aggregateExpenses(r) });
-      }
-      default:
-        return JSON.stringify({ error: `Nežinomas tool „${name}"` });
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.warn(`AI tool ${name} klaida:`, message);
-    return JSON.stringify({ error: `Nepavyko gauti duomenų: ${message}` });
-  }
 }
 
 // ---------- Chat ciklas ----------
@@ -616,8 +361,16 @@ type ChatParams = {
   year?: number;
 };
 
-/** Aktyvių chat stream'ų skaičius per user.id (in-memory, single-node API). */
 const activeChats = new Map<number, number>();
+
+const TOOL_STATUS = (name: string, args: Record<string, unknown>): string => {
+  if (name === SPEC_TOOL_NAME) return 'Piešiamas naujas vaizdas…';
+  if (name === QUERY_TOOL_NAME) {
+    const src = typeof args.source === 'string' ? args.source : '';
+    return src ? `Renkami duomenys: ${src}…` : 'Renkami duomenys…';
+  }
+  return `Vykdoma: ${name}…`;
+};
 
 async function runChatLoop(
   ctx: Context<ChatParams, AuthMeta>,
@@ -638,7 +391,7 @@ async function runChatLoop(
 
   const llmMessages: LlmMessage[] = [
     { role: 'system', content: buildSystemPrompt(me, year, currentSpec) },
-    ...history.map((m): LlmMessage => ({ role: m.role, content: m.content })),
+    ...history.map((mm): LlmMessage => ({ role: mm.role, content: mm.content })),
   ];
 
   let renderAttempts = 0;
@@ -652,12 +405,49 @@ async function runChatLoop(
     });
   };
 
+  /** Validuoja, hidruoja ir emit'ina spec'ą; grąžina tool result modeliui. */
+  const handleRenderCall = async (args: Record<string, unknown>): Promise<string> => {
+    renderAttempts += 1;
+    const result = validateDashboardSpec(args);
+    if (!result.ok) {
+      if (renderAttempts >= MAX_RENDER_ATTEMPTS) {
+        return JSON.stringify({
+          ok: false,
+          errors: result.errors,
+          pastaba: 'Limitas pasiektas — NEBEKVIESK render_dashboard, atsakyk tekstu.',
+        });
+      }
+      return JSON.stringify({
+        ok: false,
+        errors: result.errors,
+        pastaba: 'Pataisyk spec ir bandyk dar kartą.',
+      });
+    }
+    // Hidruojam dataRef'us prieš emit — pirmas paint'as su šviežiais duomenimis.
+    let hydrated = result.spec;
+    try {
+      hydrated = await hydrateSpec(ctx, result.spec, year);
+    } catch (err) {
+      logger.warn(
+        'AI: hidracija nepavyko (siunčiam be jos):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+    renderedThisTurn = true;
+    sseWrite(stream, { type: 'spec', spec: hydrated });
+    return JSON.stringify({
+      ok: true,
+      ...(result.errors.length > 0 ? { atmestiWidgetai: result.errors } : {}),
+      pastaba:
+        result.errors.length > 0
+          ? 'Dashboard atnaujintas, bet dalis widgetų atmesta (žr. atmestiWidgetai). Atsakyk trumpai apie tai, kas RODOMA.'
+          : 'Dashboard atnaujintas. Atsakyk vartotojui trumpai lietuviškai (be tool call).',
+    });
+  };
+
   for (let step = 0; step < MAX_LLM_STEPS; step += 1) {
     if (aborted) return;
-    if (Date.now() > deadline) {
-      deadlineReply();
-      return;
-    }
+    if (Date.now() > deadline) return deadlineReply();
 
     sseWrite(stream, { type: 'status', label: step === 0 ? 'Galvojama…' : 'Tęsiama…' });
     const assistant = await callLlm(cfg, llmMessages);
@@ -668,12 +458,9 @@ async function runChatLoop(
     if (toolCalls.length === 0) {
       const text = (assistant.content ?? '').trim();
       if (!text) {
-        // Tuščias atsakymas be tool call'ų — pasitaiko, kai reasoning suvalgo
-        // max_tokens arba parser'is nesugavo tool call'o. Nepushinam tuščios
-        // žinutės į istoriją — tiesiog perbandom (sampling duos kitą rezultatą).
         if (!renderedThisTurn && emptyRetries < MAX_EMPTY_RETRIES) {
           emptyRetries += 1;
-          logger.warn(`AI: tuščias LLM atsakymas be tool call'ų — retry ${emptyRetries}`);
+          logger.warn(`AI: tuščias LLM atsakymas — retry ${emptyRetries}`);
           continue;
         }
         sseWrite(stream, {
@@ -684,13 +471,16 @@ async function runChatLoop(
         });
         return;
       }
-      // Gelbėjimas: modelis spec'ą įrašė į tekstą vietoj tool call'o —
-      // perpiešiam vaizdą patys ir tekste paliekam tik žmogišką dalį.
       const rescued = tryRescueSpecFromText(text);
       if (rescued) {
-        logger.warn('AI: spec rastas atsakymo tekste (ne tool call) — išgelbėtas į dashboard');
-        renderedThisTurn = true;
-        sseWrite(stream, { type: 'spec', spec: rescued.spec });
+        logger.warn('AI: spec rastas tekste — gelbstim į dashboard');
+        let hydrated = rescued.spec;
+        try {
+          hydrated = await hydrateSpec(ctx, rescued.spec, year);
+        } catch {
+          /* emit be hidracijos */
+        }
+        sseWrite(stream, { type: 'spec', spec: hydrated });
         sseWrite(stream, {
           type: 'reply',
           text: rescued.cleanedText || 'Atnaujinau vaizdą pagal prašymą.',
@@ -701,21 +491,12 @@ async function runChatLoop(
       return;
     }
 
-    // Assistant žinutę (su reasoning_content, jei yra) grąžinam atgal —
-    // qwen3.6 preserve_thinking template'ui to reikia multi-step cikle.
     llmMessages.push(assistant);
 
     for (const tc of toolCalls) {
       if (aborted) return;
-      if (Date.now() > deadline) {
-        deadlineReply();
-        return;
-      }
+      if (Date.now() > deadline) return deadlineReply();
       const name = tc.function?.name ?? '';
-      sseWrite(stream, {
-        type: 'status',
-        label: TOOL_STATUS_LABELS[name] ?? `Vykdoma: ${name}…`,
-      });
 
       let args: Record<string, unknown> = {};
       try {
@@ -731,56 +512,33 @@ async function runChatLoop(
         continue;
       }
 
+      sseWrite(stream, { type: 'status', label: TOOL_STATUS(name, args) });
+
       if (name === SPEC_TOOL_NAME) {
-        renderAttempts += 1;
-        const result = validateDashboardSpec(args);
-        if (result.ok) {
-          renderedThisTurn = true;
-          sseWrite(stream, { type: 'spec', spec: result.spec });
-          llmMessages.push({
-            role: 'tool',
-            tool_call_id: tc.id,
-            content: JSON.stringify({
-              ok: true,
-              // Salvage atveju modelis turi žinoti, kurie widget'ai atmesti —
-              // kitaip atsakyme aprašys neegzistuojančius elementus.
-              ...(result.errors.length > 0 ? { atmestiWidgetai: result.errors } : {}),
-              pastaba:
-                result.errors.length > 0
-                  ? 'Dashboard atnaujintas, bet dalis widgetų atmesta (žr. atmestiWidgetai). Atsakyk vartotojui trumpai lietuviškai apie tai, kas RODOMA.'
-                  : 'Dashboard atnaujintas. Atsakyk vartotojui trumpai lietuviškai (be tool call).',
-            }),
-          });
-        } else if (renderAttempts >= MAX_RENDER_ATTEMPTS) {
-          llmMessages.push({
-            role: 'tool',
-            tool_call_id: tc.id,
-            content: JSON.stringify({
-              ok: false,
-              errors: result.errors,
-              pastaba: 'Limitas pasiektas — NEBEKVIESK render_dashboard, atsakyk tekstu.',
-            }),
-          });
-        } else {
-          llmMessages.push({
-            role: 'tool',
-            tool_call_id: tc.id,
-            content: JSON.stringify({
-              ok: false,
-              errors: result.errors,
-              pastaba: 'Pataisyk spec ir bandyk dar kartą.',
-            }),
-          });
-        }
+        const content = await handleRenderCall(args);
+        llmMessages.push({ role: 'tool', tool_call_id: tc.id, content });
         continue;
       }
 
-      const toolResult = await executeDataTool(ctx, logger, name, args, year);
-      llmMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
+      if (name === QUERY_TOOL_NAME) {
+        const source = typeof args.source === 'string' ? args.source : '';
+        const params =
+          typeof args.params === 'object' && args.params !== null
+            ? (args.params as Record<string, unknown>)
+            : {};
+        const result = await runSourceForTool(ctx, source, params, year);
+        llmMessages.push({ role: 'tool', tool_call_id: tc.id, content: compactJson(result) });
+        continue;
+      }
+
+      llmMessages.push({
+        role: 'tool',
+        tool_call_id: tc.id,
+        content: JSON.stringify({ error: `Nežinomas tool „${name}"` }),
+      });
     }
   }
 
-  // Ciklas išseko be galutinio atsakymo.
   sseWrite(stream, {
     type: 'reply',
     text: renderedThisTurn
@@ -789,160 +547,104 @@ async function runChatLoop(
   });
 }
 
-// ---------- Default spec generavimas ----------
+// ---------- Default layout (su dataRef'ais) ----------
 
-function buildDefaultSpec(
-  dash: DashboardData,
-  fvm: FvmSummaryResponse | null,
-  year: number,
-): AiDashboardSpec {
-  const widgets: AiWidget[] = [];
+function ref(
+  source: string,
+  params?: Record<string, string | number | boolean>,
+): AiWidget['dataRef'] {
+  return params ? { source, params } : { source };
+}
 
-  // --- Stat eilutė ---
-  if (fvm) {
-    widgets.push(
-      {
-        id: 'stat-planuota',
-        type: 'stat',
-        title: `Biudžetas ${year}`,
-        value: fmtEurStat(fvm.budgetTotals.planuota),
-        subtitle: `${fvm.totalSourcesCount} šaltiniai, ${fvm.totalAllocationsCount} eilutės`,
-        span: 1,
-      },
-      {
-        id: 'stat-faktine',
-        type: 'stat',
-        title: 'Faktinės išlaidos',
-        value: fmtEurStat(fvm.budgetTotals.faktine),
-        subtitle: `${fvm.budgetTotals.percentUsed}% biudžeto`,
-        trend: fvm.budgetTotals.isOver
-          ? { direction: 'up', text: 'Viršytas planas', positive: false }
-          : fvm.budgetTotals.isWarning
-            ? { direction: 'up', text: 'Artėja prie limito', positive: false }
-            : { direction: 'flat', text: 'Pagal planą', positive: true },
-        span: 1,
-      },
-      {
-        id: 'stat-likutis',
-        type: 'stat',
-        title: 'Likutis',
-        value: fmtEurStat(fvm.budgetTotals.likutis),
-        subtitle: `Aktyvūs projektai: ${fvm.activeProjectsCount}`,
-        span: 1,
-      },
-    );
-  }
-  widgets.push({
-    id: 'stat-prasymai',
-    type: 'stat',
-    title: `Prašymai ${dash.year}`,
-    value: String(dash.stats.totalRequests),
-    subtitle: `Pateikti: ${dash.stats.byStatus.SUBMITTED} · Patvirtinti: ${dash.stats.byStatus.APPROVED}`,
-    span: 1,
-  });
+function buildDefaultLayout(me: AuthUser, year: number): AiDashboardSpec {
+  const isApprover = me.tenantIsApprover;
+  const widgets: AiWidget[] = [
+    {
+      id: 'stat-planuota',
+      type: 'stat',
+      title: `Biudžetas ${year}`,
+      span: 1,
+      dataRef: ref('metric', { metric: 'biudzetas_planuota', year }),
+    },
+    {
+      id: 'stat-faktine',
+      type: 'stat',
+      title: 'Faktinės išlaidos',
+      span: 1,
+      dataRef: ref('metric', { metric: 'islaidos_faktine', year }),
+    },
+    {
+      id: 'stat-likutis',
+      type: 'stat',
+      title: 'Likutis',
+      span: 1,
+      dataRef: ref('metric', { metric: 'biudzeto_likutis', year }),
+    },
+    {
+      id: 'stat-prasymai',
+      type: 'stat',
+      title: 'Prašymai',
+      span: 1,
+      dataRef: ref('metric', { metric: 'prasymu_skaicius', year }),
+    },
 
-  // --- Mėnesinis trendas ---
-  if (dash.monthlyTrend.length > 0) {
-    widgets.push({
-      id: 'chart-trend',
-      type: 'bar',
+    {
+      id: 'sankey-flow',
+      type: 'sankey',
+      title: 'Biudžeto srautas: šaltinis → kategorija → eilutė',
+      span: 2,
+      dataRef: ref('budget_flow_sankey', { year }),
+    },
+    {
+      id: 'treemap-hierarchy',
+      type: 'treemap',
+      title: 'Biudžeto hierarchija',
+      span: 2,
+      dataRef: ref('budget_hierarchy_treemap', { year, sizeBy: 'planuota' }),
+    },
+
+    {
+      id: 'area-trend',
+      type: 'area',
       title: 'Prašymų srautas per 12 mėn.',
       span: 2,
-      data: dash.monthlyTrend.map((m) => ({
-        month: m.month,
-        pateikta: m.submitted,
-        patvirtinta: m.approved,
-      })),
-      xKey: 'month',
-      series: [
-        { key: 'pateikta', label: 'Pateikta', color: '#0f766e' },
-        { key: 'patvirtinta', label: 'Patvirtinta', color: '#15803d' },
-      ],
-      format: 'number',
-    });
-  }
-
-  // --- Lėšų kategorijos (pie) ---
-  const categories = dash.costCategories
-    .filter((c) => c.requested > 0)
-    .sort((a, b) => b.requested - a.requested);
-  if (categories.length > 0) {
-    const top = categories.slice(0, 6);
-    const restSum = categories.slice(6).reduce((acc, c) => acc + c.requested, 0);
-    const data = top.map((c) => ({ name: c.label, value: toNum(c.requested) }));
-    if (restSum > 0) data.push({ name: 'Kita', value: toNum(restSum) });
-    widgets.push({
-      id: 'chart-categories',
+      dataRef: ref('requests_monthly_trend', { year }),
+    },
+    {
+      id: 'pie-categories',
       type: 'pie',
       title: 'Prašyta pagal lėšų kategorijas',
       span: 2,
-      data,
       format: 'eur',
-    });
-  }
+      dataRef: ref('cost_categories', { year }),
+    },
 
-  // --- Biudžeto eilučių panaudojimas (progress) ---
-  if (fvm && fvm.topWarnings.length > 0) {
-    widgets.push({
-      id: 'progress-warnings',
+    {
+      id: 'progress-lines',
       type: 'progress',
       title: 'Biudžeto eilutės arti limito',
       span: 2,
-      items: fvm.topWarnings.slice(0, 6).map((w) => ({
-        label: `${w.allocationName} (${w.fundingSourceName})`,
-        value: toNum(w.faktine),
-        max: Math.max(toNum(w.planuota), 0.01),
-        format: 'eur' as const,
-      })),
-    });
-  }
-
-  // --- Organizacijų suvestinė (table, tik approver'iams) ---
-  const breakdown = (dash.perTenantBreakdown ?? [])
-    .filter((t) => t.total > 0)
-    .sort((a, b) => b.totalRequested - a.totalRequested)
-    .slice(0, 8);
-  if (breakdown.length > 0) {
-    widgets.push({
-      id: 'table-tenants',
-      type: 'table',
-      title: 'Organizacijos pagal prašytą sumą',
-      span: 2,
-      columns: [
-        { key: 'org', label: 'Organizacija' },
-        { key: 'prasymu', label: 'Prašymai', format: 'number', align: 'right' },
-        { key: 'prasyta', label: 'Prašyta', format: 'eur', align: 'right' },
-        { key: 'patvirtinta', label: 'Patvirtinta', format: 'eur', align: 'right' },
-      ],
-      rows: breakdown.map((t) => ({
-        org: t.tenantName,
-        prasymu: t.total,
-        prasyta: toNum(t.totalRequested),
-        patvirtinta: toNum(t.totalApproved),
-      })),
-    });
-  } else if (fvm && fvm.upcomingDeadlines.length > 0) {
-    widgets.push({
-      id: 'table-deadlines',
-      type: 'table',
-      title: 'Artėjantys terminai (30 d.)',
-      span: 2,
-      columns: [
-        { key: 'pavadinimas', label: 'Projektas' },
-        { key: 'data', label: 'Terminas', align: 'right' },
-        { key: 'liko', label: 'Liko dienų', format: 'number', align: 'right' },
-      ],
-      rows: fvm.upcomingDeadlines.slice(0, 8).map((d) => ({
-        pavadinimas: d.name,
-        data: d.date,
-        liko: d.daysUntil,
-      })),
-    });
-  }
-
+      dataRef: ref('budget_lines_usage', { year }),
+    },
+    isApprover
+      ? {
+          id: 'table-tenants',
+          type: 'table',
+          title: 'Organizacijos pagal prašytą sumą',
+          span: 2,
+          dataRef: ref('tenants_breakdown', { year }),
+        }
+      : {
+          id: 'table-budget',
+          type: 'table',
+          title: 'Biudžeto eilutės',
+          span: 2,
+          dataRef: ref('budget_lines_table', { year }),
+        },
+  ];
   return {
     title: 'Finansų apžvalga',
-    subtitle: `Sugeneruota iš realių ${year} m. duomenų. Paprašykite asistento perpiešti vaizdą.`,
+    subtitle: `Gyvi ${year} m. duomenys. Paprašykite asistento perpiešti vaizdą — pvz. „parodyk biudžeto srautą" arba „išlaidos pagal mėnesius".`,
     widgets,
   };
 }
@@ -953,33 +655,45 @@ const AiService: ServiceSchema = {
   name: 'ai',
 
   actions: {
-    /**
-     * Deterministinis pradinis dashboardas — iš realių agregatų, be LLM.
-     * Greitas (2 vidiniai call'ai), todėl tinka pirmam puslapio atvaizdavimui.
-     */
+    /** Default dashboardas — layout su dataRef'ais, iškart hidruotas. */
     dashboard: {
       async handler(ctx: Context<unknown, AuthMeta>): Promise<AiDashboardResponse> {
-        requireMe(ctx);
+        const me = requireMe(ctx);
         const year = new Date().getFullYear();
-        const [dash, fvm] = await Promise.all([
-          ctx.call<DashboardData, Record<string, never>>('dashboard.get', {}),
-          ctx
-            .call<FvmSummaryResponse, { year: number }>('dashboard.fvmSummary', { year })
-            .catch(() => null),
-        ]);
-        return {
-          spec: buildDefaultSpec(dash, fvm, year),
-          generatedAt: new Date().toISOString(),
-        };
+        const layout = buildDefaultLayout(me, year);
+        const spec = await hydrateSpec(ctx, layout, year);
+        return { spec, generatedAt: new Date().toISOString() };
       },
     },
 
-    /**
-     * AI chat — SSE stream'as (text/event-stream).
-     *
-     * Handler'is grąžina stream'ą IŠKART (apeina broker requestTimeout),
-     * o LLM tool ciklas vyksta asinchroniškai.
-     */
+    /** Užpildo išsaugoto spec'o dataRef'us šviežiais DB duomenimis. */
+    hydrate: {
+      params: {
+        spec: { type: 'object' },
+        year: {
+          type: 'number',
+          integer: true,
+          optional: true,
+          convert: true,
+          min: 2000,
+          max: 3000,
+        },
+      },
+      async handler(
+        ctx: Context<{ spec: unknown; year?: number }, AuthMeta>,
+      ): Promise<AiHydrateResponse> {
+        requireMe(ctx);
+        const year = ctx.params.year ?? new Date().getFullYear();
+        const parsed = toSpecOrNull(ctx.params.spec);
+        if (!parsed) {
+          throw new Errors.MoleculerClientError('Netinkamas spec', 422, 'AI_BAD_SPEC');
+        }
+        const spec = await hydrateSpec(ctx, parsed, year);
+        return { spec, generatedAt: new Date().toISOString() };
+      },
+    },
+
+    /** AI chat — SSE stream'as (text/event-stream). */
     chat: {
       params: {
         messages: {
@@ -1019,8 +733,6 @@ const AiService: ServiceSchema = {
           );
         }
 
-        // Per-user concurrency guard — vienas vartotojas negali užtvindyti GPU
-        // lygiagrečiais stream'ais (FE busy flag'as apeinamas tiesiogine užklausa).
         const inFlight = activeChats.get(me.id) ?? 0;
         if (inFlight >= MAX_CONCURRENT_CHATS_PER_USER) {
           throw new Errors.MoleculerClientError(
@@ -1040,7 +752,6 @@ const AiService: ServiceSchema = {
         };
 
         const logger = ctx.broker.logger;
-        // Async darbas po return — klaidos tik į stream'ą, ne į HTTP statusą.
         void runChatLoop(ctx, logger, me, cfg, stream)
           .catch((err: unknown) => {
             logger.error('AI chat ciklo klaida:', err);
