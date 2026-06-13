@@ -16,11 +16,20 @@ export interface AiChatDisplayMessage {
   error?: boolean;
 }
 
+/** Kategorizuoti pavyzdžiai — kad vartotojas atrastų galimybes (srautai, pjūviai…). */
+export interface SuggestionGroup {
+  title: string;
+  items: string[];
+}
+
 export interface ChatPanelProps {
   messages: AiChatDisplayMessage[];
   busy: boolean;
   statusLabel: string | null;
+  /** Paprastas (flat) pavyzdžių sąrašas. */
   suggestions: string[];
+  /** Kategorizuoti pavyzdžiai — jei pateikti, rodomi vietoj `suggestions`. */
+  suggestionGroups?: SuggestionGroup[];
   onSend: (text: string) => void;
   onStop: () => void;
   className?: string;
@@ -31,6 +40,7 @@ export function ChatPanel({
   busy,
   statusLabel,
   suggestions,
+  suggestionGroups,
   onSend,
   onStop,
   className,
@@ -78,21 +88,46 @@ export function ChatPanel({
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
               Paprašykite perpiešti pradžios vaizdą — asistentas surinks realius duomenis ir
-              sugeneruos naują išdėstymą. Pavyzdžiui:
+              sugeneruos naują išdėstymą (kortelės, grafikai, srautai, lentelės). Pavyzdžiui:
             </p>
-            <div className="flex flex-col items-start gap-2">
-              {suggestions.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => submit(s)}
-                  disabled={busy}
-                  className="rounded-full border bg-background px-3 py-1.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-accent disabled:opacity-50"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+            {suggestionGroups && suggestionGroups.length > 0 ? (
+              <div className="space-y-3">
+                {suggestionGroups.map((group) => (
+                  <div key={group.title}>
+                    <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {group.title}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {group.items.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => submit(s)}
+                          disabled={busy}
+                          className="rounded-full border bg-background px-3 py-1.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-accent disabled:opacity-50"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-start gap-2">
+                {suggestions.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => submit(s)}
+                    disabled={busy}
+                    className="rounded-full border bg-background px-3 py-1.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-accent disabled:opacity-50"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           messages.map((m, i) => (

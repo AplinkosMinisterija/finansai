@@ -17,7 +17,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { ChatPanel, type AiChatDisplayMessage } from '@/components/ai/ChatPanel';
 import { DashboardCanvas } from '@/components/ai/DashboardCanvas';
-import { aiChatStream, aiGetDashboard, type AiChatStreamHandle } from '@/lib/api/ai';
+import {
+  aiChatStream,
+  aiGetDashboard,
+  aiHydrate,
+  specHasDataRefs,
+  type AiChatStreamHandle,
+} from '@/lib/api/ai';
 import {
   aiSpecStorageKey,
   clearSavedAiSpec,
@@ -26,12 +32,34 @@ import {
 } from '@/lib/ai-spec-storage';
 import { useAuth } from '@/lib/auth';
 
-const SUGGESTIONS = [
-  'Rodyk biudžeto vykdymą pagal finansavimo šaltinius',
-  'Išlaidos pagal mėnesius — stulpelinė diagrama',
-  'Tik svarbiausi skaičiai, be grafikų',
-  'Pridėk projektų lentelę su biudžetais',
+/** Kategorizuoti pavyzdžiai — kad vartotojas atrastų galimybes. */
+const SUGGESTION_GROUPS = [
+  {
+    title: 'Apžvalga',
+    items: ['Tik svarbiausi skaičiai', 'Pilna finansų apžvalga'],
+  },
+  {
+    title: 'Srautai ir hierarchija',
+    items: ['Parodyk biudžeto srautą (Sankey)', 'Biudžeto hierarchija langeliais'],
+  },
+  {
+    title: 'Pjūviai',
+    items: [
+      'Išlaidos pagal mėnesius',
+      'Išlaidos pagal tipą',
+      'Prašyta pagal lėšų kategorijas',
+      'Biudžeto vykdymas pagal šaltinius',
+      'Prašymai pagal statusą (radaras)',
+    ],
+  },
+  {
+    title: 'Lentelės',
+    items: ['Projektų lentelė', 'Biudžeto eilutės arti limito', 'Artėjantys terminai'],
+  },
 ];
+
+/** Plokščias variantas (fallback + testams). */
+const SUGGESTIONS = SUGGESTION_GROUPS.flatMap((g) => g.items).slice(0, 6);
 
 export default function AiHomePage(): JSX.Element {
   const { user } = useAuth();
@@ -60,6 +88,33 @@ export default function AiHomePage(): JSX.Element {
 
   // Unmount — nutraukiam aktyvų stream'ą.
   React.useEffect(() => () => streamRef.current?.abort(), []);
+
+  // Iš localStorage įkeltą vaizdą HIDRUOJAM — užpildom dataRef'us šviežiais DB
+  // duomenimis (kad grafikai neužšaltų po savaitės). Vyksta vieną kartą,
+  // tik jei išsaugotas spec'as turi dataRef'ų. Server'is jau grąžina hidruotus
+  // chat/default spec'us, todėl čia svarbus tik localStorage atvejis.
+  const hydratedOnceRef = React.useRef(false);
+  React.useEffect(() => {
+    if (hydratedOnceRef.current) return;
+    hydratedOnceRef.current = true;
+    const saved = overrideSpec;
+    if (!saved || !specHasDataRefs(saved)) return;
+    let cancelled = false;
+    aiHydrate(saved)
+      .then((fresh) => {
+        if (cancelled) return;
+        setOverrideSpec(fresh);
+        setGeneration((g) => g + 1);
+        saveAiSpec(storageKey, fresh);
+      })
+      .catch(() => {
+        /* nepavyko — paliekam išsaugotus (galimai senstelėjusius) skaičius */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleEvent = React.useCallback(
     (event: AiChatEvent): void => {
@@ -176,6 +231,7 @@ export default function AiHomePage(): JSX.Element {
         busy={busy}
         statusLabel={statusLabel}
         suggestions={SUGGESTIONS}
+        suggestionGroups={SUGGESTION_GROUPS}
         onSend={send}
         onStop={stop}
       />
@@ -202,6 +258,7 @@ export default function AiHomePage(): JSX.Element {
             busy={busy}
             statusLabel={statusLabel}
             suggestions={SUGGESTIONS}
+            suggestionGroups={SUGGESTION_GROUPS}
             onSend={send}
             onStop={stop}
           />

@@ -6,12 +6,32 @@
  *    (ne EventSource, nes reikia POST su body + cookies). Event'ai ateina kaip
  *    `data: {...}\n\n` eilutės — parsinam inkrementiškai.
  */
-import type { AiChatEvent, AiChatRequest, AiDashboardResponse } from '@biip-finansai/shared';
+import type {
+  AiChatEvent,
+  AiChatRequest,
+  AiDashboardResponse,
+  AiDashboardSpec,
+  AiHydrateResponse,
+} from '@biip-finansai/shared';
 import { api } from '@/lib/api';
 
 export async function aiGetDashboard(): Promise<AiDashboardResponse> {
   const { data } = await api.get<AiDashboardResponse>('/ai/dashboard');
   return data;
+}
+
+/**
+ * Užpildo išsaugoto (localStorage) spec'o dataRef'us ŠVIEŽIAIS DB duomenimis.
+ * Taip grafikai neužšąla — layout'as iš AI, skaičiai visada iš serverio.
+ */
+export async function aiHydrate(spec: AiDashboardSpec): Promise<AiDashboardSpec> {
+  const { data } = await api.post<AiHydrateResponse>('/ai/hydrate', { spec });
+  return data.spec;
+}
+
+/** Ar spec'e yra bent vienas dataRef widget'as (verta hidruoti). */
+export function specHasDataRefs(spec: AiDashboardSpec): boolean {
+  return spec.widgets.some((w) => w.dataRef !== undefined);
 }
 
 export interface AiChatStreamHandle {

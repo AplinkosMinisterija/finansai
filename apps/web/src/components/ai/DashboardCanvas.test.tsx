@@ -90,6 +90,61 @@ describe('DashboardCanvas', () => {
     expect(screen.getByTestId('ai-widget-pie1')).toBeInTheDocument();
   });
 
+  it('atvaizduoja naujus tipus (sankey/treemap/radar) be crash', () => {
+    const spec: AiDashboardSpec = {
+      widgets: [
+        {
+          id: 'sk',
+          type: 'sankey',
+          title: 'Srautas',
+          nodes: [{ name: 'A' }, { name: 'B' }, { name: 'C' }],
+          links: [
+            { source: 0, target: 1, value: 100 },
+            { source: 1, target: 2, value: 60 },
+          ],
+        },
+        {
+          id: 'tm',
+          type: 'treemap',
+          title: 'Hierarchija',
+          treemap: [{ name: 'src', children: [{ name: 'a', value: 50 }] }],
+        },
+        {
+          id: 'rd',
+          type: 'radar',
+          title: 'Radaras',
+          data: [
+            { ašis: 'DU', planuota: 100, faktine: 80 },
+            { ašis: 'PP', planuota: 60, faktine: 40 },
+          ],
+          xKey: 'ašis',
+          series: [{ key: 'planuota' }, { key: 'faktine' }],
+        },
+      ],
+    };
+    render(<DashboardCanvas spec={spec} generation={2} />);
+    // recharts jsdom'e SVG nepiešia, bet kortelės + antraštės yra.
+    expect(screen.getByTestId('ai-widget-sk')).toBeInTheDocument();
+    expect(screen.getByTestId('ai-widget-tm')).toBeInTheDocument();
+    expect(screen.getByTestId('ai-widget-rd')).toBeInTheDocument();
+    expect(screen.getByText('Srautas')).toBeInTheDocument();
+    expect(screen.getByText('Hierarchija')).toBeInTheDocument();
+  });
+
+  it('degeneruotus naujus tipus tyliai praleidžia', () => {
+    const spec: AiDashboardSpec = {
+      widgets: [
+        { id: 'sk-bad', type: 'sankey' }, // be nodes/links
+        { id: 'tm-bad', type: 'treemap' }, // be treemap
+        { id: 'ok', type: 'stat', value: '5' },
+      ],
+    };
+    render(<DashboardCanvas spec={spec} generation={3} />);
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.queryByTestId('ai-widget-sk-bad')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ai-widget-tm-bad')).not.toBeInTheDocument();
+  });
+
   it('nekrenta su minimaliu/degeneruotu spec', () => {
     const spec: AiDashboardSpec = {
       widgets: [

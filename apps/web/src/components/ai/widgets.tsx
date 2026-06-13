@@ -21,8 +21,15 @@ import {
   LineChart,
   Pie,
   PieChart,
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
   ResponsiveContainer,
+  Sankey,
   Tooltip,
+  Treemap,
   XAxis,
   YAxis,
 } from 'recharts';
@@ -427,6 +434,200 @@ function MarkdownWidget({ widget }: { widget: AiWidget }): JSX.Element | null {
   return <div className="space-y-2 text-sm leading-relaxed">{blocks}</div>;
 }
 
+// ---------- Radar ----------
+
+function RadarWidget({ widget }: { widget: AiWidget }): JSX.Element | null {
+  const data = widget.data ?? [];
+  const series = widget.series ?? [];
+  const xKey = widget.xKey;
+  if (data.length === 0 || series.length === 0 || !xKey) return null;
+  const labelFor = (key: string): string => series.find((s) => s.key === key)?.label ?? key;
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <RadarChart data={data} outerRadius="72%">
+        <PolarGrid stroke="hsl(var(--border))" />
+        <PolarAngleAxis
+          dataKey={xKey}
+          tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+        />
+        <PolarRadiusAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+        {series.map((s, i) => (
+          <Radar
+            key={s.key}
+            name={labelFor(s.key)}
+            dataKey={s.key}
+            stroke={seriesColor(s.color, i)}
+            fill={seriesColor(s.color, i)}
+            fillOpacity={0.3}
+          />
+        ))}
+        <Tooltip
+          contentStyle={TOOLTIP_STYLE}
+          formatter={(value, name) => [
+            formatValue(typeof value === 'number' ? value : Number(value ?? 0), widget.format),
+            String(name ?? ''),
+          ]}
+        />
+        {series.length > 1 ? <Legend wrapperStyle={{ fontSize: 12 }} /> : null}
+      </RadarChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ---------- Sankey ----------
+
+type SankeyNodeProps = {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  index?: number;
+  payload?: { name?: string };
+};
+
+function SankeyNodeShape(props: SankeyNodeProps): JSX.Element {
+  const { x = 0, y = 0, width = 0, height = 0, index = 0, payload } = props;
+  const color = AI_PALETTE[index % AI_PALETTE.length] ?? '#0f766e';
+  const isRight = x > 320;
+  return (
+    <g>
+      <rect x={x} y={y} width={width} height={Math.max(height, 1)} fill={color} rx={2} />
+      {height > 10 ? (
+        <text
+          x={isRight ? x - 6 : x + width + 6}
+          y={y + height / 2}
+          textAnchor={isRight ? 'end' : 'start'}
+          dominantBaseline="middle"
+          fontSize={11}
+          fill="hsl(var(--foreground))"
+        >
+          {(payload?.name ?? '').length > 22
+            ? `${(payload?.name ?? '').slice(0, 21)}…`
+            : payload?.name}
+        </text>
+      ) : null}
+    </g>
+  );
+}
+
+function SankeyWidget({ widget }: { widget: AiWidget }): JSX.Element | null {
+  const nodes = widget.nodes ?? [];
+  const links = widget.links ?? [];
+  if (nodes.length < 2 || links.length === 0) return null;
+  // recharts Sankey reikalauja {nodes, links} su numeric source/target.
+  const data = { nodes: nodes.map((n) => ({ name: n.name })), links };
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(280, Math.min(nodes.length * 26, 460))}>
+      <Sankey
+        data={data}
+        nodePadding={26}
+        nodeWidth={12}
+        linkCurvature={0.5}
+        iterations={64}
+        margin={{ top: 10, right: 150, bottom: 10, left: 10 }}
+        node={(p: SankeyNodeProps) => <SankeyNodeShape {...p} />}
+        link={{ stroke: '#0f766e', strokeOpacity: 0.22 }}
+      >
+        <Tooltip
+          contentStyle={TOOLTIP_STYLE}
+          formatter={(value) =>
+            formatValue(
+              typeof value === 'number' ? value : Number(value ?? 0),
+              widget.format ?? 'eur',
+            )
+          }
+        />
+      </Sankey>
+    </ResponsiveContainer>
+  );
+}
+
+// ---------- Treemap ----------
+
+type TreemapContentProps = {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  depth?: number;
+  index?: number;
+  name?: string;
+  color?: string;
+  value?: number;
+  root?: { children?: unknown[] };
+};
+
+function TreemapContent(props: TreemapContentProps): JSX.Element | null {
+  const {
+    x = 0,
+    y = 0,
+    width = 0,
+    height = 0,
+    depth = 0,
+    index = 0,
+    name = '',
+    color,
+    value,
+  } = props;
+  if (width <= 0 || height <= 0) return null;
+  // depth 1 = šaltinis (grupė), depth 2 = eilutė (langelis).
+  const fill =
+    depth === 1 ? 'transparent' : (color ?? AI_PALETTE[index % AI_PALETTE.length] ?? '#0f766e');
+  const showLabel = depth >= 2 && width > 54 && height > 28;
+  return (
+    <g>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill={fill}
+        stroke="hsl(var(--card))"
+        strokeWidth={depth === 1 ? 2 : 1}
+        rx={2}
+      />
+      {showLabel ? (
+        <>
+          <text x={x + 6} y={y + 16} fontSize={11} fontWeight={600} fill="#fff">
+            {name.length > Math.floor(width / 7)
+              ? `${name.slice(0, Math.floor(width / 7))}…`
+              : name}
+          </text>
+          {height > 42 && typeof value === 'number' ? (
+            <text x={x + 6} y={y + 31} fontSize={10} fill="rgba(255,255,255,0.85)">
+              {formatValue(value, 'eur')}
+            </text>
+          ) : null}
+        </>
+      ) : null}
+    </g>
+  );
+}
+
+function TreemapWidget({ widget }: { widget: AiWidget }): JSX.Element | null {
+  const treemap = widget.treemap ?? [];
+  if (treemap.length === 0) return null;
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <Treemap
+        data={treemap as unknown as React.ComponentProps<typeof Treemap>['data']}
+        dataKey="value"
+        nameKey="name"
+        aspectRatio={1.4}
+        isAnimationActive={false}
+        content={<TreemapContent />}
+      >
+        <Tooltip
+          contentStyle={TOOLTIP_STYLE}
+          formatter={(value) =>
+            formatValue(typeof value === 'number' ? value : Number(value ?? 0), 'eur')
+          }
+        />
+      </Treemap>
+    </ResponsiveContainer>
+  );
+}
+
 // ---------- Bendras renderer'is ----------
 
 const SPAN_CLASSES: Record<number, string> = {
@@ -444,6 +645,7 @@ function isRenderableWidget(widget: AiWidget): boolean {
     case 'bar':
     case 'line':
     case 'area':
+    case 'radar':
       return Boolean(widget.data?.length && widget.series?.length && widget.xKey);
     case 'pie':
       return Boolean(widget.data?.length);
@@ -453,6 +655,10 @@ function isRenderableWidget(widget: AiWidget): boolean {
       return Boolean(widget.items?.length);
     case 'markdown':
       return Boolean(widget.content);
+    case 'sankey':
+      return Boolean(widget.nodes?.length && widget.links?.length);
+    case 'treemap':
+      return Boolean(widget.treemap?.length);
     default:
       return false;
   }
@@ -480,6 +686,9 @@ export function WidgetRenderer({
     case 'area':
       body = <XyChartWidget widget={widget} />;
       break;
+    case 'radar':
+      body = <RadarWidget widget={widget} />;
+      break;
     case 'pie':
       body = <PieWidget widget={widget} />;
       break;
@@ -491,6 +700,12 @@ export function WidgetRenderer({
       break;
     case 'markdown':
       body = <MarkdownWidget widget={widget} />;
+      break;
+    case 'sankey':
+      body = <SankeyWidget widget={widget} />;
+      break;
+    case 'treemap':
+      body = <TreemapWidget widget={widget} />;
       break;
     default:
       body = null;
