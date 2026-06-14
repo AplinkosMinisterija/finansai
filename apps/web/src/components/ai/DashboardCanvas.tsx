@@ -1,19 +1,36 @@
 /**
- * AI dashboard drobė (Iter 17, eksperimentinis).
+ * AI dashboard drobė (Iter 17–18, eksperimentinis).
  *
  * Atvaizduoja `AiDashboardSpec` 4 stulpelių tinklelyje. `generation` prop'as
- * keičiasi su kiekvienu perpiešimu — naudojamas React key'uose, kad nauji
- * widget'ai gautų įėjimo animaciją (stagger pagal indeksą).
+ * keičiasi su kiekvienu PERPIEŠIMU (AI chat) — naudojamas React key'uose, kad
+ * nauji widget'ai gautų įėjimo animaciją (stagger pagal indeksą). Pločio/vietos
+ * keitimai generation'o NEkeičia — kortelės persitvarko sklandžiai, be re-anim.
+ *
+ * Iter 18: per-widget plotis (¼/½/pilnas) + tempimas-rūšiavimas (native HTML5
+ * drag, be bibliotekos). Idėja perimta ir pritaikyta iš LKPB/OIS.
  */
+import * as React from 'react';
 import type { AiDashboardSpec } from '@biip-finansai/shared';
 import { isRenderableWidget, WidgetRenderer } from '@/components/ai/widgets';
 
 export interface DashboardCanvasProps {
   spec: AiDashboardSpec;
   generation: number;
+  /** Per-widget pločio keitimas (id, span). Kai nustatyta — rodomas jungiklis. */
+  onSpanChange?: (id: string, span: number) => void;
+  /** Perrūšiuoja widget'us (perkelia fromId į toId vietą). Kai nustatyta — rodomos rankenėlės. */
+  onReorder?: (fromId: string, toId: string) => void;
 }
 
-export function DashboardCanvas({ spec, generation }: DashboardCanvasProps): JSX.Element {
+export function DashboardCanvas({
+  spec,
+  generation,
+  onSpanChange,
+  onReorder,
+}: DashboardCanvasProps): JSX.Element {
+  const [dragId, setDragId] = React.useState<string | null>(null);
+  const [overId, setOverId] = React.useState<string | null>(null);
+
   // Kai nė vienas widget'as neturi duomenų (pvz. pasirinkti metai be duomenų) —
   // rodom aiškią žinutę vietoj tuščio tinklelio.
   const anyRenderable = spec.widgets.some(isRenderableWidget);
@@ -34,6 +51,25 @@ export function DashboardCanvas({ spec, generation }: DashboardCanvasProps): JSX
               key={`${generation}-${w.id}`}
               widget={w}
               style={{ animationDelay: `${i * 45}ms` }}
+              onSpanChange={onSpanChange ? (span) => onSpanChange(w.id, span) : undefined}
+              reorder={
+                onReorder
+                  ? {
+                      onDragStart: () => setDragId(w.id),
+                      onDragEnterTarget: () => setOverId(w.id),
+                      onDropOn: () => {
+                        if (dragId && dragId !== w.id) onReorder(dragId, w.id);
+                        setDragId(null);
+                        setOverId(null);
+                      },
+                      onDragEnd: () => {
+                        setDragId(null);
+                        setOverId(null);
+                      },
+                      isDropTarget: Boolean(dragId) && dragId !== w.id && overId === w.id,
+                    }
+                  : undefined
+              }
             />
           ))}
         </div>

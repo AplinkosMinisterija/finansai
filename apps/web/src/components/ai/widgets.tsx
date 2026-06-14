@@ -33,7 +33,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
+import { GripVertical, Minus, TrendingDown, TrendingUp } from 'lucide-react';
 import type { AiValueFormat, AiWidget } from '@biip-finansai/shared';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -664,13 +664,101 @@ export function isRenderableWidget(widget: AiWidget): boolean {
   }
 }
 
+// ---------- Widget valdikliai (plotis + tempimas) ----------
+
+/** Pločio variantai 4 stulpelių tinklelyje: ketvirtis / pusė / pilnas.
+ *  Trys ketvirčiai (span 3) sąmoningai praleisti — palieka nepatogų tarpą. */
+const WIDTH_OPTIONS: Array<{ span: 1 | 2 | 4; label: string; bar: string }> = [
+  { span: 1, label: 'Ketvirtis', bar: 'w-1.5' },
+  { span: 2, label: 'Pusė', bar: 'w-3' },
+  { span: 4, label: 'Pilnas', bar: 'w-5' },
+];
+
+/** Tempimo (reorder) wiring'as — perduodamas iš DashboardCanvas. */
+export interface WidgetReorder {
+  onDragStart: () => void;
+  onDragEnterTarget: () => void;
+  onDropOn: () => void;
+  onDragEnd: () => void;
+  isDropTarget: boolean;
+}
+
+/** Hover'inant rodomas valdiklių blokas viršuje dešinėje: tempimo rankenėlė + pločio jungiklis. */
+function WidgetControls({
+  current,
+  onSpanChange,
+  onGrab,
+  onRelease,
+}: {
+  current: number;
+  onSpanChange?: (span: number) => void;
+  /** Yra ⇒ rodoma tempimo rankenėlė; onGrab/onRelease įjungia/išjungia kortelės tempimą. */
+  onGrab?: () => void;
+  onRelease?: () => void;
+}): JSX.Element | null {
+  const draggable = Boolean(onGrab);
+  if (!onSpanChange && !draggable) return null;
+  return (
+    <div className="absolute right-1.5 top-1.5 z-10 flex items-center gap-0.5 rounded-md border bg-background/80 p-0.5 opacity-0 shadow-sm backdrop-blur-sm transition-opacity group-hover/card:opacity-100 focus-within:opacity-100">
+      {draggable ? (
+        <button
+          type="button"
+          title="Tempti — keisti vietą"
+          aria-label="Tempti — keisti vietą"
+          className="flex h-5 w-5 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-muted active:cursor-grabbing"
+          onMouseDown={onGrab}
+          onMouseUp={onRelease}
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+      {draggable && onSpanChange ? <span className="mx-0.5 h-3 w-px bg-border" /> : null}
+      {onSpanChange
+        ? WIDTH_OPTIONS.map((o) => {
+            const active = current === o.span;
+            return (
+              <button
+                key={o.span}
+                type="button"
+                onClick={() => onSpanChange(o.span)}
+                title={`Plotis: ${o.label}`}
+                aria-label={`Plotis: ${o.label}`}
+                aria-pressed={active}
+                className={cn(
+                  'flex h-5 cursor-pointer items-center justify-center rounded px-1 hover:bg-muted',
+                  active && 'bg-accent',
+                )}
+              >
+                <span
+                  className={cn(
+                    'h-1.5 rounded-sm',
+                    o.bar,
+                    active ? 'bg-primary' : 'bg-muted-foreground/50',
+                  )}
+                />
+              </button>
+            );
+          })
+        : null}
+    </div>
+  );
+}
+
 export function WidgetRenderer({
   widget,
   style,
+  onSpanChange,
+  reorder,
 }: {
   widget: AiWidget;
   style?: React.CSSProperties;
+  /** Kai nustatyta — rodomas pločio jungiklis (¼ / ½ / pilnas). */
+  onSpanChange?: (span: number) => void;
+  /** Tempimo-rūšiavimo wiring'as. Kai nustatytas — rodoma rankenėlė, o kortelė
+   *  tampa draggable TIK paspaudus rankenėlę (kad grafikai/lentelės liktų naudojami). */
+  reorder?: WidgetReorder;
 }): JSX.Element | null {
+  const [grabbed, setGrabbed] = React.useState(false);
   if (!isRenderableWidget(widget)) return null;
 
   const defaultSpan = widget.type === 'stat' ? 1 : 2;
@@ -718,11 +806,49 @@ export function WidgetRenderer({
     <Card
       data-testid={`ai-widget-${widget.id}`}
       style={style}
+      draggable={grabbed && Boolean(reorder)}
+      onDragStart={
+        reorder
+          ? (e) => {
+              e.dataTransfer.effectAllowed = 'move';
+              reorder.onDragStart();
+            }
+          : undefined
+      }
+      onDragOver={reorder ? (e) => e.preventDefault() : undefined}
+      onDragEnter={reorder ? reorder.onDragEnterTarget : undefined}
+      onDrop={
+        reorder
+          ? (e) => {
+              e.preventDefault();
+              reorder.onDropOn();
+              setGrabbed(false);
+            }
+          : undefined
+      }
+      onDragEnd={
+        reorder
+          ? () => {
+              setGrabbed(false);
+              reorder.onDragEnd();
+            }
+          : undefined
+      }
       className={cn(
-        'col-span-1 animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both',
+        'group/card relative col-span-1 animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both',
         SPAN_CLASSES[span] ?? 'sm:col-span-2 lg:col-span-2',
+        grabbed && 'opacity-60',
+        reorder?.isDropTarget && 'ring-2 ring-primary/60',
       )}
     >
+      {onSpanChange || reorder ? (
+        <WidgetControls
+          current={span}
+          onSpanChange={onSpanChange}
+          onGrab={reorder ? () => setGrabbed(true) : undefined}
+          onRelease={reorder ? () => setGrabbed(false) : undefined}
+        />
+      ) : null}
       {showHeader ? (
         <div className="border-b px-4 py-3">
           {widget.title ? <div className="text-sm font-semibold">{widget.title}</div> : null}

@@ -229,6 +229,43 @@ export default function AiHomePage(): JSX.Element {
     [storageKey],
   );
 
+  // Per-widget pločio keitimas (¼/½/pilnas). Atnaujina spec'ą vietoje — generation
+  // NEbumpinam, kad tinklelis persitvarkytų sklandžiai (be re-animacijos) —
+  // ir persistuoja, kad layout tweak'as išliktų po reload. „Pradinis vaizdas" atstato.
+  const handleSpanChange = React.useCallback(
+    (id: string, nextSpan: number): void => {
+      const base = specRef.current;
+      if (!base) return;
+      const span = nextSpan as 1 | 2 | 3 | 4;
+      const next: AiDashboardSpec = {
+        ...base,
+        widgets: base.widgets.map((w) => (w.id === id ? { ...w, span } : w)),
+      };
+      setOverrideSpec(next);
+      saveAiSpec(storageKey, next);
+    },
+    [storageKey],
+  );
+
+  // Tempimas-rūšiavimas: perkelia tempiamą widget'ą į drop taikinio vietą.
+  const handleReorder = React.useCallback(
+    (fromId: string, toId: string): void => {
+      const base = specRef.current;
+      if (!base || fromId === toId) return;
+      const widgets = [...base.widgets];
+      const from = widgets.findIndex((w) => w.id === fromId);
+      const to = widgets.findIndex((w) => w.id === toId);
+      if (from < 0 || to < 0) return;
+      const [moved] = widgets.splice(from, 1);
+      if (!moved) return;
+      widgets.splice(to, 0, moved);
+      const next: AiDashboardSpec = { ...base, widgets };
+      setOverrideSpec(next);
+      saveAiSpec(storageKey, next);
+    },
+    [storageKey],
+  );
+
   return (
     <div className="flex h-full min-h-0">
       {/* --- Drobė --- */}
@@ -259,7 +296,12 @@ export default function AiHomePage(): JSX.Element {
           </div>
 
           {spec ? (
-            <DashboardCanvas spec={spec} generation={generation} />
+            <DashboardCanvas
+              spec={spec}
+              generation={generation}
+              onSpanChange={handleSpanChange}
+              onReorder={handleReorder}
+            />
           ) : defaultQuery.isError ? (
             <Card className="mx-auto my-12 max-w-md">
               <CardContent className="p-6 text-center text-sm text-destructive">

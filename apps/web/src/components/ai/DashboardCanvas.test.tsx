@@ -2,7 +2,7 @@
  * AI dashboard drobės testai (Iter 17) — widget renderer'io smoke testai
  * visiems tipams + defensyvumas tuštiems/trūkstamiems laukams.
  */
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { AiDashboardSpec } from '@biip-finansai/shared';
 import { DashboardCanvas } from './DashboardCanvas';
 import { formatValue } from './widgets';
@@ -156,6 +156,35 @@ describe('DashboardCanvas', () => {
     render(<DashboardCanvas spec={spec} generation={5} />);
     expect(screen.getByText('Biudžeto srautai (2025)')).toBeInTheDocument();
     expect(screen.getByText(/duomenų nėra/i)).toBeInTheDocument();
+  });
+
+  it('su onSpanChange/onReorder — rodo pločio jungiklį + tempimo rankenėlę; clickas keičia plotį', () => {
+    const onSpanChange = vi.fn();
+    const onReorder = vi.fn();
+    const spec: AiDashboardSpec = {
+      widgets: [{ id: 'w1', type: 'stat', title: 'X', value: '5' }],
+    };
+    render(
+      <DashboardCanvas
+        spec={spec}
+        generation={0}
+        onSpanChange={onSpanChange}
+        onReorder={onReorder}
+      />,
+    );
+    // Tempimo rankenėlė + 3 pločio mygtukai.
+    expect(screen.getByLabelText('Tempti — keisti vietą')).toBeInTheDocument();
+    expect(screen.getByLabelText('Plotis: Ketvirtis')).toBeInTheDocument();
+    expect(screen.getByLabelText('Plotis: Pusė')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Plotis: Pilnas'));
+    expect(onSpanChange).toHaveBeenCalledWith('w1', 4);
+  });
+
+  it('be onSpanChange/onReorder — jokių valdiklių (read-only)', () => {
+    const spec: AiDashboardSpec = { widgets: [{ id: 'w1', type: 'stat', value: '5' }] };
+    render(<DashboardCanvas spec={spec} generation={0} />);
+    expect(screen.queryByLabelText('Tempti — keisti vietą')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Plotis: Pusė')).not.toBeInTheDocument();
   });
 
   it('nekrenta su minimaliu/degeneruotu spec', () => {
