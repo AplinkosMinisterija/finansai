@@ -12,10 +12,122 @@
  */
 import type { ServiceBroker } from 'moleculer';
 import type { PassThrough } from 'stream';
+import type { AiDashboardSpec } from '@biip-finansai/shared';
 import { AI_SPEC_LIMITS, validateDashboardSpec } from '@biip-finansai/shared';
+import { mergeSpec, parseRenderControl } from '../../src/services/ai.service';
 import { createTestBroker } from '../helpers/broker';
 import { getTestKnex, closeTestKnex, truncateAll, seedBaseFixtures } from '../helpers/db';
 import { mockAuthUser, mockOrgUser } from '../helpers/auth';
+
+describe('parseRenderControl', () => {
+  it('numatytasis režimas — add, be removeIds', () => {
+    expect(parseRenderControl({})).toEqual({ mode: 'add', removeIds: [] });
+    expect(parseRenderControl({ widgets: [] })).toEqual({ mode: 'add', removeIds: [] });
+  });
+
+  it('mode=replace atpažįstamas', () => {
+    expect(parseRenderControl({ mode: 'replace' }).mode).toBe('replace');
+  });
+
+  it('nežinomas mode → add (saugus numatytasis)', () => {
+    expect(parseRenderControl({ mode: 'wipe' }).mode).toBe('add');
+  });
+
+  it('removeWidgetIds — tik string`ai', () => {
+    expect(parseRenderControl({ removeWidgetIds: ['a', '', 1, null, 'b'] }).removeIds).toEqual([
+      'a',
+      'b',
+    ]);
+  });
+});
+
+describe('mergeSpec', () => {
+  const base: AiDashboardSpec = {
+    title: 'Finansų apžvalga',
+    year: 2026,
+    widgets: [
+      { id: 'a', type: 'stat', title: 'A', value: '1' },
+      { id: 'b', type: 'stat', title: 'B', value: '2' },
+    ],
+  };
+
+  it('add (nutylėtas): nauji widgetai pridedami, esami lieka, pavadinimas nesikeičia', () => {
+    const next: AiDashboardSpec = {
+      title: 'Naujo grafiko antraštė',
+      widgets: [{ id: 'c', type: 'stat', title: 'C', value: '3' }],
+    };
+    const merged = mergeSpec(base, next, 'add');
+    expect(merged.widgets.map((w) => w.id)).toEqual(['a', 'b', 'c']);
+    // Pridėjus kortelę, viso dashboard'o pavadinimas NEpervadinamas.
+    expect(merged.title).toBe('Finansų apžvalga');
+  });
+
+  it('add: tas pats id PERRAŠO esamą widgetą (vietoje, ne dublikatas)', () => {
+    const next: AiDashboardSpec = {
+      widgets: [{ id: 'b', type: 'bar', title: 'B naujas', dataRef: { source: 'metric' } }],
+    };
+    const merged = mergeSpec(base, next, 'add');
+    expect(merged.widgets.map((w) => w.id)).toEqual(['a', 'b']);
+    expect(merged.widgets[1]).toMatchObject({ id: 'b', type: 'bar', title: 'B naujas' });
+  });
+
+  it('add: skirtingas id su ta pačia antrašte — PRIDEDAMAS (esamas NEpradingsta)', () => {
+    // Antraštė nėra merge raktas — kitaip „pridėk dar vieną pagal kategorijas"
+    // tyliai ištrintų esamą tos pačios antraštės kortelę (būtent to vengiam).
+    const next: AiDashboardSpec = {
+      widgets: [{ id: 'naujas', type: 'pie', title: 'A', data: [{ name: 'x', value: 1 }] }],
+    };
+    const merged = mergeSpec(base, next, 'add');
+    expect(merged.widgets.map((w) => w.id)).toEqual(['a', 'b', 'naujas']);
+  });
+
+  it('add: removeIds pašalina nurodytus esamus', () => {
+    const next: AiDashboardSpec = {
+      widgets: [{ id: 'c', type: 'stat', title: 'C', value: '3' }],
+    };
+    const merged = mergeSpec(base, next, 'add', ['a']);
+    expect(merged.widgets.map((w) => w.id)).toEqual(['b', 'c']);
+  });
+
+  it('add: naujas year pritaikomas, esami widgetai lieka', () => {
+    const next: AiDashboardSpec = { year: 2025, widgets: [] };
+    const merged = mergeSpec(base, next, 'add');
+    expect(merged.year).toBe(2025);
+    expect(merged.widgets.map((w) => w.id)).toEqual(['a', 'b']);
+  });
+
+  it('replace: naujas spec`as pakeičia viską', () => {
+    const next: AiDashboardSpec = {
+      title: 'Tik vienas',
+      widgets: [{ id: 'x', type: 'stat', value: '9' }],
+    };
+    const merged = mergeSpec(base, next, 'replace');
+    expect(merged.widgets.map((w) => w.id)).toEqual(['x']);
+    expect(merged.title).toBe('Tik vienas');
+  });
+
+  it('be dabartinio vaizdo (base=null): grąžina naują spec`ą', () => {
+    const next: AiDashboardSpec = { widgets: [{ id: 'x', type: 'stat', value: '9' }] };
+    expect(mergeSpec(null, next, 'add').widgets).toHaveLength(1);
+  });
+
+  it('add: viršijus maxWidgets — paliekami vėliausi; ką tik pridėtas IŠLIEKA, seniausias nustumiamas', () => {
+    const big: AiDashboardSpec = {
+      widgets: Array.from({ length: AI_SPEC_LIMITS.maxWidgets }, (_, i) => ({
+        id: `w${i}`,
+        type: 'stat' as const,
+        value: String(i),
+      })),
+    };
+    const next: AiDashboardSpec = { widgets: [{ id: 'extra', type: 'stat', value: 'x' }] };
+    const merged = mergeSpec(big, next, 'add');
+    expect(merged.widgets).toHaveLength(AI_SPEC_LIMITS.maxWidgets);
+    // Ką tik pridėtas widget'as TURI likti (ne nukerpamas), seniausias (w0) nustumiamas.
+    expect(merged.widgets.some((w) => w.id === 'extra')).toBe(true);
+    expect(merged.widgets.some((w) => w.id === 'w0')).toBe(false);
+    expect(merged.widgets[merged.widgets.length - 1]?.id).toBe('extra');
+  });
+});
 
 describe('validateDashboardSpec', () => {
   it('praleidžia pilną teisingą spec su visais widget tipais', () => {
@@ -341,6 +453,7 @@ describe('ai service', () => {
                       name: 'render_dashboard',
                       arguments: JSON.stringify({
                         title: 'Naujas vaizdas',
+                        mode: 'replace',
                         widgets: [{ id: 'w1', type: 'stat', title: 'X', value: '42 €' }],
                       }),
                     },
@@ -395,6 +508,8 @@ describe('ai service', () => {
         spec: { title?: string; widgets: Array<{ id: string }> };
       };
       expect(specEvent.spec.title).toBe('Naujas vaizdas');
+      // mode=replace → senas „old" widget'as pradingsta, lieka tik „w1".
+      expect(specEvent.spec.widgets).toHaveLength(1);
       expect(specEvent.spec.widgets[0]?.id).toBe('w1');
 
       const replyEvent = events.find((e) => e.type === 'reply') as { text: string };
@@ -668,6 +783,185 @@ describe('ai service', () => {
       } finally {
         await slowBroker.stop();
       }
+    });
+
+    it('add režimas (nutylėtas): naujas widgetas PRIDEDAMAS, esami lieka', async () => {
+      process.env.LLM_BASE_URL = 'http://llm-mock.test/v1';
+      const llmResponses = [
+        {
+          choices: [
+            {
+              finish_reason: 'tool_calls',
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-add',
+                    type: 'function',
+                    function: {
+                      // BE mode lauko — nutylėtas add. Tik vienas naujas widget.
+                      name: 'render_dashboard',
+                      arguments: JSON.stringify({
+                        widgets: [{ id: 'naujas', type: 'stat', title: 'Naujas', value: '9 €' }],
+                      }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        {
+          choices: [
+            { finish_reason: 'stop', message: { role: 'assistant', content: 'Pridėjau kortelę.' } },
+          ],
+        },
+      ];
+      let callCount = 0;
+      global.fetch = jest.fn(async () => {
+        const body = llmResponses[Math.min(callCount, llmResponses.length - 1)];
+        callCount += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => body,
+          text: async () => '',
+        } as unknown as Response;
+      }) as unknown as typeof fetch;
+
+      const stream = (await broker.call(
+        'ai.chat',
+        {
+          messages: [{ role: 'user', content: 'pridėk naują kortelę' }],
+          spec: {
+            title: 'Mano vaizdas',
+            widgets: [
+              { id: 'old1', type: 'stat', value: '1' },
+              { id: 'old2', type: 'stat', value: '2' },
+            ],
+          },
+        },
+        { meta: { user: mockAuthUser() } },
+      )) as PassThrough;
+
+      const events = await collectSse(stream);
+      const specEvent = events.find((e) => e.type === 'spec') as {
+        spec: { title?: string; widgets: Array<{ id: string }> };
+      };
+      // Esami du + naujas = trys; esami NEpradingo.
+      expect(specEvent.spec.widgets.map((w) => w.id)).toEqual(['old1', 'old2', 'naujas']);
+      // Viso vaizdo pavadinimas išliko (pridėjimas jo neperrašo).
+      expect(specEvent.spec.title).toBe('Mano vaizdas');
+    });
+
+    it('removeWidgetIds: pašalina nurodytą esamą kortelę (be naujų widgetų)', async () => {
+      process.env.LLM_BASE_URL = 'http://llm-mock.test/v1';
+      const llmResponses = [
+        {
+          choices: [
+            {
+              finish_reason: 'tool_calls',
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-rm',
+                    type: 'function',
+                    function: {
+                      name: 'render_dashboard',
+                      arguments: JSON.stringify({ widgets: [], removeWidgetIds: ['old1'] }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        {
+          choices: [
+            { finish_reason: 'stop', message: { role: 'assistant', content: 'Pašalinau.' } },
+          ],
+        },
+      ];
+      let callCount = 0;
+      global.fetch = jest.fn(async () => {
+        const body = llmResponses[Math.min(callCount, llmResponses.length - 1)];
+        callCount += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => body,
+          text: async () => '',
+        } as unknown as Response;
+      }) as unknown as typeof fetch;
+
+      const stream = (await broker.call(
+        'ai.chat',
+        {
+          messages: [{ role: 'user', content: 'ištrink pirmą kortelę' }],
+          spec: {
+            widgets: [
+              { id: 'old1', type: 'stat', value: '1' },
+              { id: 'old2', type: 'stat', value: '2' },
+            ],
+          },
+        },
+        { meta: { user: mockAuthUser() } },
+      )) as PassThrough;
+
+      const events = await collectSse(stream);
+      const specEvent = events.find((e) => e.type === 'spec') as {
+        spec: { widgets: Array<{ id: string }> };
+      };
+      expect(specEvent.spec.widgets.map((w) => w.id)).toEqual(['old2']);
+    });
+
+    it('tekste paskendęs spec su mode=replace — PAKEIČIA (ne papildo) esamą vaizdą', async () => {
+      process.env.LLM_BASE_URL = 'http://llm-mock.test/v1';
+      const specInText = JSON.stringify({
+        mode: 'replace',
+        title: 'Tik vienas',
+        widgets: [{ id: 'r1', type: 'stat', title: 'Vienintelis', value: '7 €' }],
+      });
+      global.fetch = jest.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: {
+                role: 'assistant',
+                content: `Štai:\n\`\`\`json\n${specInText}\n\`\`\`\nViskas.`,
+              },
+            },
+          ],
+        }),
+        text: async () => '',
+      })) as unknown as typeof fetch;
+
+      const stream = (await broker.call(
+        'ai.chat',
+        {
+          messages: [{ role: 'user', content: 'rodyk tik vieną' }],
+          spec: {
+            widgets: [
+              { id: 'old1', type: 'stat', value: '1' },
+              { id: 'old2', type: 'stat', value: '2' },
+            ],
+          },
+        },
+        { meta: { user: mockAuthUser() } },
+      )) as PassThrough;
+
+      const events = await collectSse(stream);
+      const specEvent = events.find((e) => e.type === 'spec') as {
+        spec: { widgets: Array<{ id: string }> };
+      };
+      // replace pagerbiamas net gelbstint iš teksto — esami old1/old2 pradingsta.
+      expect(specEvent.spec.widgets.map((w) => w.id)).toEqual(['r1']);
     });
   });
 });

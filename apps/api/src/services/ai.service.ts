@@ -109,12 +109,24 @@ const LLM_TOOLS = [
     function: {
       name: SPEC_TOOL_NAME,
       description:
-        'Perpiešia dashboardą. Pateik PILNĄ naują vaizdą — jis PAKEIČIA dabartinį. PIRMENYBĖ: kiekvienam widget naudok "dataRef":{"source","params"} — serveris užpildys šviežius duomenis (jie neužšals). Literalius data laukus naudok tik specialiems pjūviams be katalogo šaltinio.',
+        'Atnaujina dashboardą. PAGAL NUTYLĖJIMĄ (mode="add") pateik TIK naujus ar keičiamus widgetus — jie PRIDEDAMI prie esamų (esami NEDINGSTA). Esamą widgetą keisk naudodamas TĄ PATĮ id. Visą vaizdą pakeisk (mode="replace") TIK kai vartotojas aiškiai prašo pradėti iš naujo arba palikti tik tai, ko prašo. Konkrečią esamą kortelę pašalink per removeWidgetIds. PIRMENYBĖ: kiekvienam widget naudok "dataRef":{"source","params"} — serveris užpildys šviežius duomenis (jie neužšals). Literalius data laukus naudok tik pjūviams be katalogo šaltinio.',
       parameters: {
         type: 'object',
         properties: {
           title: { type: 'string' },
           subtitle: { type: 'string' },
+          mode: {
+            type: 'string',
+            enum: ['add', 'replace'],
+            description:
+              'add (NUTYLĖTAS) — pateikti widgetai pridedami prie esamų (tas pats id perrašo esamą). replace — pateiktas vaizdas PILNAI pakeičia esamą. Naudok replace tik kai vartotojas aiškiai prašo „rodyk tik…", „pradėk iš naujo", „ištrink viską ir palik tik…".',
+          },
+          removeWidgetIds: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'add režime: esamų widgetų id, kuriuos pašalinti (kai vartotojas prašo ištrinti konkrečią kortelę). Likę esami widgetai išsaugomi.',
+          },
           year: {
             type: 'integer',
             description:
@@ -180,7 +192,6 @@ const LLM_TOOLS = [
             },
           },
         },
-        required: ['widgets'],
       },
     },
   },
@@ -216,13 +227,82 @@ function toInt(value: unknown): number | undefined {
   return Number.isFinite(n) ? Math.round(n) : undefined;
 }
 
+// ---------- render_dashboard merge ----------
+
+export type RenderMode = 'add' | 'replace';
+
+/**
+ * Iš render_dashboard tool argumentų ištraukia valdymo laukus (`mode`,
+ * `removeWidgetIds`). Šie laukai NĖRA spec'o dalis — `validateDashboardSpec`
+ * juos ignoruoja, todėl skaitom atskirai prieš/po validacijos.
+ */
+export function parseRenderControl(args: Record<string, unknown>): {
+  mode: RenderMode;
+  removeIds: string[];
+} {
+  const mode: RenderMode = args.mode === 'replace' ? 'replace' : 'add';
+  const removeIds = Array.isArray(args.removeWidgetIds)
+    ? (args.removeWidgetIds as unknown[]).filter(
+        (x): x is string => typeof x === 'string' && x.length > 0,
+      )
+    : [];
+  return { mode, removeIds };
+}
+
+/**
+ * Sujungia naują (validuotą) spec'ą su dabartiniu pagal režimą.
+ *
+ * - `replace` (arba kai dar nėra dabartinio vaizdo): naujas spec'as pakeičia viską.
+ * - `add` (NUTYLĖTAS): esami widgetai išsaugomi; naujas widget'as su tuo pačiu id
+ *   PERRAŠO esamą (modeliui liepta keisti widgetą tuo pačiu id), kiti pridedami
+ *   gale; `removeIds` pašalina nurodytus esamus. Vaizdo `title`/`subtitle` lieka
+ *   esami (vieno grafiko pridėjimas nepervadina viso dashboard'o); `year` —
+ *   naujas, jei nurodytas (kad „rodyk 2025" pritaikytų metus, neištrindamas widgetų).
+ *
+ * Sutapatinama TIK pagal id. Antraštė NEnaudojama kaip raktas — ji laisvai
+ * modelio renkama ir nebūtinai unikali; sutapus pavadinimams būtų tyliai
+ * ištrintas svetimas widget'as (būtent to, kortelių praradimo, vengiam). Du
+ * vienodo pavadinimo widget'ai geriau tegul sugyvena, nei dingsta.
+ */
+export function mergeSpec(
+  base: AiDashboardSpec | null,
+  next: AiDashboardSpec,
+  mode: RenderMode,
+  removeIds: string[] = [],
+): AiDashboardSpec {
+  if (mode === 'replace' || !base) return next;
+
+  const removeSet = new Set(removeIds);
+  const merged: AiWidget[] = base.widgets.filter((w) => !removeSet.has(w.id));
+
+  for (const nw of next.widgets) {
+    const byId = merged.findIndex((w) => w.id === nw.id);
+    if (byId >= 0) merged[byId] = nw;
+    else merged.push(nw);
+  }
+
+  // Viršijus limitą — paliekam VĖLIAUSIUS widgetus (ką tik pridėtas/keistas
+  // tikrai lieka matomas; nustumiami seniausi), o NE nukerpam ką tik pridėtą.
+  const capped =
+    merged.length > AI_SPEC_LIMITS.maxWidgets
+      ? merged.slice(merged.length - AI_SPEC_LIMITS.maxWidgets)
+      : merged;
+
+  return {
+    title: base.title ?? next.title,
+    subtitle: base.subtitle ?? next.subtitle,
+    year: next.year ?? base.year,
+    widgets: capped,
+  };
+}
+
 /**
  * Gelbėjimas: modelis kartais įdeda widget spec'ą į atsakymo TEKSTĄ (```json
  * blokas) vietoj render_dashboard tool call'o. Ištraukiam, validuojam.
  */
 function tryRescueSpecFromText(
   text: string,
-): { spec: AiDashboardSpec; cleanedText: string } | null {
+): { spec: AiDashboardSpec; cleanedText: string; mode: RenderMode } | null {
   if (!text.includes('"widgets"')) return null;
   const candidates: Array<{ raw: string; whole: string }> = [];
   const fenceRe = /```(?:json)?\s*([\s\S]*?)```/gi;
@@ -248,7 +328,12 @@ function tryRescueSpecFromText(
     }
     const result = validateDashboardSpec(parsed);
     if (!result.ok) continue;
-    return { spec: result.spec, cleanedText: text.replace(c.whole, '').trim() };
+    // Pasiimam ir režimą iš to paties JSON — kad „rodyk tik X" (replace),
+    // netyčia patekęs į tekstą, neliktų tik papildymu prie esamo vaizdo.
+    const { mode } = parseRenderControl(
+      typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {},
+    );
+    return { spec: result.spec, cleanedText: text.replace(c.whole, '').trim(), mode };
   }
   return null;
 }
@@ -339,9 +424,8 @@ Vartotojas: ${me.fullName}, ${roleDesc}.
 KAIP DIRBI:
 1. Vartotojas lietuviškai prašo pakeisti vaizdą arba užduoda klausimą apie finansus.
 2. Realius skaičius gauk per ${QUERY_TOOL_NAME} (katalogo šaltinis). NIEKADA neišgalvok skaičių.
-3. Kai prašoma keisti/parodyti vaizdą — kviesk ${SPEC_TOOL_NAME} su PILNU nauju spec.
-   Kiekvienam widget naudok dataRef (kad duomenys liktų švieži). Jei tik papildyti — perduok
-   ir esamus widgetus (su tais pačiais id) + naujus.
+3. Kai prašoma keisti/parodyti vaizdą — kviesk ${SPEC_TOOL_NAME}. Kiekvienam widget naudok dataRef
+   (kad duomenys liktų švieži).
 4. Jei klausimas atsakomas trumpai ir vaizdo keisti neprašoma — atsakyk vien tekstu.
 5. Po sėkmingo ${SPEC_TOOL_NAME} atsakyk trumpai (1–2 sakiniai) lietuviškai, ką pakeitei.
 6. ⛔ KRITIŠKA: vaizdą keisk TIK per ${SPEC_TOOL_NAME} tool call. Į atsakymo TEKSTĄ NIEKADA
@@ -350,7 +434,28 @@ KAIP DIRBI:
    BLOGAI: atsakyme rašai \`\`\`json {"widgets":[...]}\`\`\`.
    GERAI: kvieti ${SPEC_TOOL_NAME}({"widgets":[...]}), o tekste — tik „Atnaujinau vaizdą…".
 
-DABARTINIS DASHBOARD (layout):
+PRIDĖTI vs PAKEISTI (labai svarbu — vartotojas pyksta, kai pradingsta jo kortelės):
+- NUTYLĖTAS režimas yra mode="add": pateik TIK naujus ar keičiamus widgetus — serveris juos
+  PRIDEDA prie esamų. NEReikia perrašinėti esamų widgetų — jie lieka automatiškai.
+- mode="replace" naudok, kai vartotojas nori VISO naujo vaizdo, o ne papildymo:
+  • aiškūs žodžiai: „rodyk TIK…", „pakeisk visą vaizdą", „pradėk iš naujo", „ištrink viską ir palik tik…";
+  • pilnos/bendros apžvalgos prašymas: „pilna finansų apžvalga", „bendras vaizdas", „parodyk viską".
+  TRUMPA TAISYKLĖ: jei vartotojas NEvartoja „pridėk / dar / taip pat / prie to" ir prašo parodyti
+  ar pertvarkyti VISĄ vaizdą — rinkis replace; jei prašo konkretaus papildymo — add.
+- Esamą widgetą KEISK (pvz. „paversk tą grafiką skritulinę") naudodamas TĄ PATĮ id (add režimas perrašo).
+- Kiekvienam NAUJAM widget duok unikalų prasmingą id (pvz. „islaidos-menesiai"), kad atsitiktinai
+  nepataikytum į esamo widget id (kitaip jį perrašysi).
+- Konkrečią kortelę PAŠALINTI: removeWidgetIds:["<id>"] (add režimas) — NEsiųsk replace vien tam.
+- Tik METŲ pakeitimui („rodyk 2025") — add režimas, top-level "year", widgets gali būti tuščias [].
+
+PAVYZDŽIAI (atkreipk dėmesį į režimą):
+- „pridėk išlaidų pagal mėnesius grafiką" → ${SPEC_TOOL_NAME}({"widgets":[{naujas area, unikalus id, su dataRef}]})  (add, esami lieka)
+- „rodyk tik biudžeto vykdymą" → ${SPEC_TOOL_NAME}({"mode":"replace","widgets":[{tas vienas}]})
+- „pilna finansų apžvalga" → ${SPEC_TOOL_NAME}({"mode":"replace","widgets":[{visas naujas rinkinys}]})
+- „ištrink prašymų kortelę" → ${SPEC_TOOL_NAME}({"removeWidgetIds":["<tos kortelės id>"],"widgets":[]})
+- „rodyk 2025 metus" → ${SPEC_TOOL_NAME}({"year":2025,"widgets":[]})
+
+DABARTINIS DASHBOARD (layout — naudok šiuos id keisdamas ar šalindamas esamus widgetus):
 ${specJson}
 
 ${WIDGET_DOCS}
@@ -432,6 +537,9 @@ async function runChatLoop(
 
   const year = ctx.params.year ?? new Date().getFullYear();
   const currentSpec = ctx.params.spec ? toSpecOrNull(ctx.params.spec) : null;
+  // „Gyvas" vaizdas šiame turne — render_dashboard add režimu sujungiamas su juo
+  // (kad pridėjus widgetą esami nepradingtų). Atnaujinamas po kiekvieno emit.
+  let workingSpec = currentSpec;
   const history = (ctx.params.messages ?? []).slice(-MAX_HISTORY_MESSAGES);
 
   const llmMessages: LlmMessage[] = [
@@ -451,9 +559,48 @@ async function runChatLoop(
     });
   };
 
-  /** Validuoja, hidruoja ir emit'ina spec'ą; grąžina tool result modeliui. */
+  /** Hidruoja, įsimena kaip dabartinį (workingSpec) ir emit'ina spec'ą. */
+  const emitSpec = async (spec: AiDashboardSpec): Promise<void> => {
+    // Hidruojam dataRef'us prieš emit — pirmas paint'as su šviežiais duomenimis.
+    let hydrated = spec;
+    try {
+      hydrated = await hydrateSpec(ctx, spec, year);
+    } catch (err) {
+      logger.warn(
+        'AI: hidracija nepavyko (siunčiam be jos):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+    workingSpec = hydrated;
+    renderedThisTurn = true;
+    sseWrite(stream, { type: 'spec', spec: hydrated });
+  };
+
+  /** Validuoja, sujungia su dabartiniu vaizdu (add/replace), hidruoja, emit'ina. */
   const handleRenderCall = async (args: Record<string, unknown>): Promise<string> => {
     renderAttempts += 1;
+    const { mode, removeIds } = parseRenderControl(args);
+    const hasWidgets = Array.isArray(args.widgets) && (args.widgets as unknown[]).length > 0;
+
+    // Board-lygio tweak'as add režime BE naujų widgetų: metų keitimas ir/ar
+    // konkrečių kortelių pašalinimas. Validuoti nėra ko (widgetų sąrašas tuščias).
+    if (!hasWidgets && mode === 'add' && workingSpec) {
+      const yearArg = toInt(args.year);
+      const merged: AiDashboardSpec = {
+        ...workingSpec,
+        ...(yearArg !== undefined ? { year: yearArg } : {}),
+        widgets: workingSpec.widgets.filter((w) => !removeIds.includes(w.id)),
+      };
+      await emitSpec(merged);
+      return JSON.stringify({
+        ok: true,
+        pastaba:
+          removeIds.length > 0
+            ? 'Kortelės pašalintos. Atsakyk vartotojui trumpai lietuviškai (be tool call).'
+            : 'Vaizdas atnaujintas. Atsakyk vartotojui trumpai lietuviškai (be tool call).',
+      });
+    }
+
     const result = validateDashboardSpec(args);
     if (!result.ok) {
       if (renderAttempts >= MAX_RENDER_ATTEMPTS) {
@@ -469,25 +616,18 @@ async function runChatLoop(
         pastaba: 'Pataisyk spec ir bandyk dar kartą.',
       });
     }
-    // Hidruojam dataRef'us prieš emit — pirmas paint'as su šviežiais duomenimis.
-    let hydrated = result.spec;
-    try {
-      hydrated = await hydrateSpec(ctx, result.spec, year);
-    } catch (err) {
-      logger.warn(
-        'AI: hidracija nepavyko (siunčiam be jos):',
-        err instanceof Error ? err.message : err,
-      );
-    }
-    renderedThisTurn = true;
-    sseWrite(stream, { type: 'spec', spec: hydrated });
+
+    const merged = mergeSpec(workingSpec, result.spec, mode, removeIds);
+    await emitSpec(merged);
     return JSON.stringify({
       ok: true,
       ...(result.errors.length > 0 ? { atmestiWidgetai: result.errors } : {}),
       pastaba:
         result.errors.length > 0
           ? 'Dashboard atnaujintas, bet dalis widgetų atmesta (žr. atmestiWidgetai). Atsakyk trumpai apie tai, kas RODOMA.'
-          : 'Dashboard atnaujintas. Atsakyk vartotojui trumpai lietuviškai (be tool call).',
+          : mode === 'replace'
+            ? 'Vaizdas pakeistas. Atsakyk vartotojui trumpai lietuviškai (be tool call).'
+            : 'Widgetai pridėti prie esamo vaizdo. Atsakyk vartotojui trumpai lietuviškai (be tool call).',
     });
   };
 
@@ -520,14 +660,9 @@ async function runChatLoop(
       const rescued = tryRescueSpecFromText(text);
       if (rescued) {
         logger.warn('AI: spec rastas tekste — gelbstim į dashboard');
-        let hydrated = rescued.spec;
-        try {
-          hydrated = await hydrateSpec(ctx, rescued.spec, year);
-        } catch {
-          /* emit be hidracijos */
-        }
-        renderedThisTurn = true;
-        sseWrite(stream, { type: 'spec', spec: hydrated });
+        // Gerbiam JSON'e nurodytą režimą (replace/add); jo nesant — add (saugus
+        // numatytasis: gelbstint NEištrinam esamo vaizdo).
+        await emitSpec(mergeSpec(workingSpec, rescued.spec, rescued.mode));
         sseWrite(stream, {
           type: 'reply',
           text: stripJsonBlocks(rescued.cleanedText) || 'Atnaujinau vaizdą pagal prašymą.',

@@ -202,33 +202,6 @@ export default function AiHomePage(): JSX.Element {
 
   const spec = overrideSpec ?? defaultQuery.data?.spec ?? null;
 
-  // Metų pasirinkimas — keičia VISŲ widget'ų duomenis (tas pats layout, kiti
-  // metai), deterministiškai per /ai/hydrate, be LLM. Sprendžia „noriu tik kitų
-  // metų duomenis" be chat'o.
-  const currentYear = new Date().getFullYear();
-  const selectedYear = spec?.year ?? currentYear;
-  const YEAR_OPTIONS = [currentYear - 1, currentYear, currentYear + 1, currentYear + 2];
-
-  const applyYear = React.useCallback(
-    (year: number): void => {
-      const base = specRef.current;
-      if (!base) return;
-      const withYear: AiDashboardSpec = { ...base, year };
-      setOverrideSpec(withYear);
-      setGeneration((g) => g + 1);
-      aiHydrate(withYear)
-        .then((fresh) => {
-          setOverrideSpec(fresh);
-          setGeneration((g) => g + 1);
-          saveAiSpec(storageKey, fresh);
-        })
-        .catch(() => {
-          /* paliekam optimistinį (su gal senais skaičiais) */
-        });
-    },
-    [storageKey],
-  );
-
   // Per-widget pločio keitimas (¼/½/pilnas). Atnaujina spec'ą vietoje — generation
   // NEbumpinam, kad tinklelis persitvarkytų sklandžiai (be re-animacijos) —
   // ir persistuoja, kad layout tweak'as išliktų po reload. „Pradinis vaizdas" atstato.
@@ -287,29 +260,14 @@ export default function AiHomePage(): JSX.Element {
       {/* --- Drobė --- */}
       <div className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl p-4 md:p-6">
-          <div className="mb-3 flex items-center justify-end gap-2">
-            <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              Metai:
-              <select
-                value={selectedYear}
-                onChange={(e) => applyYear(Number(e.target.value))}
-                aria-label="Pasirinkti metus"
-                className="rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {YEAR_OPTIONS.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {overrideSpec ? (
+          {overrideSpec ? (
+            <div className="mb-3 flex items-center justify-end">
               <Button variant="outline" size="sm" onClick={reset}>
                 <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
                 Pradinis vaizdas
               </Button>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
 
           {spec ? (
             <DashboardCanvas
