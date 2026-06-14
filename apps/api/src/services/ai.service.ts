@@ -455,7 +455,21 @@ const WIDGET_DOCS = `WIDGET TIPAI (visi turi privalomus "id" (unikalus, stabilus
 
 DATAREF (SVARBIAUSIA): vietoj literalių skaičių naudok "dataRef":{"source":"<id>","params":{...}} —
 serveris užpildys ŠVIEŽIUS duomenis iš DB kiekvieno užkrovimo metu (skaičiai neužšals).
-Beveik visada naudok dataRef. Literalų data tik kai NĖRA tinkamo katalogo šaltinio.
+KIEKVIENAS duomenų widget'as PRIVALO turėti dataRef. Literalų data tik jei NĖRA tinkamo šaltinio
+(sankey/treemap NIEKADA nerašyk literaliai — visada dataRef). source id kopijuok RAIDĖ Į RAIDĘ iš
+sąrašo, NEIŠGALVOK (budget_flow_sankey, NE „sankey"; expenses_monthly, NE „islaidos_menesiai").
+
+LT FRAZĖ → ŠALTINIS (dažniausi atvejai — naudok TIKSLŲ id):
+- „išlaidos pagal mėnesius/mėnesį" → expenses_monthly (išlaidos=expenses; NE requests_monthly_trend)
+- „išlaidos pagal tipą" → expenses_by_type
+- „biudžeto vykdymas / kaip sekasi su biudžetu / planuota vs faktinė pagal šaltinius" → budget_execution_by_source (bar, 2 series: Planuota+Faktinė)
+- „biudžeto eilutės arti limito / panaudojimas" → budget_lines_usage (progress)
+- „biudžeto eilučių lentelė" → budget_lines_table
+- „biudžeto srautas" → budget_flow_sankey · „biudžeto hierarchija" → budget_hierarchy_treemap
+- „prašymai pagal statusą" → requests_by_status · „prašymų srautas per mėnesius" → requests_monthly_trend
+- „prašyta pagal (lėšų) kategorijas" → cost_categories
+- „organizacijos/institucijos pagal sumą" → tenants_breakdown · „projektai" → projects_table
+- „artėjantys terminai" → upcoming_deadlines · vienas skaičius (biudžetas/likutis/prašymų sk.) → metric (su params.metric)
 
 DUOMENŲ ŠALTINIŲ KATALOGAS (source id → kuriems widget tipams tinka → ką grąžina):
 ${buildCatalogPromptDoc()}
@@ -525,7 +539,11 @@ KAIP DIRBI:
 2. Realius skaičius gauk per ${QUERY_TOOL_NAME} (katalogo šaltinis). NIEKADA neišgalvok skaičių.
 3. Kai prašoma keisti/parodyti vaizdą — kviesk ${SPEC_TOOL_NAME}. Kiekvienam widget naudok dataRef
    (kad duomenys liktų švieži).
-4. Jei klausimas atsakomas trumpai ir vaizdo keisti neprašoma — atsakyk vien tekstu.
+4. KLAUSIMAS (žodžiai „kiek", „kokia", „ar", „kuris", „kada"), į kurį atsakymas yra vienas skaičius/faktas
+   ir vaizdo keisti neprašoma: PIRMA ${QUERY_TOOL_NAME} (gauk skaičių), tada atsakyk VIEN TEKSTU (jokio
+   ${SPEC_TOOL_NAME}). Pvz. „kiek patvirtintų prašymų šiemet?" → ${QUERY_TOOL_NAME}(metric, prasymu_skaicius,
+   year=${year}) → tekstu „Šiemet pateikti N prašymai." Bet jei klausimą geriau parodo grafikas/lentelė
+   (pvz. „kurios eilutės arti limito?") — atvaizduok tinkamą widget'ą (add).
 5. Po sėkmingo ${SPEC_TOOL_NAME} atsakyk trumpai (1–2 sakiniai) lietuviškai, ką pakeitei.
 6. ⛔ KRITIŠKA: vaizdą keisk TIK per ${SPEC_TOOL_NAME} tool call. Į atsakymo TEKSTĄ NIEKADA
    nerašyk widget JSON (jokių \`\`\`json blokų, jokio {"widgets":...}). Tekste matomas JSON =
@@ -539,19 +557,25 @@ PRIDĖTI vs PAKEISTI (labai svarbu — vartotojas pyksta, kai pradingsta jo kort
 - mode="replace" naudok, kai vartotojas nori VISO naujo vaizdo, o ne papildymo:
   • aiškūs žodžiai: „rodyk TIK…", „pakeisk visą vaizdą", „pradėk iš naujo", „ištrink viską ir palik tik…";
   • pilnos/bendros apžvalgos prašymas: „pilna finansų apžvalga", „bendras vaizdas", „parodyk viską".
-  TRUMPA TAISYKLĖ: jei vartotojas NEvartoja „pridėk / dar / taip pat / prie to" ir prašo parodyti
-  ar pertvarkyti VISĄ vaizdą — rinkis replace; jei prašo konkretaus papildymo — add.
-- Esamą widgetą KEISK (pvz. „paversk tą grafiką skritulinę") naudodamas TĄ PATĮ id (add režimas perrašo).
-- Kiekvienam NAUJAM widget duok unikalų prasmingą id (pvz. „islaidos-menesiai"), kad atsitiktinai
+  TRUMPA TAISYKLĖ: replace TIK aiškiam „viso vaizdo" prašymui. JEI ABEJOJI — rinkis ADD (saugiau,
+  kortelės neprapuola). Žodžiai „pridėk / dar / taip pat / papildyk / prie to" VISADA reiškia add.
+- VIENO grafiko prašymas („parodyk biudžeto srautą", „palygink planuotą ir faktinę", „duok daugiau
+  detalių apie projektus") = ADD vienas widget'as, o NE replace (kitų kortelių neištrink).
+- Esamo widget'o KEITIMAS (pvz. „paversk TĄ stulpelinę į skritulinę"): surask tą widget'ą DABARTINIS
+  DASHBOARD sąraše, naudok TĄ PATĮ id IR TĄ PATĮ dataRef, keisk tik „type". Tai NE naujas widget'as.
+- Kiekvienam GENUINE NAUJAM widget duok unikalų prasmingą id (pvz. „islaidos-menesiai"), kad atsitiktinai
   nepataikytum į esamo widget id (kitaip jį perrašysi).
-- Konkrečią kortelę PAŠALINTI: removeWidgetIds:["<id>"] (add režimas) — NEsiųsk replace vien tam.
+- Konkrečią kortelę PAŠALINTI: removeWidgetIds:["<id>"] (add režimas; id kopijuok TIKSLIAI iš DABARTINIS
+  DASHBOARD) — NEsiųsk replace vien tam, neišgalvok id.
 - Tik METŲ pakeitimui („rodyk 2025") — add režimas, top-level "year", widgets gali būti tuščias [].
 
-PAVYZDŽIAI (atkreipk dėmesį į režimą):
-- „pridėk išlaidų pagal mėnesius grafiką" → ${SPEC_TOOL_NAME}({"widgets":[{naujas area, unikalus id, su dataRef}]})  (add, esami lieka)
-- „rodyk tik biudžeto vykdymą" → ${SPEC_TOOL_NAME}({"mode":"replace","widgets":[{tas vienas}]})
-- „pilna finansų apžvalga" → ${SPEC_TOOL_NAME}({"mode":"replace","widgets":[{visas naujas rinkinys}]})
-- „ištrink prašymų kortelę" → ${SPEC_TOOL_NAME}({"removeWidgetIds":["<tos kortelės id>"],"widgets":[]})
+PAVYZDŽIAI (atkreipk dėmesį į režimą ir KONKRETŲ source id):
+- „pridėk išlaidų pagal mėnesius grafiką" → ${SPEC_TOOL_NAME}({"widgets":[{"id":"islaidos-menesiai","type":"area","title":"Išlaidos pagal mėnesius","dataRef":{"source":"expenses_monthly"}}]})  (add, esami lieka)
+- „parodyk biudžeto srautą" → ${SPEC_TOOL_NAME}({"widgets":[{"id":"biudzeto-srautas","type":"sankey","title":"Biudžeto srautas","dataRef":{"source":"budget_flow_sankey"}}]})  (add — vienas widget'as)
+- „rodyk tik biudžeto vykdymą" → ${SPEC_TOOL_NAME}({"mode":"replace","widgets":[{"id":"vykdymas","type":"bar","title":"Biudžeto vykdymas","dataRef":{"source":"budget_execution_by_source"}}]})
+- „pilna finansų apžvalga" → ${SPEC_TOOL_NAME}({"mode":"replace","widgets":[...4–10 widgetų: 3–4 metric stat + sankey/treemap/grafikai/lentelė...]})
+- „paversk tą stulpelinę į skritulinę" → ${SPEC_TOOL_NAME}({"widgets":[{"id":"<TAS PATS id>","type":"pie","dataRef":{<TAS PATS dataRef>}}]})  (add, perrašo tą patį)
+- „ištrink prašymų kortelę" → ${SPEC_TOOL_NAME}({"removeWidgetIds":["<tos kortelės id iš sąrašo>"],"widgets":[]})
 - „rodyk 2025 metus" → ${SPEC_TOOL_NAME}({"year":2025,"widgets":[]})
 
 DABARTINIS DASHBOARD (layout — naudok šiuos id keisdamas ar šalindamas esamus widgetus):
@@ -560,17 +584,22 @@ ${specJson}
 ${WIDGET_DOCS}
 
 METAI (svarbu):
-- Kai vartotojas keičia metus (pvz. „rodyk 2025", „tik už 2026") — nustatyk render_dashboard
-  TOP-LEVEL "year" lauką. Serveris jį pritaikys VISIEMS widget'ams automatiškai. NEREIKIA
-  rašyti year į kiekvieno widget dataRef.params — užtenka vieno top-level "year".
-- Jei vartotojas prašo tik metų pakeitimo (UI nesikeičia) — perduok TĄ PATĮ widgetų sąrašą
-  (tie patys id/dataRef) + naują top-level "year".
+- GRYNAS metų keitimas (pvz. „rodyk 2025", „tik už 2026", „rodyk 2027 metus") = add režimas, TOP-LEVEL
+  "year" + widgets:[] (TUŠČIAS sąrašas). NIEKADA neperrašinėk widgetų sąrašo (silpnas modelis juos
+  pamestų) ir NIEKADA nenaudok replace metų keitimui — serveris pats pritaiko metus VISIEMS esamiems.
+- year rašyk TIK top-level, NIEKADA į widget dataRef.params.
+- Metai + naujas turinys/filtras (pvz. „rodyk AAD prašymus 2027") — nustatyk "year" (ir, jei reikia,
+  "institution"), o widgets[] tik naujam/keičiamam widget'ui (esami lieka).
 - Jei pasirinktiems metams nėra duomenų — grafikai bus tušti; tai NORMALU, pasakyk tai vartotojui.
 ${sliceSection}
 GEROS PRAKTIKOS:
-- Pirmoje eilėje 3–4 stat kortelės (span 1, dataRef "metric"), žemiau span 2 grafikai/lentelės.
+- Pirmoje eilėje 3–4 stat kortelės (span 1, dataRef "metric", SKIRTINGI params.metric), žemiau span 2 grafikai/lentelės.
 - Įdomiems pjūviams naudok sankey (biudžeto srautai) ir treemap (hierarchija).
-- Visos etiketės lietuviškai. Iš viso 4–10 widgetų.`;
+- replace turi sukurti PILNĄ vaizdą (4–10 widgetų), ne vieną kortelę. Fokusuotas add gali būti ir 1.
+- Visos etiketės lietuviškai.
+
+⛔ PASKUTINIS PRIMINIMAS: atsakymo TEKSTE niekada nerašyk widget JSON ar widget'ų skaičių — JSON eina TIK
+į ${SPEC_TOOL_NAME} tool argumentą (net ir dideliam ar visam vaizdui). Tekste — tik trumpas LT sakinys.`;
 }
 
 // ---------- LLM kvietimas ----------

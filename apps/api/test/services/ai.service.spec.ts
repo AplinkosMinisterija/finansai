@@ -563,6 +563,10 @@ describe('ai service', () => {
       expect(firstCallBody.messages[0]?.role).toBe('system');
       expect(firstCallBody.messages[0]?.content).toContain('Test AM Admin');
       expect(firstCallBody.messages[0]?.content).toContain('"old"');
+      // Prompt v3 (Faza 4): LT-frazė→šaltinis žemėlapis + add safe-default + recency anchor.
+      expect(firstCallBody.messages[0]?.content).toContain('budget_execution_by_source');
+      expect(firstCallBody.messages[0]?.content).toContain('JEI ABEJOJI');
+      expect(firstCallBody.messages[0]?.content).toContain('PASKUTINIS PRIMINIMAS');
     });
 
     it('LLM klaida → error event + done (stream`as neužstringa)', async () => {
