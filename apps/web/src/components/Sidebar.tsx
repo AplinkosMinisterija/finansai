@@ -107,48 +107,53 @@ export function Sidebar({
           collapsed ? 'justify-center px-2' : 'px-4',
         )}
       >
-        <div
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary font-semibold text-primary-foreground"
-          title={collapsed ? `Finansai — ${user?.tenantName ?? 'Aplinkos ministerija'}` : undefined}
-        >
-          €
-        </div>
-        {!collapsed ? (
-          <>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold leading-tight">Finansai</div>
-              <div className="-mt-0.5 truncate text-[11px] text-muted-foreground">
-                {user?.tenantName ?? 'Aplinkos ministerija'}
-              </div>
-            </div>
-            {onToggleCollapse ? (
-              <button
-                type="button"
-                onClick={onToggleCollapse}
-                aria-label="Suskleisti meniu"
-                title="Suskleisti meniu"
-                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <PanelLeftClose className="h-4 w-4" />
-              </button>
-            ) : null}
-          </>
-        ) : null}
-      </div>
-
-      {collapsed && onToggleCollapse ? (
-        <div className="border-b border-border p-2">
+        {collapsed && onToggleCollapse ? (
+          // Suskleista: brand kvadratas (€) PATS yra išskleidimo mygtukas —
+          // hover'inant € pavirsta į rodyklę. Atskiros eilutės nereikia (idėja iš OIS).
           <button
             type="button"
             onClick={onToggleCollapse}
-            aria-label="Išskleisti meniu"
             title="Išskleisti meniu"
-            className="flex w-full items-center justify-center rounded-md py-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Išskleisti meniu"
+            className="group mx-auto flex h-8 w-8 items-center justify-center rounded-md bg-primary font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <PanelLeftOpen className="h-4 w-4" />
+            <span className="group-hover:hidden">€</span>
+            <PanelLeftOpen className="hidden h-4 w-4 group-hover:block" />
           </button>
-        </div>
-      ) : null}
+        ) : (
+          <>
+            <div
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary font-semibold text-primary-foreground"
+              title={
+                collapsed ? `Finansai — ${user?.tenantName ?? 'Aplinkos ministerija'}` : undefined
+              }
+            >
+              €
+            </div>
+            {!collapsed ? (
+              <>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold leading-tight">Finansai</div>
+                  <div className="-mt-0.5 truncate text-[11px] text-muted-foreground">
+                    {user?.tenantName ?? 'Aplinkos ministerija'}
+                  </div>
+                </div>
+                {onToggleCollapse ? (
+                  <button
+                    type="button"
+                    onClick={onToggleCollapse}
+                    aria-label="Suskleisti meniu"
+                    title="Suskleisti meniu"
+                    className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <PanelLeftClose className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+          </>
+        )}
+      </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2 text-sm">
         {navItems.map((item) => {
