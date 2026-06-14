@@ -2,6 +2,49 @@
 
 Naujausi įrašai viršuje. Vienas įrašas = vienas sprendimas/diskusija.
 
+## 2026-06-14 — Iter 19 (Faza 1) — AI dashboard korektiškumo auditas: „skaičiai teisingi visur ir visada"
+
+Vartotojo reikalavimas: pakoreguotas dashboard'as PERSISTUOJA ir skaičiai RE-HIDRUOJASI iš
+backend BE LLM (prizmė), o svarbiausia — **skaičiai teisingi visur ir visada**. Atliktas
+gilus 6-lęšių subsistemų žemėlapis + 4-domenų adversarinis korektiškumo auditas (22
+patvirtinti findings). Sprendimai ir pataisos (Faza 1):
+
+**1. Kanoninė „prašyta suma" = ĮSKAITO costDu (visi 8 cost laukai).** Anksčiau buvo NEnuoseklu:
+RequestWizard „Iš viso prašoma", plano→prašymo costSum ir F13 ataskaita ĮSKAITO DU, o
+dashboard `totalRequestedFromRow` + AI `requestedAmount` — PRALEIDŽIA. Todėl AI `prasyta_suma`
+stat nesutapdavo su `cost_categories` grafiku (ten DU įskaičiuotas). Sprendimas: visur ĮSKAITYTI
+DU (pilna prašoma suma; costDu prašyme — planuojama eilutė, NE faktinis atlyginimas, NĖRA
+DU-jautrus/ADR-005). Pataisyta `catalog.requestedAmount` + `dashboard.totalRequestedFromRow`.
+Demo nematomas pokytis (visi seed costDu=0), bet teisinga realiems duomenims. Reconciliation
+testas su costDu>0 fiksuoja: `prasyta_suma == Σ cost_categories == Σ tenants_breakdown`.
+
+**2. Faktinė sutampa per visus biudžeto widget'us.** Sankey `sizeBy=faktine` GRYNINTAS — anksčiau
+per-briauną krito atgal į planuotą (`faktine || planuota`), todėl nulinės faktinės eilutė
+sukurdavo FANTOMINĮ srautą (seed: VB INV 50k planuota be išlaidų → sankey suma +50k klaida).
+Dabar grynas: faktinė=faktinė, nulinės atkrenta; tuščios diagramos atvejį tvarko visos diagramos
+fallback į planuotą (kai metų Σ faktinė=0). Testas: `Σ sankey == Σ treemap == Σ lentelė ==
+metric.islaidos_faktine == Σ budget_execution_by_source`.
+
+**3. Kiekiai tikslūs iš serverio `total`.** `prasymu_skaicius`/`pateikti_laukia` anksčiau rodė
+įkeltų eilučių kiekį (cap 5×200=1000 → tylus undercount). Dabar `getYearRequestTotal` ima
+serverio `total` (pageSize:1) — tikslu net viršijus. Eilučių agregacijų cap pakeltas iki 6000.
+
+**4. Hidracija NIEKADA nerodo stale.** `hydrateSpec` catch anksčiau grąžindavo widget'ą NEPAKEISTĄ
+(su LLM įrašytais literalais) → išsaugotas dashboard'as galėjo rodyti senus skaičius kaip naujus.
+Dabar — `blankWidget` (ištuština duomenis) + log. FE `AiHomePage`: jei `/ai/hydrate` nepavyksta —
+geltona juosta „Duomenys gali būti pasenę" + „Bandyti dar kartą" (ne tylus stale).
+
+**5. Dokumentuoti (NE bug — sąmoninga semantika):** `budget_execution_by_source` faktinė
+priskiriama allocation home-source (vykdymo bazė — planuota ir faktinė ta pati bazė; cash-flow
+split pagal `saltinio_dalis` būtų KITAS widget'as, kitaip % vykdymas neturėtų prasmės).
+`expenses_monthly/by_type` — pjūvis pagal išlaidos DATĄ; `islaidos_faktine` — pagal allocation
+metus; sutampa tų pačių metų ribose. `projects_table` biudžetas = VISO projekto (ne metų dalis).
+`upcoming_deadlines` — visada nuo ŠIANDIEN +30d (nepriklauso nuo metų). NEAKTUALU prašymai
+neįtraukiami (archyvuoti). Šių semantikų aprašymai patikslinti šaltinių `description` laukuose.
+
+**Testai:** naujas `ai-catalog-correctness.spec.ts` (4 reconciliation testai su kontroliuojamu
+fixture'u + ranka skaičiuotais totalais). API 399/399, web 155/155 žali.
+
 ## 2026-06-13 — Iter 18 — AI dashboard v2: duomenų nuorodos, nauji grafai, showcase seed
 
 Praplėtas Iter 17 AI dashboard'as pagal vartotojo prašymą (kuo daugiau galimybių +

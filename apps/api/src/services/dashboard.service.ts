@@ -121,8 +121,14 @@ function toRequestDTO(r: RequestWithRels): RequestDTO {
   };
 }
 
+// Kanoninė „prašyta" suma — VISI 8 cost laukai, ĮSKAITANT DU (sprendimas
+// 2026-06-14). Atitinka RequestWizard „Iš viso prašoma", plano→prašymo costSum
+// ir F13 ataskaitą. costDu prašyme — planuojama eilutė, NE faktinis atlyginimas
+// (NĖRA DU-jautrus, ADR-005). Anksčiau DU buvo praleidžiamas → nesutapdavo su
+// kaštų kategorijų grafiku; dabar nuoseklu visur (įsk. AI cost_categories).
 function totalRequestedFromRow(r: Request): number {
   return (
+    Number(r.costDu) +
     Number(r.costEquipment) +
     Number(r.costCreation) +
     Number(r.costAnalysis) +

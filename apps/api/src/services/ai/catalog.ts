@@ -178,7 +178,11 @@ function getYearRequests(hc: HydrationCtx, year: number): Promise<FinancingReque
   return cached(hc, `requests.list:${year}`, async () => {
     const all: FinancingRequest[] = [];
     const pageSize = 200;
-    for (let page = 1; page <= 5; page += 1) {
+    // Iki 30 psl. × 200 = 6000 prašymų/metus (su atsarga AM domenui). Eilučių
+    // reikalaujančios agregacijos (pagal statusą/mėnesį/kategorijas/tenantą)
+    // tikslios iki šios ribos. GRYNAM kiekiui naudok getYearRequestTotal —
+    // jis ima serverio `total`, todėl tikslus net ir viršijus.
+    for (let page = 1; page <= 30; page += 1) {
       const res = await callAction<
         PaginatedResponse<FinancingRequest>,
         { year: number; page: number; pageSize: number }
@@ -191,9 +195,38 @@ function getYearRequests(hc: HydrationCtx, year: number): Promise<FinancingReque
   });
 }
 
-/** Prašymo „prašyta" suma — 7 cost laukai be DU (kaip dashboard.totalRequestedFromRow). */
+/**
+ * TIKSLUS prašymų kiekis iš serverio (`total`), neįkeliant eilučių. Naudojam
+ * grynoms skaičiavimo kortelėms (prasymu_skaicius, pateikti_laukia), kad jos
+ * NEpriklausytų nuo 6000 eilučių ribos. status — neprivalomas filtras.
+ */
+function getYearRequestTotal(hc: HydrationCtx, year: number, status?: string): Promise<number> {
+  return cached(hc, `requests.total:${year}:${status ?? '-'}`, async () => {
+    const res = await callAction<
+      PaginatedResponse<FinancingRequest>,
+      { year: number; status?: string; page: number; pageSize: number }
+    >(hc.ctx, 'requests.list', {
+      year,
+      ...(status ? { status } : {}),
+      page: 1,
+      pageSize: 1,
+    }).catch(() => null);
+    return res?.total ?? 0;
+  });
+}
+
+/**
+ * Prašymo „prašyta" suma — VISI 8 cost laukai, ĮSKAITANT DU. Kanoninė definicija
+ * (sprendimas 2026-06-14): „prašyta" = pilna prašoma suma, kaip vartotojas mato
+ * RequestWizard „Iš viso prašoma" ir kaip skaičiuoja plano→prašymo costSum bei
+ * F13 spec.programos ataskaita. Anksčiau čia (ir dashboard.totalRequestedFromRow)
+ * DU buvo praleidžiamas, todėl `prasyta_suma` stat nesutapdavo su `cost_categories`
+ * (ten DU įskaičiuotas). Dabar abu įskaito DU — sutampa. costDu prašyme yra
+ * planuojama išlaidų eilutė, NE faktinis atlyginimas — NĖRA DU-jautrus (ADR-005).
+ */
 function requestedAmount(r: FinancingRequest): number {
   return (
+    Number(r.costDu ?? 0) +
     Number(r.costEquipment ?? 0) +
     Number(r.costCreation ?? 0) +
     Number(r.costAnalysis ?? 0) +
@@ -270,24 +303,30 @@ const SOURCES: CatalogSource[] = [
         metric === 'patvirtinta_suma' ||
         metric === 'pateikti_laukia'
       ) {
-        // Metų-jautru: imam nurodytų metų prašymus (ne year-blind dashboard.get).
-        const reqs = await getYearRequests(hc, year);
-        const submitted = reqs.filter((r) => r.status === 'SUBMITTED').length;
-        const approved = reqs.filter((r) => r.status === 'APPROVED').length;
+        // Grynas kiekis — TIKSLUS serverio `total` (be eilučių įkėlimo, nepriklauso
+        // nuo 6000 ribos). Metų-jautru (ne year-blind dashboard.get).
         if (metric === 'prasymu_skaicius') {
+          const [total, submitted, approved] = await Promise.all([
+            getYearRequestTotal(hc, year),
+            getYearRequestTotal(hc, year, 'SUBMITTED'),
+            getYearRequestTotal(hc, year, 'APPROVED'),
+          ]);
           return {
             kind: 'stat',
-            value: String(reqs.length),
+            value: String(total),
             subtitle: `${year} m. · Pateikti: ${submitted} · Patvirtinti: ${approved}`,
           };
         }
         if (metric === 'pateikti_laukia') {
+          const submitted = await getYearRequestTotal(hc, year, 'SUBMITTED');
           return {
             kind: 'stat',
             value: String(submitted),
             subtitle: `${year} m. · laukia sprendimo`,
           };
         }
+        // Sumos — reikia eilučių (cost laukų / grant'ų agregacija).
+        const reqs = await getYearRequests(hc, year);
         if (metric === 'prasyta_suma') {
           const sum = reqs.reduce((acc, r) => acc + requestedAmount(r), 0);
           return { kind: 'stat', value: fmtEur(sum), subtitle: `${year} m.` };
@@ -665,7 +704,7 @@ const SOURCES: CatalogSource[] = [
     kind: 'table',
     widgetTypes: ['table'],
     description:
-      'Projektų sąrašas: pavadinimas, tipas, statusas, biudžetas, organizacija. params.status filtruoja.',
+      'Projektų sąrašas: pavadinimas, tipas, statusas, biudžetas. biudžetas = VISO projekto biudžetas (ne tų metų dalis). params.status filtruoja; params.year palieka tais metais vykdomus projektus.',
     params: [
       YEAR_PARAM,
       {
@@ -712,7 +751,8 @@ const SOURCES: CatalogSource[] = [
     id: 'upcoming_deadlines',
     kind: 'table',
     widgetTypes: ['table'],
-    description: 'Artėjantys projektų terminai (30 dienų): projektas, data, liko dienų.',
+    description:
+      'Artėjantys projektų terminai: projektas, data, liko dienų. VISADA nuo ŠIANDIEN +30 d. (nepriklauso nuo pasirinktų metų).',
     params: [YEAR_PARAM],
     async run(hc, params) {
       const fvm = await getFvm(hc, paramInt(params, 'year') ?? hc.year);
@@ -751,6 +791,16 @@ const SOURCES: CatalogSource[] = [
     async run(hc, params) {
       const rep = await getBudgetExecution(hc, paramInt(params, 'year') ?? hc.year);
       const preferred = paramStr(params, 'sizeBy') === 'planuota' ? 'planuota' : 'faktine';
+      // Faktinės režimu — jei per visus metus išvis nieko neišleista (faktinė=0),
+      // visą diagramą perjungiam į planuotą (kad nebūtų tuščia). Bet NIEKADA
+      // nemaišom planuota+faktinė per atskirą briauną — kitaip sankey suma
+      // nesutaptų su treemap/lentelės/`islaidos_faktine` faktine (žr. buildSankey).
+      if (preferred === 'faktine') {
+        const totalFaktine = (rep?.bySource ?? [])
+          .flatMap((s) => s.byCategory)
+          .reduce((acc, c) => acc + toNum(c.faktine), 0);
+        if (totalFaktine <= 0) return buildSankey(rep, 'planuota');
+      }
       return buildSankey(rep, preferred);
     },
   },
@@ -812,8 +862,11 @@ function buildSankey(
 
   for (const s of rep?.bySource ?? []) {
     for (const c of s.byCategory) {
-      const val =
-        preferred === 'planuota' ? toNum(c.planuota) : toNum(c.faktine) || toNum(c.planuota);
+      // GRYNAS pjūvis: faktinė reiškia faktinę (be atsarginio planuota), kad
+      // sankey suma sutaptų su treemap/lentele/`islaidos_faktine`. Nulinės
+      // briaunos pačios atkrenta žemiau (val <= 0). Tuščios diagramos atvejį
+      // tvarko budget_flow_sankey.run (perjungia visą diagramą į planuotą).
+      const val = preferred === 'planuota' ? toNum(c.planuota) : toNum(c.faktine);
       if (val <= 0) continue;
       const srcKey = `src:${s.fundingSourceId}`;
       const catKey = `cat:${s.fundingSourceId}:${c.categoryCode}`;
@@ -988,10 +1041,28 @@ export function applyHydration(widget: AiWidget, result: HydrationResult): AiWid
 }
 
 /**
+ * Klaidos atveju (dataRef šaltinis METĖ) grąžinam IŠTUŠTINTĄ widget'ą — be
+ * literalių duomenų. PRIZMĖ: išsaugotas dashboard'as niekada nerodo pasenusių
+ * skaičių kaip naujų; jei nepavyko atnaujinti — geriau tuščia („duomenų nėra"),
+ * nei seni skaičiai. Paliekam tik karkasą (id/type/title/span/dataRef/format),
+ * kad FE galėtų atvaizduoti tuščią būseną arba praleisti.
+ */
+function blankWidget(w: AiWidget): AiWidget {
+  const out: AiWidget = { id: w.id, type: w.type };
+  if (w.title) out.title = w.title;
+  if (w.span) out.span = w.span;
+  if (w.dataRef) out.dataRef = w.dataRef;
+  if (w.format) out.format = w.format;
+  if (w.type === 'stat') out.value = '—';
+  return out;
+}
+
+/**
  * Hidruoja visą spec'ą: kiekvienam widget'ui su `dataRef` paleidžia šaltinį ir
- * užpildo data laukus šviežiais duomenimis. Widget'ai be dataRef paliekami kaip
- * yra (literalūs/snapshot duomenys). Klaidos tyliai praleidžiamos — widget'as
- * lieka su tuo, kas buvo (arba tuščias → FE jį praleidžia).
+ * užpildo data laukus ŠVIEŽIAIS duomenimis. Widget'ai be dataRef paliekami kaip
+ * yra (literalūs/snapshot duomenys). Jei šaltinis meta klaidą — widget'as
+ * IŠTUŠTINAMAS (blankWidget) ir klaida logginama; NIEKADA nepaliekam pasenusių
+ * skaičių (žr. prizmę).
  */
 export async function hydrateSpec(
   ctx: Context<unknown, AuthMeta>,
@@ -1013,8 +1084,12 @@ export async function hydrateSpec(
       try {
         const result = await source.run(hc, params);
         return applyHydration(widget, result);
-      } catch {
-        return widget;
+      } catch (err) {
+        ctx.broker.logger.warn(
+          `AI hydrate: šaltinis „${widget.dataRef.source}" metė klaidą — widget'as „${widget.id}" ištuštinamas (ne stale):`,
+          err instanceof Error ? err.message : err,
+        );
+        return blankWidget(widget);
       }
     }),
   );

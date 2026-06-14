@@ -9,7 +9,7 @@
  */
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { MessageSquareText, RotateCcw } from 'lucide-react';
+import { AlertTriangle, MessageSquareText, RotateCcw } from 'lucide-react';
 import type { AiChatEvent, AiDashboardSpec } from '@biip-finansai/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -81,6 +81,9 @@ export default function AiHomePage(): JSX.Element {
   const [busy, setBusy] = React.useState(false);
   const [statusLabel, setStatusLabel] = React.useState<string | null>(null);
   const [chatOpen, setChatOpen] = React.useState(false);
+  // PRIZMĖ: jei /ai/hydrate nepavyksta, rodomi skaičiai gali būti pasenę —
+  // parodom juostą su „Bandyti dar kartą", o ne tyliai paliekam senus skaičius.
+  const [hydrateFailed, setHydrateFailed] = React.useState(false);
 
   const streamRef = React.useRef<AiChatStreamHandle | null>(null);
   const specRef = React.useRef<AiDashboardSpec | null>(null);
@@ -107,9 +110,13 @@ export default function AiHomePage(): JSX.Element {
         setOverrideSpec(fresh);
         setGeneration((g) => g + 1);
         saveAiSpec(storageKey, fresh);
+        setHydrateFailed(false);
       })
       .catch(() => {
-        /* nepavyko — paliekam esamus skaičius */
+        // PRIZMĖ: nepavyko atnaujinti — rodomi skaičiai gali būti pasenę.
+        // NEslepiam to (nerodom senų skaičių kaip naujų) — keliam vėliavą ir
+        // pasiūlom bandyti dar kartą.
+        setHydrateFailed(true);
       });
   }, [storageKey]);
 
@@ -265,6 +272,27 @@ export default function AiHomePage(): JSX.Element {
               <Button variant="outline" size="sm" onClick={reset}>
                 <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
                 Pradinis vaizdas
+              </Button>
+            </div>
+          ) : null}
+
+          {hydrateFailed ? (
+            <div
+              role="alert"
+              className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            >
+              <span className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                Duomenys gali būti pasenę — nepavyko atnaujinti iš serverio.
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 border-amber-300 bg-white hover:bg-amber-100"
+                onClick={refreshOverride}
+              >
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                Bandyti dar kartą
               </Button>
             </div>
           ) : null}
