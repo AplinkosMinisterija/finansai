@@ -705,9 +705,16 @@ function WidgetControls({
           type="button"
           title="Tempti — keisti vietą"
           aria-label="Tempti — keisti vietą"
+          // tabIndex=-1 + blur po mouseUp: rankenėlė nepasilieka fokusuota po
+          // paspaudimo (kitaip focus-within laikytų valdiklius matomus net
+          // patraukus pelę). NEnaudojam preventDefault — jis sulaužytų native drag.
+          tabIndex={-1}
           className="flex h-5 w-5 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-muted active:cursor-grabbing"
           onMouseDown={onGrab}
-          onMouseUp={onRelease}
+          onMouseUp={(e) => {
+            onRelease?.();
+            e.currentTarget.blur();
+          }}
         >
           <GripVertical className="h-3.5 w-3.5" />
         </button>
@@ -831,6 +838,9 @@ export function WidgetRenderer({
           ? () => {
               setGrabbed(false);
               reorder.onDragEnd();
+              // Po tempimo rankenėlė lieka fokusuota → focus-within laikytų
+              // valdiklius matomus net patraukus pelę. Nuimam fokusą.
+              if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
             }
           : undefined
       }
