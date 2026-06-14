@@ -152,6 +152,14 @@ export type AiDashboardSpec = {
    * („rodyk 2025") atsinaujina nuosekliai visuose grafikuose.
    */
   year?: number;
+  /**
+   * Globalus institucijos (tenant) pjūvis. Kai nustatytas, serveris hidruodamas
+   * PRIVERSTINAI apriboja VISŲ widget'ų duomenis šia institucija (intersect su
+   * vartotojo matomu scope — ADR-005 negali praplėsti matomumo). Taip „rodyk tik
+   * AAD" pjūvis išsisaugo spec'e ir RE-HIDRUOJASI be LLM. undefined = visos
+   * (pagal vartotojo scope).
+   */
+  tenantId?: number;
   widgets: AiWidget[];
 };
 
@@ -642,6 +650,14 @@ export function validateDashboardSpec(input: unknown): AiSpecValidationResult {
     const y = Math.round(Number(raw.year));
     if (Number.isFinite(y) && y >= 2000 && y <= 3000) spec.year = y;
   }
+  // Globalus institucijos pjūvis (tenantId). Serveris papildomai validuoja prieš
+  // scope (intersect) — čia tik bazinė sanitizacija (teigiamas sveikas).
+  const tenantId = isFiniteNumber(raw.tenantId)
+    ? Math.round(raw.tenantId)
+    : typeof raw.tenantId === 'string' && raw.tenantId.trim()
+      ? Math.round(Number(raw.tenantId))
+      : NaN;
+  if (Number.isFinite(tenantId) && tenantId > 0) spec.tenantId = tenantId;
   return { ok: true, spec, errors };
 }
 

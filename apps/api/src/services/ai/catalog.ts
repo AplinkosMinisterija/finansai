@@ -127,8 +127,24 @@ const STATUS_LABELS: Record<string, string> = {
 export type HydrationCtx = {
   ctx: Context<unknown, AuthMeta>;
   year: number;
+  /**
+   * Globalus institucijos (tenant) pjūvis (spec.tenantId). Kai nustatytas,
+   * šaltiniai perduoda jį action'ams kaip PAPILDOMĄ filtrą (intersect su vartotojo
+   * scope — ADR-005 negali praplėsti matomumo). undefined = visos (pagal scope).
+   */
+  tenantId?: number;
   cache: Map<string, Promise<unknown>>;
 };
+
+/** Cache rakto priesaga su instituciju (kad pjūvis nesumaišytų memo). */
+function scopeKey(hc: HydrationCtx): string {
+  return hc.tenantId !== undefined ? `t${hc.tenantId}` : '-';
+}
+
+/** Institucijos pjūvio param objektas action'ams (tuščias, kai pjūvio nėra). */
+function tenantParam(hc: HydrationCtx): { tenantId?: number } {
+  return hc.tenantId !== undefined ? { tenantId: hc.tenantId } : {};
+}
 
 function cached<T>(hc: HydrationCtx, key: string, run: () => Promise<T>): Promise<T> {
   const existing = hc.cache.get(key);
@@ -139,30 +155,33 @@ function cached<T>(hc: HydrationCtx, key: string, run: () => Promise<T>): Promis
 }
 
 function getFvm(hc: HydrationCtx, year: number): Promise<FvmSummaryResponse | null> {
-  return cached(hc, `dashboard.fvmSummary:${year}`, () =>
-    callAction<FvmSummaryResponse, { year: number }>(hc.ctx, 'dashboard.fvmSummary', {
-      year,
-    }).catch(() => null),
+  return cached(hc, `dashboard.fvmSummary:${year}:${scopeKey(hc)}`, () =>
+    callAction<FvmSummaryResponse, { year: number; tenantId?: number }>(
+      hc.ctx,
+      'dashboard.fvmSummary',
+      { year, ...tenantParam(hc) },
+    ).catch(() => null),
   );
 }
 
 function getBudgetExecution(hc: HydrationCtx, year: number): Promise<BudgetExecutionReport | null> {
-  return cached(hc, `reports.budgetExecution:${year}`, () =>
-    callAction<BudgetExecutionReport, { year: number; format: 'json' }>(
+  return cached(hc, `reports.budgetExecution:${year}:${scopeKey(hc)}`, () =>
+    callAction<BudgetExecutionReport, { year: number; format: 'json'; tenantId?: number }>(
       hc.ctx,
       'reports.budgetExecution',
-      { year, format: 'json' },
+      { year, format: 'json', ...tenantParam(hc) },
     ).catch(() => null),
   );
 }
 
 function getExpenses(hc: HydrationCtx, year: number, projectId?: number): Promise<Expense[]> {
-  const key = `expenses.list:${year}:${projectId ?? '-'}`;
+  const key = `expenses.list:${year}:${projectId ?? '-'}:${scopeKey(hc)}`;
   return cached(hc, key, () =>
-    callAction<Expense[], { year: number; projectId?: number }>(hc.ctx, 'expenses.list', {
-      year,
-      ...(projectId !== undefined ? { projectId } : {}),
-    }).catch(() => []),
+    callAction<Expense[], { year: number; projectId?: number; tenantId?: number }>(
+      hc.ctx,
+      'expenses.list',
+      { year, ...(projectId !== undefined ? { projectId } : {}), ...tenantParam(hc) },
+    ).catch(() => []),
   );
 }
 
@@ -175,7 +194,7 @@ function getExpenses(hc: HydrationCtx, year: number, projectId?: number): Promis
  * kortelėmis. ADR-005: requests.list pats taiko tenant scope.
  */
 function getYearRequests(hc: HydrationCtx, year: number): Promise<FinancingRequest[]> {
-  return cached(hc, `requests.list:${year}`, async () => {
+  return cached(hc, `requests.list:${year}:${scopeKey(hc)}`, async () => {
     const all: FinancingRequest[] = [];
     const pageSize = 200;
     // Iki 30 psl. × 200 = 6000 prašymų/metus (su atsarga AM domenui). Eilučių
@@ -185,8 +204,8 @@ function getYearRequests(hc: HydrationCtx, year: number): Promise<FinancingReque
     for (let page = 1; page <= 30; page += 1) {
       const res = await callAction<
         PaginatedResponse<FinancingRequest>,
-        { year: number; page: number; pageSize: number }
-      >(hc.ctx, 'requests.list', { year, page, pageSize }).catch(() => null);
+        { year: number; page: number; pageSize: number; tenantId?: number }
+      >(hc.ctx, 'requests.list', { year, page, pageSize, ...tenantParam(hc) }).catch(() => null);
       if (!res || !Array.isArray(res.items) || res.items.length === 0) break;
       all.push(...res.items);
       if (all.length >= (res.total ?? all.length)) break;
@@ -201,15 +220,16 @@ function getYearRequests(hc: HydrationCtx, year: number): Promise<FinancingReque
  * NEpriklausytų nuo 6000 eilučių ribos. status — neprivalomas filtras.
  */
 function getYearRequestTotal(hc: HydrationCtx, year: number, status?: string): Promise<number> {
-  return cached(hc, `requests.total:${year}:${status ?? '-'}`, async () => {
+  return cached(hc, `requests.total:${year}:${status ?? '-'}:${scopeKey(hc)}`, async () => {
     const res = await callAction<
       PaginatedResponse<FinancingRequest>,
-      { year: number; status?: string; page: number; pageSize: number }
+      { year: number; status?: string; page: number; pageSize: number; tenantId?: number }
     >(hc.ctx, 'requests.list', {
       year,
       ...(status ? { status } : {}),
       page: 1,
       pageSize: 1,
+      ...tenantParam(hc),
     }).catch(() => null);
     return res?.total ?? 0;
   });
@@ -717,10 +737,14 @@ const SOURCES: CatalogSource[] = [
     async run(hc, params) {
       const year = paramInt(params, 'year');
       const status = paramStr(params, 'status');
-      const list = await callAction<Project[], { year?: number; status?: string }>(
+      const list = await callAction<Project[], { year?: number; status?: string; tenantId?: number }>(
         hc.ctx,
         'projects.list',
-        { ...(year !== undefined ? { year } : {}), ...(status ? { status } : {}) },
+        {
+          ...(year !== undefined ? { year } : {}),
+          ...(status ? { status } : {}),
+          ...tenantParam(hc),
+        },
       ).catch(() => [] as Project[]);
       const statusLt: Record<string, string> = {
         planuojama: 'Planuojama',
@@ -1073,7 +1097,16 @@ export async function hydrateSpec(
   // keitimas atsinaujintų nuosekliai VISUOSE widget'uose (modelis nebeprivalo
   // pataikyti į kiekvieną widget atskirai).
   const globalYear = typeof spec.year === 'number' ? spec.year : undefined;
-  const hc: HydrationCtx = { ctx, year: globalYear ?? defaultYear, cache: new Map() };
+  // Globalus institucijos pjūvis (spec.tenantId) — perduodamas šaltiniams per hc;
+  // action'ai validuoja prieš scope (intersect). undefined = visos (pagal scope).
+  const globalTenantId =
+    typeof spec.tenantId === 'number' && spec.tenantId > 0 ? spec.tenantId : undefined;
+  const hc: HydrationCtx = {
+    ctx,
+    year: globalYear ?? defaultYear,
+    tenantId: globalTenantId,
+    cache: new Map(),
+  };
   const widgets = await Promise.all(
     spec.widgets.map(async (widget) => {
       if (!widget.dataRef) return widget;
@@ -1105,6 +1138,7 @@ export async function runSourceForTool(
   sourceId: string,
   params: Record<string, unknown>,
   defaultYear: number,
+  tenantId?: number,
 ): Promise<HydrationResult | { error: string }> {
   const source = getSource(sourceId);
   if (!source) {
@@ -1112,7 +1146,9 @@ export async function runSourceForTool(
       error: `Nežinomas duomenų šaltinis „${sourceId}". Galimi: ${listSourceIds().join(', ')}`,
     };
   }
-  const hc: HydrationCtx = { ctx, year: defaultYear, cache: new Map() };
+  // Aktyvus institucijos pjūvis perduodamas ir query_data peržiūrai — kad modelio
+  // matomi skaičiai sutaptų su tuo, kas bus atvaizduota (žr. hydrateSpec).
+  const hc: HydrationCtx = { ctx, year: defaultYear, tenantId, cache: new Map() };
   try {
     return await source.run(hc, params);
   } catch (err) {

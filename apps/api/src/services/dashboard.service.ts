@@ -34,7 +34,7 @@ import { Tenant } from '../models/Tenant';
 import { User } from '../models/User';
 import { centsToAmount, toCents } from '../utils/money';
 import { calculatePercentUsed, calculateWarningFlags } from '../utils/fvm';
-import { canViewPayroll, isAmAdminUser } from '../utils/permissions';
+import { canAccessTenant, canViewPayroll } from '../utils/permissions';
 import type { AuthMeta } from './auth.service';
 
 interface RequestWithRels extends Request {
@@ -639,11 +639,14 @@ const DashboardService: ServiceSchema = {
         const year = ctx.params.year;
         const tenantFilter = ctx.params.tenantId;
 
-        // tenantId param leidžiamas tik AM admin'ams (gali pasirinkti)
-        // Org users / org admins — ignoruojam param, naudojam savo tenant.
-        if (tenantFilter !== undefined && !isAmAdminUser(me)) {
+        // Institucijos pjūvis (tenantId) leidžiamas, jei vartotojas TĄ instituciją
+        // mato pagal scope: AM admin — bet kurią; AM specialistas — savo scope
+        // ribose; org — tik savą. Filtras taikomas kaip PAPILDOMAS intersect (žr.
+        // scope funkcijas), todėl net be šio guard'o negalėtų praplėsti matomumo;
+        // guard duoda aiškų 403 vietoj tylaus tuščio rezultato (ADR-005).
+        if (tenantFilter !== undefined && !canAccessTenant(me, tenantFilter)) {
           throw new Errors.MoleculerClientError(
-            'Tenant filtras leidžiamas tik AM administratoriui',
+            'Nepasiekiama institucija filtrui',
             403,
             'TENANT_FILTER_FORBIDDEN',
           );
@@ -656,36 +659,39 @@ const DashboardService: ServiceSchema = {
         //  - AM user su scope=null: visi
         //  - AM user su scope=[ids]: tik scope tenant'ai
         //  - Org admin/user: tik savo tenant'as
+        // Kiekviena scope funkcija: (1) bazinis role scope, (2) PAPILDOMAS
+        // institucijos pjūvis (tenantFilter) kaip INTERSECT — gali tik susiaurinti,
+        // niekada nepraplėsti (saugu visoms rolėms; guard jau patikrino matomumą).
         function applyAllocationTenantScope(
           q: ReturnType<typeof BudgetAllocationV2.query>,
         ): 'empty' | 'ok' {
           if (me.tenantIsApprover) {
-            if (me.role === 'admin') {
-              if (tenantFilter !== undefined) {
+            if (me.role !== 'admin') {
+              // AM specialistas
+              if (me.amScopeOrgIds !== null) {
+                if (me.amScopeOrgIds.length === 0) return 'empty';
                 q.whereExists((qb) => {
                   qb.from('funding_sources')
                     .whereRaw('funding_sources.id = budget_allocations_v2.funding_source_id')
-                    .where('funding_sources.tenant_id', tenantFilter);
+                    .whereIn('funding_sources.tenant_id', me.amScopeOrgIds!);
                 });
               }
-              return 'ok';
             }
-            // AM user
-            if (me.amScopeOrgIds === null) return 'ok';
-            if (me.amScopeOrgIds.length === 0) return 'empty';
+          } else {
+            // Org admin / org user
             q.whereExists((qb) => {
               qb.from('funding_sources')
                 .whereRaw('funding_sources.id = budget_allocations_v2.funding_source_id')
-                .whereIn('funding_sources.tenant_id', me.amScopeOrgIds!);
+                .where('funding_sources.tenant_id', me.tenantId);
             });
-            return 'ok';
           }
-          // Org admin / org user
-          q.whereExists((qb) => {
-            qb.from('funding_sources')
-              .whereRaw('funding_sources.id = budget_allocations_v2.funding_source_id')
-              .where('funding_sources.tenant_id', me.tenantId);
-          });
+          if (tenantFilter !== undefined) {
+            q.whereExists((qb) => {
+              qb.from('funding_sources')
+                .whereRaw('funding_sources.id = budget_allocations_v2.funding_source_id')
+                .where('funding_sources.tenant_id', tenantFilter);
+            });
+          }
           return 'ok';
         }
 
@@ -693,35 +699,35 @@ const DashboardService: ServiceSchema = {
           q: ReturnType<typeof FundingSource.query>,
         ): 'empty' | 'ok' {
           if (me.tenantIsApprover) {
-            if (me.role === 'admin') {
-              if (tenantFilter !== undefined) {
-                q.where('tenant_id', tenantFilter);
+            if (me.role !== 'admin') {
+              if (me.amScopeOrgIds !== null) {
+                if (me.amScopeOrgIds.length === 0) return 'empty';
+                q.whereIn('tenant_id', me.amScopeOrgIds);
               }
-              return 'ok';
             }
-            if (me.amScopeOrgIds === null) return 'ok';
-            if (me.amScopeOrgIds.length === 0) return 'empty';
-            q.whereIn('tenant_id', me.amScopeOrgIds);
-            return 'ok';
+          } else {
+            q.where('tenant_id', me.tenantId);
           }
-          q.where('tenant_id', me.tenantId);
+          if (tenantFilter !== undefined) {
+            q.where('tenant_id', tenantFilter);
+          }
           return 'ok';
         }
 
         function applyProjectTenantScope(q: ReturnType<typeof Project.query>): 'empty' | 'ok' {
           if (me.tenantIsApprover) {
-            if (me.role === 'admin') {
-              if (tenantFilter !== undefined) {
-                q.where('projects.tenant_id', tenantFilter);
+            if (me.role !== 'admin') {
+              if (me.amScopeOrgIds !== null) {
+                if (me.amScopeOrgIds.length === 0) return 'empty';
+                q.whereIn('projects.tenant_id', me.amScopeOrgIds);
               }
-              return 'ok';
             }
-            if (me.amScopeOrgIds === null) return 'ok';
-            if (me.amScopeOrgIds.length === 0) return 'empty';
-            q.whereIn('projects.tenant_id', me.amScopeOrgIds);
-            return 'ok';
+          } else {
+            q.where('projects.tenant_id', me.tenantId);
           }
-          q.where('projects.tenant_id', me.tenantId);
+          if (tenantFilter !== undefined) {
+            q.where('projects.tenant_id', tenantFilter);
+          }
           return 'ok';
         }
 

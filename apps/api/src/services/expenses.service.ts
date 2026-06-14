@@ -345,6 +345,12 @@ const ExpensesService: ServiceSchema = {
           optional: true,
           convert: true,
         },
+        tenantId: {
+          type: 'number',
+          integer: true,
+          optional: true,
+          convert: true,
+        },
       },
       async handler(ctx: Context<ExpenseListQuery, AuthMeta>): Promise<ExpenseDTO[]> {
         const me = requireMe(ctx);
@@ -412,6 +418,17 @@ const ExpensesService: ServiceSchema = {
           // (`idx_expenses_saltinio_dalis_gin`).
           const filter = JSON.stringify([{ funding_source_id: ctx.params.fundingSourceId }]);
           q.whereRaw('expenses.saltinio_dalis @> ?::jsonb', [filter]);
+        }
+        if (ctx.params.tenantId !== undefined) {
+          // Institucijos pjūvis — PAPILDOMAS (intersect) filtras per project.tenant_id.
+          // Saugu: taikomas VIRŠ scope WHERE, todėl gali tik SUSIAURINTI matomumą,
+          // niekada nepraplėsti (ne-savo tenant → tuščia). Žr. projects.list pattern.
+          const sliceTenantId = ctx.params.tenantId;
+          q.whereExists((qb) => {
+            qb.from('projects')
+              .whereRaw('projects.id = expenses.project_id')
+              .where('projects.tenant_id', sliceTenantId);
+          });
         }
 
         const rows = (await q) as ExpenseWithRels[];

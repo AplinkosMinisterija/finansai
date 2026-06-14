@@ -393,6 +393,8 @@ export type ExpenseListQuery = {
   dateTo?: string;
   /** Filtruoja per `saltinio_dalis` jsonb @> containment'ą. */
   fundingSourceId?: number;
+  /** Institucijos (tenant) pjūvis — papildomas intersect filtras per project.tenant_id. */
+  tenantId?: number;
 };
 
 /**

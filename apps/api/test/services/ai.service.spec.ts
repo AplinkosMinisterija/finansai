@@ -14,7 +14,7 @@ import type { ServiceBroker } from 'moleculer';
 import type { PassThrough } from 'stream';
 import type { AiDashboardSpec } from '@biip-finansai/shared';
 import { AI_SPEC_LIMITS, validateDashboardSpec } from '@biip-finansai/shared';
-import { mergeSpec, parseRenderControl } from '../../src/services/ai.service';
+import { mergeSpec, parseRenderControl, resolveSlice } from '../../src/services/ai.service';
 import { createTestBroker } from '../helpers/broker';
 import { getTestKnex, closeTestKnex, truncateAll, seedBaseFixtures } from '../helpers/db';
 import { mockAuthUser, mockOrgUser } from '../helpers/auth';
@@ -38,6 +38,47 @@ describe('parseRenderControl', () => {
       'a',
       'b',
     ]);
+  });
+});
+
+describe('resolveSlice (institucijos pjūvis)', () => {
+  const INST = [
+    { id: 1, code: 'AM', name: 'Aplinkos ministerija' },
+    { id: 2, code: 'AAD', name: 'Aplinkos apsaugos departamentas' },
+    { id: 3, code: 'VSTT', name: 'Valstybinė saugomų teritorijų tarnyba' },
+  ];
+
+  it('tikslus kodo atitikmuo (case-insensitive)', () => {
+    expect(resolveSlice({ institution: 'aad' }, INST)).toEqual({ tenantId: 2 });
+  });
+  it('tikslus pavadinimo atitikmuo', () => {
+    expect(resolveSlice({ institution: 'Valstybinė saugomų teritorijų tarnyba' }, INST)).toEqual({
+      tenantId: 3,
+    });
+  });
+  it('dalinis (contains) atitikmuo', () => {
+    expect(resolveSlice({ institution: 'apsaugos' }, INST)).toEqual({ tenantId: 2 });
+  });
+  it('„visos"/„all" → panaikinti pjūvį', () => {
+    expect(resolveSlice({ institution: 'visos' }, INST)).toEqual({ clear: true });
+    expect(resolveSlice({ institution: 'ALL' }, INST)).toEqual({ clear: true });
+  });
+  it('pagal pasiekiamą id', () => {
+    expect(resolveSlice({ tenantId: 3 }, INST)).toEqual({ tenantId: 3 });
+  });
+  it('nepasiekiamas id → note, be pakeitimo', () => {
+    const r = resolveSlice({ tenantId: 99 }, INST);
+    expect(r.tenantId).toBeUndefined();
+    expect(r.note).toBeDefined();
+  });
+  it('nežinoma institucija → note, be pakeitimo (saugu)', () => {
+    const r = resolveSlice({ institution: 'Slapta organizacija' }, INST);
+    expect(r.tenantId).toBeUndefined();
+    expect(r.clear).toBeUndefined();
+    expect(r.note).toBeDefined();
+  });
+  it('be argumentų → nieko nekeisti', () => {
+    expect(resolveSlice({}, INST)).toEqual({});
   });
 });
 

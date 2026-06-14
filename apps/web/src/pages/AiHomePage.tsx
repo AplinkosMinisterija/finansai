@@ -9,8 +9,9 @@
  */
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, MessageSquareText, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Building2, MessageSquareText, RotateCcw, X } from 'lucide-react';
 import type { AiChatEvent, AiDashboardSpec } from '@biip-finansai/shared';
+import { tenantsList } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -209,6 +210,40 @@ export default function AiHomePage(): JSX.Element {
 
   const spec = overrideSpec ?? defaultQuery.data?.spec ?? null;
 
+  // Institucijos pjūvis (spec.tenantId) — rodom „chip" su pavadinimu + ✕, kad
+  // vartotojas matytų, jog skaičiai apriboti viena institucija (kitaip atrodytų,
+  // kad „skaičiai sumažėjo"). Tenant pavadinimą gaunam tik kai pjūvis aktyvus.
+  const sliceTenantId = spec?.tenantId;
+  const tenantsQuery = useQuery({
+    queryKey: ['ai-slice-tenants'],
+    queryFn: () => tenantsList(),
+    staleTime: 300_000,
+    enabled: sliceTenantId !== undefined,
+  });
+  const activeInstitution =
+    sliceTenantId !== undefined
+      ? (tenantsQuery.data?.find((t) => t.id === sliceTenantId)?.name ?? `#${sliceTenantId}`)
+      : null;
+
+  // Panaikina institucijos pjūvį (rodo visas) — pašalina tenantId ir re-hidruoja.
+  const clearSlice = React.useCallback((): void => {
+    const base = specRef.current;
+    if (!base || base.tenantId === undefined) return;
+    const next: AiDashboardSpec = { ...base };
+    delete next.tenantId;
+    setOverrideSpec(next);
+    setGeneration((g) => g + 1);
+    saveAiSpec(storageKey, next);
+    aiHydrate(next)
+      .then((fresh) => {
+        setOverrideSpec(fresh);
+        setGeneration((g) => g + 1);
+        saveAiSpec(storageKey, fresh);
+        setHydrateFailed(false);
+      })
+      .catch(() => setHydrateFailed(true));
+  }, [storageKey]);
+
   // Per-widget pločio keitimas (¼/½/pilnas). Atnaujina spec'ą vietoje — generation
   // NEbumpinam, kad tinklelis persitvarkytų sklandžiai (be re-animacijos) —
   // ir persistuoja, kad layout tweak'as išliktų po reload. „Pradinis vaizdas" atstato.
@@ -267,12 +302,31 @@ export default function AiHomePage(): JSX.Element {
       {/* --- Drobė --- */}
       <div className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl p-4 md:p-6">
-          {overrideSpec ? (
-            <div className="mb-3 flex items-center justify-end">
-              <Button variant="outline" size="sm" onClick={reset}>
-                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                Pradinis vaizdas
-              </Button>
+          {overrideSpec || activeInstitution ? (
+            <div className="mb-3 flex items-center justify-between gap-2">
+              {activeInstitution ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                  <Building2 className="h-3.5 w-3.5" />
+                  Institucija: {activeInstitution}
+                  <button
+                    type="button"
+                    onClick={clearSlice}
+                    aria-label="Panaikinti institucijos pjūvį"
+                    title="Rodyti visas institucijas"
+                    className="ml-0.5 rounded-full p-0.5 hover:bg-primary/20"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ) : (
+                <span />
+              )}
+              {overrideSpec ? (
+                <Button variant="outline" size="sm" onClick={reset}>
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  Pradinis vaizdas
+                </Button>
+              ) : null}
             </div>
           ) : null}
 

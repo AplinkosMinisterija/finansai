@@ -153,6 +153,28 @@ export function isAmAdminUser(user: AuthUser | null | undefined): boolean {
 }
 
 /**
+ * Ar vartotojas gali matyti KONKREČIOS institucijos (tenant) duomenis pagal savo
+ * scope. Naudojama institucijos pjūvio (dashboard/AI slice) validacijai:
+ *  - AM admin — bet kurią instituciją;
+ *  - AM specialistas — tik savo `amScopeOrgIds` ribose (null = visos);
+ *  - org admin / user — tik savo `tenantId`.
+ * SVARBU: tai TIK aiškaus 403 patikra. Tikrasis duomenų apribojimas privalo būti
+ * INTERSECT WHERE filtras virš esamo scope (negali praplėsti matomumo). ADR-005.
+ */
+export function canAccessTenant(
+  user: AuthUser | null | undefined,
+  tenantId: number,
+): boolean {
+  if (!user) return false;
+  if (user.tenantIsApprover) {
+    if (user.role === 'admin') return true;
+    if (user.amScopeOrgIds === null || user.amScopeOrgIds === undefined) return true;
+    return user.amScopeOrgIds.includes(tenantId);
+  }
+  return tenantId === user.tenantId;
+}
+
+/**
  * AM-only DU operacijų gate'as (Iter 13).
  *
  * Naudoti operacijoms, kurias gali atlikti TIK AM administratorius:

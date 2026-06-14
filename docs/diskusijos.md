@@ -2,6 +2,38 @@
 
 Naujausi įrašai viršuje. Vienas įrašas = vienas sprendimas/diskusija.
 
+## 2026-06-14 — Iter 20 (Faza 2/3) — AI dashboard: institucijos (pavaldžios organizacijos) pjūvis
+
+Vartotojo prašymas: lankstūs pjūviai, pvz. „vienos pavaldžios institucijos pjūvis". Įgyvendinta
+per prizmę (persistuoja + re-hidruojasi be LLM). Tenant modelis PLOKŠČIAS (AM=tvirtintojas,
+AAD/VSTT/LGT pavaldžios) — „pjūvis" = filtras pagal `tenant_id`.
+
+**Architektūra:** naujas globalus `spec.tenantId` (kaip `year`) — serveris hidruodamas apriboja
+VISŲ widget'ų duomenis ta institucija. Pjūvis išsisaugo spec'e (localStorage) ir
+re-hidruojasi be LLM. Saugumo modelis (ADR-005): `tenantId` VISADA taikomas kaip PAPILDOMAS
+INTERSECT WHERE virš vartotojo scope — gali tik SUSIAURINTI, niekada nepraplėsti.
+
+**Pakeitimai:** `permissions.canAccessTenant` (aiškus 403 / sanitizacija); `dashboard.fvmSummary`
+guard atlaisvintas (AM-admin-only → canAccessTenant) + 3 scope funkcijos taiko tenantFilter
+intersect VISOMS rolėms; `expenses.list` +tenantId intersect; katalogo `HydrationCtx.tenantId`
+prakišamas per visus šaltinius (cache raktai su scopeKey); `ai.service` — `getAccessibleInstitutions`
+(scoped), `resolveSlice` (institution string/id → tik PASIEKIAMOS institucijos), render_dashboard
+gauna `institution`/`tenantId`, prompt'e — pasiekiamų institucijų sąrašas. FE: institucijos „chip"
+su pavadinimu + ✕ (kad vartotojas matytų, jog skaičiai apriboti) + clearSlice.
+
+**Modelis pjauna pagal pavadinimą:** „rodyk tik AAD" → `{institution:"AAD", widgets:[]}`;
+„rodyk visas" → `{institution:"visos"}`. Pjūvis „sticky" (lieka per add/replace, kol nepakeisti).
+
+**Adversarinis ADR-005 security review (3 lęšiai):** DU apsauga PILNAI nepaliesta (patvirtinta —
+visi canViewPayroll filtrai lieka, tenantFilter tik susiaurina). 2 korektiškumo pataisos:
+(1) top-level `tenantId` apeitų resolveSlice → render kelyje `validateDashboardSpec` gauna
+`tenantId:undefined`, resolveSlice/applySlice = vienintelis autoritetas; + defense-in-depth:
+`ai.hydrate`/chat numeta pjūvį į NEPASIEKIAMĄ instituciją (krenta į savo scope, ne fantomą).
+(2) `query_data` peržiūra dabar irgi gauna aktyvų pjūvį (runSourceForTool tenantId).
+
+**Testai:** `ai-catalog-slice.spec.ts` (5: AM admin pjūvis A/B/visos, org scoped, SAUGUMAS —
+svetimas pjūvis krenta į savo scope, JOKIO leak); `resolveSlice` unit (8). API 412, web 155, build žali.
+
 ## 2026-06-14 — Iter 19 (Faza 1) — AI dashboard korektiškumo auditas: „skaičiai teisingi visur ir visada"
 
 Vartotojo reikalavimas: pakoreguotas dashboard'as PERSISTUOJA ir skaičiai RE-HIDRUOJASI iš

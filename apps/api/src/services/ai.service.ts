@@ -33,6 +33,7 @@ import type {
 } from '@biip-finansai/shared';
 import { AI_SPEC_LIMITS, validateDashboardSpec } from '@biip-finansai/shared';
 import type { AuthMeta } from './auth.service';
+import { canAccessTenant } from '../utils/permissions';
 import { buildCatalogPromptDoc, hydrateSpec, listSourceIds, runSourceForTool } from './ai/catalog';
 
 // ---------- Konfigūracija ----------
@@ -131,6 +132,16 @@ const LLM_TOOLS = [
             type: 'integer',
             description:
               'Globalūs metai visam vaizdui — serveris pritaiko VISIEMS widget dataRef. Naudok šitą, kai vartotojas keičia metus (pvz. „rodyk 2025").',
+          },
+          institution: {
+            type: 'string',
+            description:
+              'Institucijos (organizacijos) pjūvis VISAM vaizdui — kodas arba pavadinimas iš sąrašo sistemos žinutėje (pvz. „AAD"). Serveris apriboja VISŲ widget\'ų duomenis šia institucija. „visos"/„all" = panaikinti pjūvį. Naudok, kai vartotojas prašo „rodyk tik <institucija>" arba „<institucijos> pjūvis".',
+          },
+          tenantId: {
+            type: 'integer',
+            description:
+              'Alternatyva institution — institucijos id (number) iš sąrašo. Pakanka vieno iš institution/tenantId.',
           },
           widgets: {
             type: 'array',
@@ -292,8 +303,72 @@ export function mergeSpec(
     title: base.title ?? next.title,
     subtitle: base.subtitle ?? next.subtitle,
     year: next.year ?? base.year,
+    // Institucijos pjūvis persistuoja per redagavimus (handleRenderCall jį
+    // perrašo, kai vartotojas keičia/valo pjūvį).
+    tenantId: next.tenantId ?? base.tenantId,
     widgets: capped,
   };
+}
+
+// ---------- Institucijos (tenant) pjūvis ----------
+
+type Institution = { id: number; code: string; name: string };
+
+/**
+ * Institucijos, kurias vartotojas MATO (scope). Naudojama (a) prompt'ui — kad
+ * modelis žinotų galimus pjūvius, (b) `institution` string'o validacijai. Saugu:
+ * filtruojam per `canAccessTenant`, todėl modelis negali pjauti į svetimą (be to,
+ * action'ai dar kartą validuoja intersect — ADR-005 defense-in-depth).
+ */
+async function getAccessibleInstitutions(
+  ctx: Context<unknown, AuthMeta>,
+  me: AuthUser,
+): Promise<Institution[]> {
+  try {
+    const all = await ctx.broker.call<
+      Array<{ id: number; code: string; name: string }>,
+      { withCounts: boolean }
+    >('tenants.list', { withCounts: false }, { meta: { ...ctx.meta }, timeout: 10_000 });
+    return all
+      .filter((t) => canAccessTenant(me, t.id))
+      .map((t) => ({ id: t.id, code: t.code, name: t.name }));
+  } catch {
+    return [];
+  }
+}
+
+const CLEAR_SLICE_WORDS = new Set(['visos', 'visi', 'visas', 'all', '*', 'bendras', 'visų']);
+
+/**
+ * Iš render_dashboard argumentų išsprendžia institucijos pjūvį prieš PASIEKIAMŲ
+ * institucijų sąrašą. Grąžina: {clear} — panaikinti; {tenantId} — nustatyti;
+ * {note} — nepavyko (modeliui pranešam); {} — nieko nekeisti.
+ */
+export function resolveSlice(
+  args: Record<string, unknown>,
+  institutions: Institution[],
+): { tenantId?: number; clear?: boolean; note?: string } {
+  const institution = typeof args.institution === 'string' ? args.institution.trim() : '';
+  const tid = toInt(args.tenantId);
+  if (institution) {
+    const low = institution.toLowerCase();
+    if (CLEAR_SLICE_WORDS.has(low)) return { clear: true };
+    const exact = institutions.find(
+      (i) => i.code.toLowerCase() === low || i.name.toLowerCase() === low,
+    );
+    const fuzzy =
+      exact ??
+      institutions.find(
+        (i) => i.name.toLowerCase().includes(low) || low.includes(i.code.toLowerCase()),
+      );
+    if (fuzzy) return { tenantId: fuzzy.id };
+    return { note: `Institucija „${institution}" nerasta tarp pasiekiamų — pjūvis nepakeistas.` };
+  }
+  if (tid !== undefined) {
+    if (institutions.some((i) => i.id === tid)) return { tenantId: tid };
+    return { note: `Institucija id=${tid} nepasiekiama — pjūvis nepakeistas.` };
+  }
+  return {};
 }
 
 /**
@@ -391,7 +466,31 @@ function buildSystemPrompt(
   me: AuthUser,
   year: number,
   currentSpec: AiDashboardSpec | null,
+  institutions: Institution[],
 ): string {
+  // Institucijos pjūvis siūlomas tik kai vartotojas mato >1 organizaciją.
+  const canSlice = institutions.length > 1;
+  const instDoc = institutions.map((i) => `  - ${i.code} — ${i.name} (tenantId ${i.id})`).join('\n');
+  const currentSlice =
+    currentSpec?.tenantId !== undefined
+      ? (institutions.find((i) => i.id === currentSpec.tenantId)?.code ??
+        `tenantId ${currentSpec.tenantId}`)
+      : 'visos';
+  const sliceSection = canSlice
+    ? `
+INSTITUCIJOS (ORGANIZACIJOS) PJŪVIS:
+- Galimos institucijos pjūviui:
+${instDoc}
+- Dabartinis pjūvis: ${currentSlice}.
+- Kai vartotojas prašo „rodyk tik <institucija>", „<institucijos> pjūvis", „atskirk <instituciją>" —
+  nustatyk render_dashboard TOP-LEVEL "institution":"<kodas arba pavadinimas iš sąrašo>". Serveris
+  apribos VISŲ widget'ų duomenis ta institucija (ir tai persistuos + atsinaujins be tavęs).
+- Panaikinti pjūvį (rodyti visas) — "institution":"visos".
+- Pjūvis taikomas kartu su metais; jei keiti TIK instituciją, widgetų keisti nereikia (widgets: []).
+- „rodyk tik AAD" → ${SPEC_TOOL_NAME}({"institution":"AAD","widgets":[]})
+`
+    : '';
+
   const roleDesc = me.tenantIsApprover
     ? me.role === 'admin'
       ? 'AM administratorius (mato visų organizacijų duomenis)'
@@ -467,7 +566,7 @@ METAI (svarbu):
 - Jei vartotojas prašo tik metų pakeitimo (UI nesikeičia) — perduok TĄ PATĮ widgetų sąrašą
   (tie patys id/dataRef) + naują top-level "year".
 - Jei pasirinktiems metams nėra duomenų — grafikai bus tušti; tai NORMALU, pasakyk tai vartotojui.
-
+${sliceSection}
 GEROS PRAKTIKOS:
 - Pirmoje eilėje 3–4 stat kortelės (span 1, dataRef "metric"), žemiau span 2 grafikai/lentelės.
 - Įdomiems pjūviams naudok sankey (biudžeto srautai) ir treemap (hierarchija).
@@ -537,13 +636,22 @@ async function runChatLoop(
 
   const year = ctx.params.year ?? new Date().getFullYear();
   const currentSpec = ctx.params.spec ? toSpecOrNull(ctx.params.spec) : null;
+  // Defense-in-depth: jei kliento (localStorage) spec'e pjūvis į NEPASIEKIAMĄ
+  // instituciją (sugadintas/pasenęs) — numetam jį (rodom visas pagal scope), kad
+  // neliktų fantominio #N pjūvio. Duomenų leak negalimas ir taip (action intersect).
+  if (currentSpec?.tenantId !== undefined && !canAccessTenant(me, currentSpec.tenantId)) {
+    delete currentSpec.tenantId;
+  }
   // „Gyvas" vaizdas šiame turne — render_dashboard add režimu sujungiamas su juo
   // (kad pridėjus widgetą esami nepradingtų). Atnaujinamas po kiekvieno emit.
   let workingSpec = currentSpec;
   const history = (ctx.params.messages ?? []).slice(-MAX_HISTORY_MESSAGES);
 
+  // Institucijos, kurias vartotojas mato — prompt'ui + `institution` pjūvio validacijai.
+  const institutions = await getAccessibleInstitutions(ctx, me);
+
   const llmMessages: LlmMessage[] = [
-    { role: 'system', content: buildSystemPrompt(me, year, currentSpec) },
+    { role: 'system', content: buildSystemPrompt(me, year, currentSpec, institutions) },
     ...history.map((mm): LlmMessage => ({ role: mm.role, content: mm.content })),
   ];
 
@@ -580,10 +688,29 @@ async function runChatLoop(
   const handleRenderCall = async (args: Record<string, unknown>): Promise<string> => {
     renderAttempts += 1;
     const { mode, removeIds } = parseRenderControl(args);
+    const slice = resolveSlice(args, institutions);
     const hasWidgets = Array.isArray(args.widgets) && (args.widgets as unknown[]).length > 0;
 
-    // Board-lygio tweak'as add režime BE naujų widgetų: metų keitimas ir/ar
-    // konkrečių kortelių pašalinimas. Validuoti nėra ko (widgetų sąrašas tuščias).
+    // Įrašo/panaikina institucijos pjūvį merged spec'e (intersect su scope
+    // garantuoja saugumą; čia tik nustatom/valom tenantId).
+    const applySlice = (spec: AiDashboardSpec): void => {
+      if (slice.clear) {
+        delete spec.tenantId;
+        return;
+      }
+      if (slice.tenantId !== undefined) {
+        spec.tenantId = slice.tenantId;
+        return;
+      }
+      // Nieko aiškiai nepakeista — pjūvis LIEKA (sticky) net per replace, kol
+      // vartotojas jo nepakeičia/nepanaikina.
+      if (spec.tenantId === undefined && workingSpec?.tenantId !== undefined) {
+        spec.tenantId = workingSpec.tenantId;
+      }
+    };
+
+    // Board-lygio tweak'as add režime BE naujų widgetų: metų/institucijos keitimas
+    // ir/ar konkrečių kortelių pašalinimas. Validuoti nėra ko (widgetų sąrašas tuščias).
     if (!hasWidgets && mode === 'add' && workingSpec) {
       const yearArg = toInt(args.year);
       const merged: AiDashboardSpec = {
@@ -591,17 +718,25 @@ async function runChatLoop(
         ...(yearArg !== undefined ? { year: yearArg } : {}),
         widgets: workingSpec.widgets.filter((w) => !removeIds.includes(w.id)),
       };
+      applySlice(merged);
       await emitSpec(merged);
       return JSON.stringify({
         ok: true,
+        ...(slice.note ? { pjuvioPastaba: slice.note } : {}),
         pastaba:
-          removeIds.length > 0
-            ? 'Kortelės pašalintos. Atsakyk vartotojui trumpai lietuviškai (be tool call).'
-            : 'Vaizdas atnaujintas. Atsakyk vartotojui trumpai lietuviškai (be tool call).',
+          (removeIds.length > 0
+            ? 'Kortelės pašalintos. '
+            : slice.tenantId !== undefined || slice.clear
+              ? 'Pjūvis atnaujintas. '
+              : 'Vaizdas atnaujintas. ') +
+          'Atsakyk vartotojui trumpai lietuviškai (be tool call).',
       });
     }
 
-    const result = validateDashboardSpec(args);
+    // SAUGUMAS/korektiškumas: pjūvio (tenantId) NEpriimam tiesiai iš validacijos —
+    // resolveSlice (applySlice) yra VIENINTELIS autoritetas (jis tikrina prieš
+    // pasiekiamas institucijas). Kitaip modelio top-level tenantId apeitų patikrą.
+    const result = validateDashboardSpec({ ...args, tenantId: undefined });
     if (!result.ok) {
       if (renderAttempts >= MAX_RENDER_ATTEMPTS) {
         return JSON.stringify({
@@ -618,10 +753,12 @@ async function runChatLoop(
     }
 
     const merged = mergeSpec(workingSpec, result.spec, mode, removeIds);
+    applySlice(merged);
     await emitSpec(merged);
     return JSON.stringify({
       ok: true,
       ...(result.errors.length > 0 ? { atmestiWidgetai: result.errors } : {}),
+      ...(slice.note ? { pjuvioPastaba: slice.note } : {}),
       pastaba:
         result.errors.length > 0
           ? 'Dashboard atnaujintas, bet dalis widgetų atmesta (žr. atmestiWidgetai). Atsakyk trumpai apie tai, kas RODOMA.'
@@ -734,7 +871,8 @@ async function runChatLoop(
           typeof args.params === 'object' && args.params !== null
             ? (args.params as Record<string, unknown>)
             : {};
-        const result = await runSourceForTool(ctx, source, params, year);
+        // Aktyvus pjūvis (workingSpec.tenantId) — kad peržiūra atitiktų atvaizdą.
+        const result = await runSourceForTool(ctx, source, params, year, workingSpec?.tenantId);
         llmMessages.push({ role: 'tool', tool_call_id: tc.id, content: compactJson(result) });
         continue;
       }
@@ -895,11 +1033,16 @@ const AiService: ServiceSchema = {
       async handler(
         ctx: Context<{ spec: unknown; year?: number }, AuthMeta>,
       ): Promise<AiHydrateResponse> {
-        requireMe(ctx);
+        const me = requireMe(ctx);
         const year = ctx.params.year ?? new Date().getFullYear();
         const parsed = toSpecOrNull(ctx.params.spec);
         if (!parsed) {
           throw new Errors.MoleculerClientError('Netinkamas spec', 422, 'AI_BAD_SPEC');
+        }
+        // Defense-in-depth: numetam pjūvį į NEPASIEKIAMĄ instituciją (sugadintas/
+        // pasenęs localStorage) — rodom visas pagal scope, ne fantominį #N pjūvį.
+        if (parsed.tenantId !== undefined && !canAccessTenant(me, parsed.tenantId)) {
+          delete parsed.tenantId;
         }
         const spec = await hydrateSpec(ctx, parsed, year);
         return { spec, generatedAt: new Date().toISOString() };
