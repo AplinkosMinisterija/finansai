@@ -33,7 +33,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { GripVertical, Minus, TrendingDown, TrendingUp } from 'lucide-react';
+import { GripVertical, Minus, TrendingDown, TrendingUp, X } from 'lucide-react';
 import type { AiValueFormat, AiWidget } from '@biip-finansai/shared';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -683,21 +683,24 @@ export interface WidgetReorder {
   isDropTarget: boolean;
 }
 
-/** Hover'inant rodomas valdiklių blokas viršuje dešinėje: tempimo rankenėlė + pločio jungiklis. */
+/** Hover'inant rodomas valdiklių blokas viršuje dešinėje: tempimo rankenėlė + pločio jungiklis + ištrynimas. */
 function WidgetControls({
   current,
   onSpanChange,
   onGrab,
   onRelease,
+  onDelete,
 }: {
   current: number;
   onSpanChange?: (span: number) => void;
   /** Yra ⇒ rodoma tempimo rankenėlė; onGrab/onRelease įjungia/išjungia kortelės tempimą. */
   onGrab?: () => void;
   onRelease?: () => void;
+  /** Yra ⇒ rodomas ištrynimo mygtukas (pašalina widgetą). */
+  onDelete?: () => void;
 }): JSX.Element | null {
   const draggable = Boolean(onGrab);
-  if (!onSpanChange && !draggable) return null;
+  if (!onSpanChange && !draggable && !onDelete) return null;
   return (
     <div className="absolute right-1.5 top-1.5 z-10 flex items-center gap-0.5 rounded-md border bg-background/80 p-0.5 opacity-0 shadow-sm backdrop-blur-sm transition-opacity group-hover/card:opacity-100 focus-within:opacity-100">
       {draggable ? (
@@ -747,6 +750,21 @@ function WidgetControls({
             );
           })
         : null}
+      {onDelete && (onSpanChange || draggable) ? (
+        <span className="mx-0.5 h-3 w-px bg-border" />
+      ) : null}
+      {onDelete ? (
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={onDelete}
+          title="Pašalinti kortelę"
+          aria-label="Pašalinti kortelę"
+          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -756,6 +774,7 @@ export function WidgetRenderer({
   style,
   onSpanChange,
   reorder,
+  onDelete,
 }: {
   widget: AiWidget;
   style?: React.CSSProperties;
@@ -764,6 +783,8 @@ export function WidgetRenderer({
   /** Tempimo-rūšiavimo wiring'as. Kai nustatytas — rodoma rankenėlė, o kortelė
    *  tampa draggable TIK paspaudus rankenėlę (kad grafikai/lentelės liktų naudojami). */
   reorder?: WidgetReorder;
+  /** Kai nustatyta — rodomas ištrynimo (X) mygtukas; pašalina widgetą. */
+  onDelete?: () => void;
 }): JSX.Element | null {
   const [grabbed, setGrabbed] = React.useState(false);
   if (!isRenderableWidget(widget)) return null;
@@ -851,12 +872,13 @@ export function WidgetRenderer({
         reorder?.isDropTarget && 'ring-2 ring-primary/60',
       )}
     >
-      {onSpanChange || reorder ? (
+      {onSpanChange || reorder || onDelete ? (
         <WidgetControls
           current={span}
           onSpanChange={onSpanChange}
           onGrab={reorder ? () => setGrabbed(true) : undefined}
           onRelease={reorder ? () => setGrabbed(false) : undefined}
+          onDelete={onDelete}
         />
       ) : null}
       {showHeader ? (

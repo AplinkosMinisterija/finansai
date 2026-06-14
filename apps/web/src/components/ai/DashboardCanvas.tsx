@@ -20,6 +20,8 @@ export interface DashboardCanvasProps {
   onSpanChange?: (id: string, span: number) => void;
   /** Perrūšiuoja widget'us (perkelia fromId į toId vietą). Kai nustatyta — rodomos rankenėlės. */
   onReorder?: (fromId: string, toId: string) => void;
+  /** Pašalina widgetą (id). Kai nustatyta — rodomas ištrynimo mygtukas. */
+  onDelete?: (id: string) => void;
 }
 
 export function DashboardCanvas({
@@ -27,6 +29,7 @@ export function DashboardCanvas({
   generation,
   onSpanChange,
   onReorder,
+  onDelete,
 }: DashboardCanvasProps): JSX.Element {
   const [dragId, setDragId] = React.useState<string | null>(null);
   const [overId, setOverId] = React.useState<string | null>(null);
@@ -52,6 +55,7 @@ export function DashboardCanvas({
               widget={w}
               style={{ animationDelay: `${i * 45}ms` }}
               onSpanChange={onSpanChange ? (span) => onSpanChange(w.id, span) : undefined}
+              onDelete={onDelete ? () => onDelete(w.id) : undefined}
               reorder={
                 onReorder
                   ? {

@@ -247,6 +247,22 @@ export default function AiHomePage(): JSX.Element {
     [storageKey],
   );
 
+  // Widget'o pašalinimas (X). Atnaujina spec'ą vietoje + persistuoja. Jei
+  // pašalinami visi — drobė rodo „nėra ką parodyti", o „Pradinis vaizdas" atstato.
+  const handleDelete = React.useCallback(
+    (id: string): void => {
+      const base = specRef.current;
+      if (!base) return;
+      const next: AiDashboardSpec = {
+        ...base,
+        widgets: base.widgets.filter((w) => w.id !== id),
+      };
+      setOverrideSpec(next);
+      saveAiSpec(storageKey, next);
+    },
+    [storageKey],
+  );
+
   // Tempimas-rūšiavimas: perkelia tempiamą widget'ą į drop taikinio vietą.
   const handleReorder = React.useCallback(
     (fromId: string, toId: string): void => {
@@ -301,6 +317,7 @@ export default function AiHomePage(): JSX.Element {
               generation={generation}
               onSpanChange={handleSpanChange}
               onReorder={handleReorder}
+              onDelete={handleDelete}
             />
           ) : defaultQuery.isError ? (
             <Card className="mx-auto my-12 max-w-md">

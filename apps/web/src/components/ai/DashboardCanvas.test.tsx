@@ -158,9 +158,10 @@ describe('DashboardCanvas', () => {
     expect(screen.getByText(/duomenų nėra/i)).toBeInTheDocument();
   });
 
-  it('su onSpanChange/onReorder — rodo pločio jungiklį + tempimo rankenėlę; clickas keičia plotį', () => {
+  it('su valdikliais — pločio jungiklis + tempimo rankenėlė + ištrynimas; clickai šaukia callbackus', () => {
     const onSpanChange = vi.fn();
     const onReorder = vi.fn();
+    const onDelete = vi.fn();
     const spec: AiDashboardSpec = {
       widgets: [{ id: 'w1', type: 'stat', title: 'X', value: '5' }],
     };
@@ -170,21 +171,25 @@ describe('DashboardCanvas', () => {
         generation={0}
         onSpanChange={onSpanChange}
         onReorder={onReorder}
+        onDelete={onDelete}
       />,
     );
-    // Tempimo rankenėlė + 3 pločio mygtukai.
+    // Tempimo rankenėlė + 3 pločio mygtukai + ištrynimas.
     expect(screen.getByLabelText('Tempti — keisti vietą')).toBeInTheDocument();
     expect(screen.getByLabelText('Plotis: Ketvirtis')).toBeInTheDocument();
     expect(screen.getByLabelText('Plotis: Pusė')).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('Plotis: Pilnas'));
     expect(onSpanChange).toHaveBeenCalledWith('w1', 4);
+    fireEvent.click(screen.getByLabelText('Pašalinti kortelę'));
+    expect(onDelete).toHaveBeenCalledWith('w1');
   });
 
-  it('be onSpanChange/onReorder — jokių valdiklių (read-only)', () => {
+  it('be callbackų — jokių valdiklių (read-only)', () => {
     const spec: AiDashboardSpec = { widgets: [{ id: 'w1', type: 'stat', value: '5' }] };
     render(<DashboardCanvas spec={spec} generation={0} />);
     expect(screen.queryByLabelText('Tempti — keisti vietą')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Plotis: Pusė')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pašalinti kortelę')).not.toBeInTheDocument();
   });
 
   it('nekrenta su minimaliu/degeneruotu spec', () => {
