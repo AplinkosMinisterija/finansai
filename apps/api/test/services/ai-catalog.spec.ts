@@ -110,6 +110,62 @@ describe('applyHydration', () => {
     });
     expect(treemap.treemap).toHaveLength(1);
   });
+
+  // Lentelės šaltinį (pvz. tenants_breakdown „Organizacijos pagal sumą") galima
+  // rodyti kaip grafiką — keičiant tik widget.type (regresijos taisymas: anksčiau
+  // table→bar likdavo be data/xKey/series → nerenderable → dingdavo).
+  const TENANTS_TABLE: HydrationResult = {
+    kind: 'table',
+    columns: [
+      { key: 'org', label: 'Organizacija' },
+      { key: 'prasymai', label: 'Prašymai', format: 'number' },
+      { key: 'prasyta', label: 'Prašyta', format: 'eur' },
+      { key: 'patvirtinta', label: 'Patvirtinta', format: 'eur' },
+    ],
+    rows: [
+      { org: 'AAD', prasymai: 14, prasyta: 291500, patvirtinta: 211500 },
+      { org: 'VSTT', prasymai: 10, prasyta: 278500, patvirtinta: 176500 },
+    ],
+  };
+
+  it('table → bar: xKey=tekstinis stulpelis, series=EUR (sumų) stulpeliai (ne kiekiai)', () => {
+    const w = applyHydration(widget('bar'), TENANTS_TABLE);
+    expect(w.xKey).toBe('org');
+    expect(w.series?.map((s) => s.key)).toEqual(['prasyta', 'patvirtinta']); // NE 'prasymai'
+    expect(w.series?.every((s) => typeof s.color === 'string')).toBe(true);
+    expect(w.data).toHaveLength(2);
+    expect(w.format).toBe('eur');
+    // columns/rows išvalyti, kad bar būtų renderable.
+    expect(w.columns).toBeUndefined();
+    expect(w.rows).toBeUndefined();
+  });
+
+  it('table → pie: pirmas EUR stulpelis kaip value, tekstinis kaip name', () => {
+    const w = applyHydration(widget('pie'), TENANTS_TABLE);
+    expect(w.data?.map((d) => d.name)).toEqual(['AAD', 'VSTT']);
+    expect(w.data?.[0]).toMatchObject({ name: 'AAD', value: 291500 });
+    expect(w.columns).toBeUndefined();
+  });
+
+  it('table → table: lieka lentele (be konversijos)', () => {
+    const w = applyHydration(widget('table'), TENANTS_TABLE);
+    expect(w.columns).toHaveLength(4);
+    expect(w.rows).toHaveLength(2);
+    expect(w.data).toBeUndefined();
+  });
+
+  it('table → bar BE skaitinių stulpelių — fallback į lentelę (ne tuščia)', () => {
+    const w = applyHydration(widget('bar'), {
+      kind: 'table',
+      columns: [
+        { key: 'a', label: 'A' },
+        { key: 'b', label: 'B' },
+      ],
+      rows: [{ a: 'x', b: 'y' }],
+    });
+    expect(w.columns).toHaveLength(2); // konversija null → lieka lentele
+    expect(w.data).toBeUndefined();
+  });
 });
 
 describe('hydrateSpec — globalūs metai (spec.year override)', () => {

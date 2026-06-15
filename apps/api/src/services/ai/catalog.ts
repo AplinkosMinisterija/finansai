@@ -566,7 +566,7 @@ const SOURCES: CatalogSource[] = [
   {
     id: 'budget_lines_table',
     kind: 'table',
-    widgetTypes: ['table'],
+    widgetTypes: ['table', 'bar'],
     description: 'Biudžeto eilučių lentelė: šaltinis, eilutė, planuota, faktinė, likutis, %.',
     params: [YEAR_PARAM],
     async run(hc, params) {
@@ -604,7 +604,7 @@ const SOURCES: CatalogSource[] = [
   {
     id: 'tenants_breakdown',
     kind: 'table',
-    widgetTypes: ['table', 'bar'],
+    widgetTypes: ['table', 'bar', 'pie'],
     description:
       'Nurodytų metų organizacijų suvestinė (tik tvirtintojams): prašymų skaičius, prašyta/patvirtinta suma per org.',
     params: [YEAR_PARAM],
@@ -722,7 +722,7 @@ const SOURCES: CatalogSource[] = [
   {
     id: 'projects_table',
     kind: 'table',
-    widgetTypes: ['table'],
+    widgetTypes: ['table', 'bar'],
     description:
       'Projektų sąrašas: pavadinimas, tipas, statusas, biudžetas. biudžetas = VISO projekto biudžetas (ne tų metų dalis). params.status filtruoja; params.year palieka tais metais vykdomus projektus.',
     params: [
@@ -990,6 +990,53 @@ export function buildCatalogPromptDoc(): string {
 // ---------- Hidracija (merge į widget'ą) ----------
 
 /** Pritaiko hidracijos rezultatą widget'ui pagal widget.type ir result.kind. */
+/**
+ * Konvertuoja `table` kind rezultatą į grafiko (bar/line/area/radar/pie) formą,
+ * kad bet kurią lentelę-šaltinį (pvz. tenants_breakdown „Organizacijos pagal sumą")
+ * būtų galima rodyti kaip diagramą tiesiog pakeitus widget.type (tas pats dataRef).
+ *
+ * Euristika: xKey = pirmas TEKSTINIS stulpelis (kategorija); series = SKAITINIAI
+ * stulpeliai, pirmenybė EUR (sumų) stulpeliams — kad „pagal sumą" rodytų pinigus,
+ * ne kiekius (skirtingos skalės). pie — pirmas EUR (arba pirmas skaitinis) stulpelis.
+ * Grąžina null, jei nėra tinkamų stulpelių (tada paliekam lentelę).
+ */
+function tableToChart(
+  columns: AiTableColumn[],
+  rows: Row[],
+  forPie: boolean,
+): { data?: Row[]; xKey?: string; series?: AiChartSeries[]; pieData?: Row[]; format?: AiValueFormat } | null {
+  if (!Array.isArray(rows) || rows.length === 0 || columns.length === 0) return null;
+  const isNumCol = (key: string): boolean => rows.some((r) => typeof r[key] === 'number');
+  const textCol = columns.find((c) => !isNumCol(c.key));
+  const xKey = textCol?.key ?? columns[0]?.key;
+  if (!xKey) return null;
+  const numCols = columns.filter((c) => c.key !== xKey && isNumCol(c.key));
+  if (numCols.length === 0) return null;
+  const eurCols = numCols.filter((c) => c.format === 'eur');
+  const seriesCols = eurCols.length > 0 ? eurCols : numCols;
+  const fmt = seriesCols[0]?.format;
+  if (forPie) {
+    const valKey = seriesCols[0]!.key;
+    return {
+      pieData: rows.map((r) => ({
+        name: String(r[xKey] ?? ''),
+        value: typeof r[valKey] === 'number' ? (r[valKey] as number) : 0,
+      })),
+      ...(fmt ? { format: fmt } : {}),
+    };
+  }
+  return {
+    data: rows,
+    xKey,
+    series: seriesCols.map((c, i) => ({
+      key: c.key,
+      label: c.label,
+      color: PALETTE[i % PALETTE.length],
+    })),
+    ...(fmt ? { format: fmt } : {}),
+  };
+}
+
 export function applyHydration(widget: AiWidget, result: HydrationResult): AiWidget {
   const w: AiWidget = { ...widget };
   switch (result.kind) {
@@ -1047,6 +1094,25 @@ export function applyHydration(widget: AiWidget, result: HydrationResult): AiWid
       }
       break;
     case 'table':
+      if (isXyWidgetType(widget.type) || widget.type === 'pie') {
+        // Lentelės šaltinis rodomas kaip grafikas — konvertuojam (kitaip bar/pie
+        // liktų be data/xKey/series → nerenderable → dingtų).
+        const conv = tableToChart(result.columns, result.rows, widget.type === 'pie');
+        if (conv) {
+          w.columns = undefined;
+          w.rows = undefined;
+          if (widget.type === 'pie') {
+            w.data = conv.pieData;
+          } else {
+            w.data = conv.data;
+            w.xKey = conv.xKey;
+            w.series = conv.series;
+          }
+          if (conv.format) w.format = w.format ?? conv.format;
+          break;
+        }
+        // Nepavyko konvertuoti — krenta į lentelę (geriau nei tuščia).
+      }
       w.columns = result.columns;
       w.rows = result.rows;
       break;

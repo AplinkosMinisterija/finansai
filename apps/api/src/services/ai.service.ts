@@ -450,6 +450,9 @@ const WIDGET_DOCS = `WIDGET TIPAI (visi turi privalomus "id" (unikalus, stabilus
 - sankey — SRAUTŲ diagrama (šaltinis→kategorija→eilutė). Naudok dataRef "budget_flow_sankey".
 - treemap — HIERARCHIJA langeliais (šaltinis→eilutės). Naudok dataRef "budget_hierarchy_treemap".
 - table — lentelė (columns+rows, arba dataRef).
+- SVARBU: lentelės šaltinį (tenants_breakdown „organizacijos pagal sumą", budget_lines_table, projects_table)
+  gali rodyti IR kaip bar/pie — keisk TIK widget.type (table→bar/pie), palik TĄ PATĮ id ir dataRef.source.
+  Serveris pats pertvarko lentelės duomenis į grafiką (NEReikia literalių skaičių, NEReikia keisti dataRef).
 - progress — panaudojimo juostos (arba dataRef "budget_lines_usage").
 - markdown — trumpos tekstinės įžvalgos (## antraštės, **bold**, - sąrašai).
 

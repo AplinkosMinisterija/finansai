@@ -368,6 +368,18 @@ describe('AI katalogas — korektiškumas / reconciliation', () => {
     expect(new Set([parseEur(w.faktine!.value), catAllocSum, tmSum, tableFaktine, execFaktine]).size).toBe(1);
   });
 
+  it('lentelės šaltinis (tenants_breakdown) kaip BAR — atvaizduojamas, ne dingsta', async () => {
+    // Regresija: „Organizacijos pagal sumą" lentelę pavertus į stulpelinę diagramą
+    // (tas pats dataRef, type=bar) — serveris pertvarko table→bar (data/xKey/series).
+    await seedReconFixture();
+    const w = await hydrate([ref('tb', 'bar', 'tenants_breakdown')]);
+    const bar = w.tb!;
+    expect(bar.xKey).toBeDefined();
+    expect((bar.series ?? []).length).toBeGreaterThan(0);
+    expect((bar.data ?? []).length).toBeGreaterThan(0);
+    expect(bar.columns).toBeUndefined(); // nebe lentelė → renderable bar
+  });
+
   it('re-hidracija PERRAŠO literalius (stale) skaičius šviežiais iš DB (prizmė)', async () => {
     await seedReconFixture();
     // Widget'as su SENA literalia reikšme + dataRef → hidracija turi perrašyti.
