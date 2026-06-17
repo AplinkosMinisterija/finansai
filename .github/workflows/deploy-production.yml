@@ -9,7 +9,7 @@ on:
 jobs:
   build-web:
     name: Build web image
-    runs-on: ubuntu-latest
+    runs-on: am-github-runner
     permissions:
       contents: read
       packages: write
@@ -36,7 +36,7 @@ jobs:
 
   build-api:
     name: Build api image
-    runs-on: ubuntu-latest
+    runs-on: am-github-runner
     permissions:
       contents: read
       packages: write
@@ -64,7 +64,7 @@ jobs:
   trigger-deploy:
     name: Trigger biip-infra deploy
     needs: [build-web, build-api]
-    runs-on: ubuntu-latest
+    runs-on: am-github-runner
     steps:
       - env:
           GH_TOKEN: ${{ secrets.BIIP_INFRA_DEPLOY_TOKEN }}
