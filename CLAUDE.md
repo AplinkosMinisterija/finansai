@@ -33,6 +33,7 @@ Kai gauni pirmą žinutę šiame repo, **prieš atsakymą padaryk šitai**:
 - **Kodo pakeitimus iteruok mažais žingsniais.** Vienas commit'as = vienas darbas. Lengva atsekti, lengva rollback'inti.
 - **Testai** — backend Jest, frontend Vitest + RTL. Naujam feature'ui — bent vienas integracijos testas.
 - **Lokaliai testuok prieš push'inant** — `yarn build` ir `yarn test` turi pereiti. Lokaliai paleisk `yarn dev`, patikrink kad nieko nesulaužėi.
+- **Brainstormo/analizės metu NEcommit'ink.** Jei vartotojas aiškinasi poreikį, svarsto variantus ar tik klausia — tai pokalbis, ne pakeitimo prašymas. Commit'ink ir deploy'ink TIK kai sutariam dėl konkretaus pakeitimo. Pusiau apgalvota idėja neturi nukeliauti į `dev-finansai.biip.lt`. Suabejojęs — paklausk „darom?" prieš commit'indamas.
 
 ## Git ir deploy susitarimas (vienas-žmogaus modelis)
 
